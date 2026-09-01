@@ -22,10 +22,7 @@ household/emotional labor **visible for recognition and fairness**.
 | `app/`, `tests/` | The application code (FastAPI + SQLite) and its tests. |
 | `Makefile`, `setup.sh`, `requirements.txt`, `pyproject.toml` | Build/run/lint tooling. |
 | `SKILL.md` | How to work in this repo (the `make check` gate, conventions). |
-| `shovel-ready/` | Operational task checklists (Tailscale setup, host serve, verify). Human-run. |
 | `USER_SETUP_GUIDE.md` | Family-facing device setup (install Tailscale, add PWA). |
-| `research/` | **Historical reasoning trail** — *how* decisions were reached. **May contain superseded detail; `spec/` is authoritative.** |
-| `archive/` | Superseded pre-reframe docs. History only; do not build from these. |
 
 ## Current status
 
