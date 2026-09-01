@@ -1,0 +1,35 @@
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Tool caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Runtime data (created by the app; not source) ---
+calendar.db
+*.sqlite
+*.sqlite3
+
+# --- Generated handoff bundle (see shovel-ready/agent_handoff_manifest.md) ---
+agent_handoff/
+
+# --- Environment / secrets (don't commit) ---
+.env
+.env.*
+
+# --- Editor / OS noise ---
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# --- Obsidian (this folder is opened as an Obsidian vault) ---
+.obsidian/

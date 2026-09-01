@@ -1,0 +1,49 @@
+[project]
+name = "family-calendar"
+version = "0.0.1"
+description = "Self-hosted family calendar + todo board"
+requires-python = ">=3.12"
+
+# ---------------------------------------------------------------------------
+# Ruff — linter + formatter (Black-compatible formatting).
+# Pragmatic ruleset: useful signal without noise. `make format` autofixes +
+# formats; `make lint` checks.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 88            # Black's default; Ruff format matches it
+
+[tool.ruff.lint]
+# E,F = pyflakes/pycodestyle (undefined names, imports, style)
+# I   = import sorting (replaces isort)
+# B   = flake8-bugbear (likely bugs)
+# UP  = pyupgrade (modern syntax)
+select = ["E", "F", "I", "B", "UP"]
+ignore = [
+    # FastAPI idiom: `Depends(...)` / `Query(...)` in argument defaults is
+    # intentional and correct, not the bug B008 warns about.
+    "B008",
+]
+
+[tool.ruff.format]
+# Defaults match Black; nothing to override.
+
+# ---------------------------------------------------------------------------
+# mypy — type checking. Pragmatic (not --strict) so third-party libs without
+# stubs don't drown out real errors. Tighten later if desired.
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true      # don't fail on libs lacking type stubs
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+# Not enabling disallow_untyped_defs yet — would be noisy on a young codebase
+# and hard for a small local model to satisfy. Revisit when the app matures.
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,25 @@
+# Family calendar — pinned dependencies (verified working, 2026-08, Python 3.12)
+# Core
+fastapi==0.141.1
+uvicorn==0.52.4
+pydantic==2.13.5
+starlette==1.6.0
+
+# Data
+SQLAlchemy==2.0.52
+# alembic==1.19.1   # add at checkpoint 1b when wiring migrations
+
+# SSE (checkpoint 1e)
+sse-starlette==3.4.8
+
+# Tests
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1       # required: FastAPI TestClient + httpx-sse both import it
+httpx-sse==0.4.3    # SSE client for the 1e stream test
+# Note: pytest shows one cosmetic StarletteDeprecationWarning about httpx/httpx2.
+# It is harmless; httpx is required and httpx2 is intentionally NOT installed.
+
+# Lint / format / types
+ruff==0.16.5
+mypy==2.3.1
