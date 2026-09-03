@@ -48,22 +48,22 @@ Member types free text in the capture bar (targets an item, or "new")
 [ auth ]  device token → member (existing)
         │
         ▼
-[ SAVE RAW FIRST ]  human prose is truth:
-     • new item → create_work_item(title=text)         (source=human)
-     • existing item → add_note(body=text)              (source=human)
-   This commit publishes via the 1d seam → SSE broadcasts the raw input to
-   ALL devices immediately (wall display included).
+[ SAVE (existing item only) ]  human prose is truth:
+     • existing item → add_note(body=text)   (source=human) → saved NOW; this
+       commit publishes via the 1d seam → SSE broadcasts to ALL devices.
+     • new item → save NOTHING. Bare text does NOT auto-create a work item;
+       it becomes a create_work_item / create_event PROPOSAL to confirm.
         │
         ▼
 [ assistant.propose(ctx) ]  bounded by NTAKE_ASSISTANT_TIMEOUT (~4s).
    On timeout / error / disabled → returns [] (graceful degrade).
         │
         ▼
-[ response ]  { saved_item, proposals: [ProposedAction, ...] }
+[ response ]  { item: <existing item | null>, proposals: [ProposedAction, ...] }
         │
         ▼
 [ UI: inline Confirm/Dismiss cards, AUTHOR'S DEVICE ONLY ]
-   (proposals are NOT broadcast; only the raw input was, above)
+   (proposals are NOT broadcast; the existing-item note, if any, was above)
         │
    ├─ Dismiss ─► nothing applied. Correct by restating (new capture).
    └─ Confirm ─► POST the action back → registry apply-handler runs:
@@ -73,10 +73,13 @@ Member types free text in the capture bar (targets an item, or "new")
 
 Key invariants (from ASSIST-2 / research/06):
 - **Never auto-applies.** Confirm is the only path to a mutation.
+- **New-item capture is propose-only.** Bare text no longer auto-creates a work
+  item — the human confirms `create_work_item` (and/or `create_event`). Only an
+  **existing-item** capture saves immediately (a `source=human` note — genuine
+  human content added to an item the member explicitly targeted, WORKITEM-2).
 - **No suggestions table.** Proposals live only in this request/response; the
   Confirm payload IS the action object the client sends back.
-- **Author-device-only proposals**; the raw input still SSE-broadcasts everywhere.
-- **Raw input saved regardless** of Confirm/Dismiss.
+- **Author-device-only proposals**; an existing-item note still SSE-broadcasts.
 
 ## 3. The contract (model output)
 

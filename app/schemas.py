@@ -112,9 +112,14 @@ class ProposalRead(BaseModel):
 
 
 class CaptureResponse(BaseModel):
-    """The saved item plus the assistant's transient proposals."""
+    """The assistant's transient proposals, plus the target item if one exists.
 
-    item: WorkItemRead
+    ``item`` is the existing work item a capture targeted (with its freshly
+    appended human note). For a NEW-item capture it is ``None`` — nothing is saved
+    until the human confirms a ``create_work_item`` / ``create_event`` proposal
+    (propose-only; bare text no longer auto-creates a work item)."""
+
+    item: WorkItemRead | None = None
     proposals: list[ProposalRead] = []
 
 

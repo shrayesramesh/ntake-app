@@ -212,7 +212,10 @@ Member enters an event capture or a work-item update (free text) in the PWA
 [ Authenticate ]  valid device token? ──no──► reject
         │ yes
         ▼
-[ Save the raw input ]  (event created, or update appended to the log — always saved)
+[ Save (existing item only) ]  a capture onto an EXISTING work item appends a
+        source=human note to its log immediately (WORKITEM-2). A NEW-item
+        capture saves NOTHING — bare text does not auto-create a work item; it
+        becomes a create_work_item / create_event proposal to confirm.
         │
         ▼
 [ Assistant (local GPU), same request ]  parse + interpret in context (this
@@ -252,8 +255,10 @@ Member enters an event capture or a work-item update (free text) in the PWA
   response; **unacted proposals vanish with the session** (accepted — no
   persistence). Only confirmed **outcomes** persist (a log entry + the field
   change).
-- The raw input is saved regardless of Confirm/Dismiss — the human's prose is
-  truth.
+- A capture onto an **existing item** saves its `source=human` note regardless of
+  Confirm/Dismiss — the human's prose is truth. A **new-item** capture saves
+  nothing until the human confirms a `create_work_item` / `create_event` proposal
+  (propose-only; bare text no longer auto-creates a work item).
 
 **Accepted v1 limitations (deliberate, to ship; clean to refactor later):**
 - **Synchronous latency:** the save blocks on the local GPU model (seconds) before

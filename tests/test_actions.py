@@ -51,6 +51,28 @@ def test_every_action_has_a_describe():
         assert callable(spec.describe), name
 
 
+def test_all_actions_are_wellformed():
+    """Registry-wide contract guard: every action (including any added later) is
+    well-formed, so a new entry can't silently break the propose/confirm flow.
+
+    Each spec must have a callable apply + describe, a describe that returns a
+    non-empty str on empty params (it runs on unconfirmed proposals), and
+    boolean needs_target/logs flags. no_action is the sole logs=False entry.
+    """
+    for name, spec in ACTIONS.items():
+        assert callable(spec.apply), f"{name}: apply not callable"
+        assert callable(spec.describe), f"{name}: describe not callable"
+        assert isinstance(spec.describe({}), str) and spec.describe({}), name
+        assert isinstance(spec.needs_target, bool), name
+        assert isinstance(spec.logs, bool), name
+        assert isinstance(spec.required, list), name
+    # Exactly the actions that don't operate on an existing item skip a target.
+    assert ACTIONS["create_work_item"].needs_target is False
+    assert ACTIONS["no_action"].needs_target is False
+    # no_action is the only non-logging action (it appends no assistant update).
+    assert [n for n, s in ACTIONS.items() if not s.logs] == ["no_action"]
+
+
 def test_describe_set_due_date_uses_param():
     text = ACTIONS["set_due_date"].describe({"due_at": "2026-09-05T19:00:00+00:00"})
     assert "2026-09-05" in text

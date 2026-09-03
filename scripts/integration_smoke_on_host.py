@@ -181,21 +181,44 @@ def run_checks(base: str, token: str) -> bool:
         assert result.get("frame"), "no SSE frame received"
 
     def assistant_capture_propose_confirm():
-        # Capture free text -> proposals (fake: 'friday' -> set_due_date).
+        # New-item capture is propose-only: nothing saved, item is null, and the
+        # assistant proposes create_work_item (+ set_due_date for 'friday').
         r = _post_json(f"{base}/capture", {"text": "call plumber friday"}, token)
         assert r.status == 201
         data = json.loads(r.read())
-        item_id = data["item"]["id"]
+        assert data["item"] is None, "new-item capture must not auto-create"
         names = [p["name"] for p in data["proposals"]]
+        assert "create_work_item" in names, names
         assert "set_due_date" in names, names
-        due = next(p for p in data["proposals"] if p["name"] == "set_due_date")
-        # Confirm the proposed action -> applies it.
+        # Confirm create_work_item -> the item is created now (human-driven).
+        cwi = next(p for p in data["proposals"] if p["name"] == "create_work_item")
         c = _post_json(
+            f"{base}/actions/confirm",
+            {"name": "create_work_item", "params": cwi["params"], "target_id": None},
+            token,
+        )
+        assert c.status == 200, c.status
+        # Find the created item, then capture onto it and confirm a due date.
+        board = json.loads(_get(f"{base}/board", token=token).read())
+        item_id = next(
+            wi["id"] for col in board.values() for wi in col
+            if wi["title"] == "call plumber friday"
+        )
+        r2 = _post_json(
+            f"{base}/capture",
+            {"text": "he is coming friday", "work_item_id": item_id},
+            token,
+        )
+        assert r2.status == 201
+        data2 = json.loads(r2.read())
+        assert data2["item"]["id"] == item_id
+        due = next(p for p in data2["proposals"] if p["name"] == "set_due_date")
+        c2 = _post_json(
             f"{base}/actions/confirm",
             {"name": "set_due_date", "params": due["params"], "target_id": item_id},
             token,
         )
-        assert c.status == 200, c.status
+        assert c2.status == 200, c2.status
 
     def seed_events_show_in_calendar():
         # Seed sample events directly (no assistant) and confirm GET /events

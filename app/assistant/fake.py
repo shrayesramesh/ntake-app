@@ -45,6 +45,18 @@ class FakeAssistant(AssistantClient):
         proposals: list[ProposedAction] = []
         tid = ctx.work_item_id
 
+        # New-item capture (no target): the confirmable "make this a work item"
+        # path. Bare text no longer auto-creates an item — it's a proposal now.
+        if tid is None:
+            proposals.append(
+                ProposedAction(
+                    name="create_work_item",
+                    params={"title": ctx.text},
+                    llm_rationale="New capture — could be a work item.",
+                    target_id=None,
+                )
+            )
+
         # A weekday mention → propose a due date (and an event if event-ish).
         weekday = next((wd for name, wd in _WEEKDAYS.items() if name in text), None)
         if weekday is not None:

@@ -378,16 +378,27 @@ def capture_with_proposals(
     session: Session = Depends(get_session),
     member: Member = Depends(current_member),
 ) -> CaptureResponse:
-    """Save the raw human input FIRST, then return assistant proposals.
+    """Propose changes for a capture; apply nothing without Confirm (ASSIST-2).
 
-    Propose-and-confirm: proposals are transient (not persisted) and returned only
-    to the caller (author's device). Nothing is applied here — the human confirms
-    via /work-items/{id}/actions (task 5). The raw save publishes via the seam.
+    Two paths:
+      * **Existing item** (``work_item_id`` set): append the raw text as a
+        ``source=human`` note to that item — genuine human content added to an
+        item the member explicitly targeted (WORKITEM-2) — commit (publishes via
+        the seam → SSE), then propose. Returns the item.
+      * **New item** (no ``work_item_id``): save NOTHING. Bare text no longer
+        auto-creates a work item; instead the assistant proposes
+        ``create_work_item`` / ``create_event`` for the human to Confirm. Returns
+        ``item=None``.
+
+    Proposals are transient (no suggestions table) and returned only to the
+    caller (author's device).
     """
     now = datetime.now(UTC)
+    fam = session.get(Family, member.family_id)
+    timezone = fam.timezone if fam else "UTC"
+
     if payload.work_item_id is not None:
         item = _load_work_item(session, payload.work_item_id)
-        # Existing-item capture: the raw text is a human note (source=human).
         session.add(
             WorkItemUpdate(
                 work_item_id=item.id,
@@ -398,27 +409,22 @@ def capture_with_proposals(
             )
         )
         item.updated_at = now
-    else:
-        # New-item capture: the text becomes the item (source=human by nature).
-        item = WorkItem(
-            family_id=member.family_id,
-            title=payload.text,
-            created_at=now,
-            updated_at=now,
+        session.commit()  # the human note publishes via the seam → SSE
+        session.refresh(item)
+        ctx = CaptureContext(
+            text=payload.text, work_item_id=item.id, timezone=timezone, now=now
         )
-        session.add(item)
-    session.commit()
-    session.refresh(item)
+        proposals = _propose_bounded(ctx, target_label=item.title)
+        return CaptureResponse(
+            item=_work_item_detail(session, item), proposals=proposals
+        )
 
-    fam = session.get(Family, member.family_id)
+    # New-item capture: propose-only, nothing persisted.
     ctx = CaptureContext(
-        text=payload.text,
-        work_item_id=item.id,
-        timezone=fam.timezone if fam else "UTC",
-        now=now,
+        text=payload.text, work_item_id=None, timezone=timezone, now=now
     )
-    proposals = _propose_bounded(ctx, target_label=item.title)
-    return CaptureResponse(item=_work_item_detail(session, item), proposals=proposals)
+    proposals = _propose_bounded(ctx, target_label=None)
+    return CaptureResponse(item=None, proposals=proposals)
 
 
 @app.post("/actions/confirm")
