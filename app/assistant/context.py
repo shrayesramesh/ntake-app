@@ -16,7 +16,12 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 
 # Re-export the domain-agnostic contract from the engine.
-from app.routing import ActionContext, AssistantClient, NullAssistant, ProposedAction
+from app.routing.engine import (
+    ActionContext,
+    AssistantClient,
+    NullAssistant,
+    ProposedAction,
+)
 
 __all__ = [
     "AssistantClient",

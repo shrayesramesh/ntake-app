@@ -28,7 +28,7 @@ def test_main_board_columns_use_the_canonical_statuses():
 
 def test_to_proposal_read_is_pure_and_derives_summary_and_id():
     from app.main import _to_proposal_read
-    from app.routing import ProposedAction
+    from app.routing.engine import ProposedAction
 
     a = ProposedAction(
         name="create_work_item",

@@ -44,7 +44,7 @@ from app.models import (
     WorkItem,
     WorkItemUpdate,
 )
-from app.routing import ProposedAction, propose_bounded
+from app.routing.engine import ProposedAction, propose_bounded
 from app.schemas import (
     CaptureCreate,
     CaptureResponse,

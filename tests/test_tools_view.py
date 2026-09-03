@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from app.assistant.actions import REGISTRY
 from app.assistant.tools import build_tools_view
-from app.routing import ActionRegistry, ActionSpec, Param
+from app.routing.engine import ActionRegistry, ActionSpec, Param
 
 
 def test_tools_view_full_render_over_the_real_registry():

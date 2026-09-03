@@ -7,37 +7,8 @@ events, SQLAlchemy, or FastAPI. A boundary test enforces the import rule.
 
 Package-shape now (a self-contained sub-package), not a separately published
 package — extractable by a directory move if a second consumer appears. The
-whole engine lives in :mod:`app.routing.engine`; this re-exports its public API.
+engine lives in :mod:`app.routing.engine`; import public symbols from there
+directly (no package-level facade until the engine splits into multiple modules).
 """
 
 from __future__ import annotations
-
-from app.routing.engine import (
-    ActionContext,
-    ActionError,
-    ActionRegistry,
-    ActionSpec,
-    AssistantClient,
-    DescribeFn,
-    Handler,
-    NullAssistant,
-    Param,
-    ProposedAction,
-    propose_bounded,
-    require_params,
-)
-
-__all__ = [
-    "ActionContext",
-    "ActionError",
-    "ActionRegistry",
-    "ActionSpec",
-    "AssistantClient",
-    "DescribeFn",
-    "Handler",
-    "NullAssistant",
-    "Param",
-    "ProposedAction",
-    "propose_bounded",
-    "require_params",
-]

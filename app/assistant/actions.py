@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.models import ChecklistItem, Event, Member, WorkItem, WorkItemUpdate
 
 # Engine (domain-agnostic) — the plugin builds on these.
-from app.routing import (
+from app.routing.engine import (
     ActionContext,
     ActionError,
     ActionRegistry,

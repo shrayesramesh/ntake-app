@@ -14,7 +14,7 @@ nothing model-specific, so it lives in ``app/assistant/`` alongside the world vi
 
 from __future__ import annotations
 
-from app.routing import ActionRegistry
+from app.routing.engine import ActionRegistry
 
 
 def build_tools_view(registry: ActionRegistry) -> str:

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.routing import (
+from app.routing.engine import (
     ActionError,
     ActionRegistry,
     ActionSpec,
@@ -39,7 +39,7 @@ def test_engine_does_not_import_app_specific_modules():
             del sys.modules[name]
 
     before = set(sys.modules)
-    importlib.import_module("app.routing")
+    importlib.import_module("app.routing.engine")
     newly = set(sys.modules) - before
 
     forbidden = {"app.models", "sqlalchemy", "fastapi"}
