@@ -9,24 +9,59 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
 
 @dataclass
-class CaptureContext:
-    """Everything the assistant needs to propose — and nothing it shouldn't.
+class CaptureRequest:
+    """Stage-1 input: the raw capture, before any DB lookup or resolution.
 
-    Read-only inputs; no Session (the assistant must not mutate). ``work_item_id``
-    is the capture target (None = a "new item" capture).
+    What the endpoint hands to ``focus()``. Deliberately minimal — the target
+    (if any) lives in ``text`` and is resolved by stage 1, not passed as a
+    structured id (that resolution is a v2/Ollama capability; v1 treats every
+    capture as new).
+    """
+
+    text: str
+    timezone: str
+    now: datetime
+
+
+@dataclass
+class EventSummary:
+    """A focused calendar event — carries the real ``id`` so stage 2 can emit an
+    executable action against it (e.g. deconflict_events targeting this event).
+
+    A plain value object (primitives only) — NOT an ORM Event — so the assistant
+    boundary stays app-agnostic. Timed events use ``start`` (UTC); all-day events
+    use ``start_date``.
+    """
+
+    id: int
+    title: str
+    start: datetime | None = None
+    start_date: date | None = None
+    all_day: bool = False
+
+
+@dataclass
+class FocusedContext:
+    """Stage-2 input: the *focused world* the assistant reasons over.
+
+    Produced by ``focus()`` (stage 1) from a CaptureRequest + DB lookups. Holds
+    the resolved entities WITH ids and grounded params, so the proposals stage 2
+    emits are executable by construction. Read-only; no Session (the assistant
+    must not mutate). ``work_item_id`` is the resolved target (None in v1 — no
+    text-based resolution yet).
     """
 
     text: str
     work_item_id: int | None
     timezone: str
     now: datetime
-    # Optional lean context the OllamaAssistant will use (kept small = fast):
-    item_log: list[str] = field(default_factory=list)  # recent update bodies
-    calendar_window: list[str] = field(default_factory=list)  # nearby event summaries
+    # Lean, id-bearing context (kept small = fast for the model):
+    item_log: list[str] = field(default_factory=list)  # target item's recent updates
+    calendar_window: list[EventSummary] = field(default_factory=list)  # nearby events
 
 
 @dataclass
@@ -65,15 +100,16 @@ class ProposedAction:
 
 
 class AssistantClient(ABC):
-    """Proposes zero or more actions for a capture. MUST NOT mutate anything and
-    MUST return [] on any failure (never raise into the request path)."""
+    """Proposes zero or more actions for a focused capture. MUST NOT mutate
+    anything and MUST return [] on any failure (never raise into the request
+    path). Engine-clean: no Session, no ORM — reasons only over FocusedContext."""
 
     @abstractmethod
-    def propose(self, ctx: CaptureContext) -> list[ProposedAction]: ...
+    def propose(self, ctx: FocusedContext) -> list[ProposedAction]: ...
 
 
 class NullAssistant(AssistantClient):
     """The 'off' client — never proposes anything."""
 
-    def propose(self, ctx: CaptureContext) -> list[ProposedAction]:
+    def propose(self, ctx: FocusedContext) -> list[ProposedAction]:
         return []

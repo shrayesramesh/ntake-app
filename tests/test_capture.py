@@ -1,67 +1,61 @@
-"""Phase 4, task 4 — capture-with-proposals endpoint (Option A: propose-only).
+"""Phase 4, task 4 — capture-with-proposals endpoint.
 
-POST /capture:
-  * **New-item capture** (no ``work_item_id``): saves NOTHING. Returns
-    ``item=null`` + proposals (``create_work_item`` and/or ``create_event`` …).
-    Nothing persists until the human Confirms a proposal (ASSIST-2 — capture
-    never auto-applies, and bare text no longer auto-spawns a work item).
-  * **Existing-item capture** (``work_item_id`` set): appends the raw text as a
-    ``source=human`` note to that item immediately — genuine human content added
-    to an item the member explicitly targeted (WORKITEM-2) — then proposes.
+POST /capture is **propose-only and always a NEW capture** (v1): it saves
+NOTHING and returns ``item=null`` + proposals for the human to Confirm (ASSIST-2
+— capture never auto-applies, and bare text no longer auto-spawns a work item).
+
+Capture no longer takes a ``work_item_id``: the target (if any) lives in the text
+and is resolved by stage 1 (``focus()``) — a v2/Ollama capability, so v1 resolves
+no target and every capture is new. Explicit note-append to a specific item is a
+separate concern, covered by ``POST /work-items/{id}/updates``.
 
 Auth-protected. Proposals are returned only to the caller (author's device).
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import app.main as main
 from app.assistant.base import AssistantClient
 from app.models import Event, WorkItem, WorkItemUpdate
-
-NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
 
 def test_capture_requires_auth(client):
     assert client.post("/capture", json={"text": "buy milk"}).status_code == 401
 
 
-def test_capture_new_item_persists_nothing_and_proposes(client, session, auth_headers):
+def test_capture_persists_nothing_and_proposes(client, session, auth_headers):
     r = client.post(
         "/capture", json={"text": "call plumber friday"}, headers=auth_headers
     )
     assert r.status_code == 201
     body = r.json()
-    # Propose-only: no item was created, and the response item is null.
+    # Propose-only: nothing created, response item is null.
     assert body["item"] is None
     assert session.query(WorkItem).count() == 0
     assert session.query(WorkItemUpdate).count() == 0
-    # New-item capture with no event word → create_work_item only.
-    # (set_due_date is NOT proposed here — there is no item yet to target.)
+    # New capture with no event word → create_work_item only (no set_due_date:
+    # there is no item yet to target).
     names = [p["name"] for p in body["proposals"]]
     assert "create_work_item" in names
     assert "set_due_date" not in names
 
 
-def test_capture_new_item_proposals_have_no_target(client, auth_headers):
-    """New-item proposals target no existing work item (target_id is None)."""
+def test_capture_proposals_have_no_work_item_target(client, auth_headers):
+    """New-capture proposals never target an existing work item."""
     body = client.post(
         "/capture", json={"text": "call plumber friday"}, headers=auth_headers
     ).json()
-    assert all(p["target_id"] is None for p in body["proposals"])
+    for p in body["proposals"]:
+        if p.get("target_type") == "work_item":
+            raise AssertionError("no work-item target on a new capture")
 
 
-def test_capture_new_item_saves_nothing_even_for_bland_text(
-    client, session, auth_headers
-):
+def test_capture_saves_nothing_even_for_bland_text(client, session, auth_headers):
     body = client.post(
         "/capture", json={"text": "hmm nothing"}, headers=auth_headers
     ).json()
-    # Nothing persisted...
     assert body["item"] is None
     assert session.query(WorkItem).count() == 0
-    # ...but the human can still capture it as a work item via the proposal.
     assert "create_work_item" in [p["name"] for p in body["proposals"]]
 
 
@@ -94,41 +88,26 @@ def test_capture_proposals_not_persisted(client, session, auth_headers):
     assert session.query(WorkItemUpdate).count() == 0
 
 
-def test_capture_returns_no_action_proposal_for_untriggered_text(
-    client, auth_headers, monkeypatch
-):
-    """When the assistant has nothing, the response is just no_action (still no
-    item). Force the fake to see truly bland input via monkeypatched proposer."""
+def test_capture_returns_item_null_for_untriggered_text(client, auth_headers):
     body = client.post("/capture", json={"text": "zzz"}, headers=auth_headers).json()
-    # 'zzz' triggers neither weekday/event/done nor... create_work_item is only
-    # added on new-item captures, so it is present; assert no mutation happened.
     assert body["item"] is None
 
 
-def test_capture_proposals_carry_two_summaries(client, session, auth_headers):
+def test_capture_proposals_carry_two_summaries(client, auth_headers):
     """Each proposal has a registry-derived action_summary (ground truth) AND an
-    llm_rationale (model narration) — the task-8 split. Uses an existing-item
-    capture, where set_due_date is a valid (fully-defined) proposal."""
-    from app.models import Family, WorkItem
-
-    fam = session.query(Family).filter_by(name="TestFam").one()
-    wi = WorkItem(
-        family_id=fam.id, title="call plumber", created_at=NOW, updated_at=NOW
-    )
-    session.add(wi)
-    session.commit()
-
+    llm_rationale (model narration) — the task-8 split. Uses an event-word new
+    capture, which proposes a fully-defined create_event."""
     body = client.post(
         "/capture",
-        json={"text": "he is coming friday", "work_item_id": wi.id},
+        json={"text": "dentist appointment friday"},
         headers=auth_headers,
     ).json()
-    due = next(p for p in body["proposals"] if p["name"] == "set_due_date")
-    assert "due" in due["action_summary"].lower()
-    assert due["params"]["due_at"] in due["action_summary"]
-    assert due["llm_rationale"]
-    assert due["action_summary"] != due["llm_rationale"]
-    assert "summary" not in due
+    ev = next(p for p in body["proposals"] if p["name"] == "create_event")
+    assert "event" in ev["action_summary"].lower()
+    assert ev["params"]["title"] in ev["action_summary"]
+    assert ev["llm_rationale"]
+    assert ev["action_summary"] != ev["llm_rationale"]
+    assert "summary" not in ev
 
 
 def test_capture_action_summary_is_registry_truth_not_model(client, auth_headers):
@@ -144,68 +123,12 @@ def test_capture_action_summary_is_registry_truth_not_model(client, auth_headers
     assert ev["params"]["title"] in ev["action_summary"]
 
 
-def test_capture_existing_item_appends_human_note(client, session, auth_headers):
-    """Capture targeting an existing item appends a source=human note to it.
-
-    Existing items are modified with extra human *content* per the work-item data
-    model (WORKITEM-2) — this direct save is intentional and distinct from the
-    propose-only new-item path.
-    """
-    # Seed an existing item directly (new-item capture no longer creates one).
-    fam = session.query(WorkItem).first()
-    from app.models import Family, Member
-
-    fam = session.query(Family).filter_by(name="TestFam").one()
-    m = session.query(Member).filter_by(display_name="Tester").one()
-    wi = WorkItem(
-        family_id=fam.id,
-        title="call plumber",
-        created_at=m.created_at,
-        updated_at=m.created_at,
-    )
-    session.add(wi)
-    session.commit()
-    wid = wi.id
-
-    r = client.post(
-        "/capture",
-        json={"text": "he is coming friday", "work_item_id": wid},
-        headers=auth_headers,
-    )
-    assert r.status_code == 201
-    body = r.json()
-    assert body["item"] is not None
-    assert body["item"]["id"] == wid
-    # A human note was appended to the existing item.
-    note = (
-        session.query(WorkItemUpdate).filter_by(work_item_id=wid, source="human").one()
-    )
-    assert note.body == "he is coming friday"
-    # And the assistant still proposed (friday -> set_due_date), targeting it.
-    due = next(p for p in body["proposals"] if p["name"] == "set_due_date")
-    assert due["target_id"] == wid
+# --- fully-defined + proposal_id + never-mutates guards -------------------
 
 
-def test_capture_existing_item_missing_returns_404(client, auth_headers):
-    r = client.post(
-        "/capture",
-        json={"text": "note", "work_item_id": 99999},
-        headers=auth_headers,
-    )
-    assert r.status_code == 404
-
-
-# --- registry-wide invariant: capture NEVER auto-applies any action ----------
-
-
-def test_capture_new_item_proposals_are_all_executable(client, auth_headers):
-    """Every proposal from a capture must FULLY DEFINE its operation — executable
-    in isolation, no dangling reference to a to-be-created entity (steer):
-
-      * a targeting action (needs_target) references a real target_id, AND
-      * every action's required params are present, AND
-      * no v1 proposal uses target_ref (the reserved v2 dependency hook).
-    """
+def test_capture_proposals_are_all_executable(client, auth_headers):
+    """Every proposal from a capture must FULLY DEFINE its operation: a work-item
+    target is concrete, required params present, and no v1 target_ref."""
     from app.assistant.actions import ACTIONS
 
     for text in ["soccer game on monday", "dentist appointment monday", "buy milk"]:
@@ -213,14 +136,10 @@ def test_capture_new_item_proposals_are_all_executable(client, auth_headers):
         for p in body.json()["proposals"]:
             spec = ACTIONS.get(p["name"])
             assert spec is not None, p["name"]
-            # A work-item target must be concrete; a standalone event is fully
-            # defined by its params (target_type='event', no work-item id needed).
             if p.get("target_type") == "work_item":
                 assert p["target_id"] is not None, f"{p['name']} ({text})"
-            # Required params fully specify the operation.
             for key in spec.required:
                 assert p["params"].get(key) not in (None, ""), f"{p['name']}.{key}"
-            # v1 never leaves a dependency dangling via target_ref.
             assert p.get("target_ref") is None, p["name"]
 
 
@@ -238,24 +157,17 @@ def test_capture_proposals_have_unique_proposal_ids(client, auth_headers):
 
 def test_capture_never_mutates_across_all_actions(client, session, auth_headers):
     """Enforce ASSIST-2 across the whole registry: for inputs that trigger every
-    kind of proposal, a NEW-item capture applies nothing — no work items, no
-    updates, no events are written. Only Confirm mutates.
-
-    This guards against a future action or capture change that silently
-    auto-applies: whatever the assistant proposes, capture must persist nothing.
-    """
-    triggering_inputs = [
-        "call plumber friday",  # -> set_due_date (+ create_work_item)
-        "dentist appointment thursday",  # -> create_event (+ set_due_date)
-        "all done, finished the taxes",  # -> complete_work_item
-        "buy stamps",  # -> create_work_item only
-        "zzz",  # -> nothing action-y
-    ]
-    for text in triggering_inputs:
+    kind of proposal, a capture applies nothing — only Confirm mutates."""
+    for text in [
+        "call plumber friday",
+        "dentist appointment thursday",
+        "all done, finished the taxes",
+        "buy stamps",
+        "zzz",
+    ]:
         r = client.post("/capture", json={"text": text}, headers=auth_headers)
         assert r.status_code == 201, text
 
-    # After all those captures, the database is still empty of every mutation.
     assert session.query(WorkItem).count() == 0
     assert session.query(WorkItemUpdate).count() == 0
     assert session.query(Event).count() == 0

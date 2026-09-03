@@ -45,7 +45,7 @@ from __future__ import annotations
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
-from app.assistant.base import AssistantClient, CaptureContext, ProposedAction
+from app.assistant.base import AssistantClient, FocusedContext, ProposedAction
 
 _WEEKDAYS = {
     "monday": 0,
@@ -60,7 +60,7 @@ _DONE_WORDS = ("done", "finished", "completed", "complete")
 _EVENT_WORDS = ("appointment", "event", "meeting", "visit")
 
 
-def _next_weekday(ctx: CaptureContext, weekday: int, hour: int = 9) -> str:
+def _next_weekday(ctx: FocusedContext, weekday: int, hour: int = 9) -> str:
     """The next occurrence of ``weekday`` at ``hour`` in the family tz, as UTC ISO."""
     tz = ZoneInfo(ctx.timezone)
     local_now = ctx.now.astimezone(tz)
@@ -73,7 +73,7 @@ def _next_weekday(ctx: CaptureContext, weekday: int, hour: int = 9) -> str:
 
 
 class FakeAssistant(AssistantClient):
-    def propose(self, ctx: CaptureContext) -> list[ProposedAction]:
+    def propose(self, ctx: FocusedContext) -> list[ProposedAction]:
         text = ctx.text.lower()
         tid = ctx.work_item_id
         weekday = next((wd for name, wd in _WEEKDAYS.items() if name in text), None)
@@ -86,7 +86,7 @@ class FakeAssistant(AssistantClient):
     # --- new-item capture: self-contained proposals only ------------------
 
     def _propose_new_item(
-        self, ctx: CaptureContext, weekday, event_word: bool
+        self, ctx: FocusedContext, weekday, event_word: bool
     ) -> list[ProposedAction]:
         # Event word + weekday → event ONLY (no work item). Otherwise a work item.
         if event_word and weekday is not None:
@@ -105,7 +105,7 @@ class FakeAssistant(AssistantClient):
     # --- existing-item capture: item-targeting actions are valid ----------
 
     def _propose_existing_item(
-        self, ctx: CaptureContext, tid: int, text: str, weekday, event_word: bool
+        self, ctx: FocusedContext, tid: int, text: str, weekday, event_word: bool
     ) -> list[ProposedAction]:
         proposals: list[ProposedAction] = []
 
@@ -147,7 +147,7 @@ class FakeAssistant(AssistantClient):
     # --- helpers ----------------------------------------------------------
 
     def _event(
-        self, ctx: CaptureContext, weekday: int, *, target_id, target_type: str
+        self, ctx: FocusedContext, weekday: int, *, target_id, target_type: str
     ) -> ProposedAction:
         """A fully-specified create_event (timed from the weekday, 3–4pm local)."""
         start = _next_weekday(ctx, weekday, hour=15)

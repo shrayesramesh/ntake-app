@@ -87,11 +87,11 @@ class WorkItemRead(BaseModel):
 
 
 class CaptureCreate(BaseModel):
-    """Free-text capture payload. ``work_item_id`` targets an existing item;
-    omitted/None means create a new item from the text."""
+    """Free-text capture payload. Always a NEW capture in v1 — the target (if
+    any) lives in the text and is resolved by stage 1 (focus()), which resolves
+    none yet. Explicit note-append to an item is POST /work-items/{id}/updates."""
 
     text: str
-    work_item_id: int | None = None
 
 
 class ProposalRead(BaseModel):

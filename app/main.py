@@ -30,7 +30,8 @@ from sse_starlette.sse import EventSourceResponse
 import app.db as db
 from app import __version__
 from app.assistant.actions import ActionError, apply_action, describe_action
-from app.assistant.base import CaptureContext
+from app.assistant.base import CaptureRequest, FocusedContext
+from app.assistant.capture import focus
 from app.assistant.factory import get_assistant
 from app.auth import current_member, current_member_stream
 from app.config import config_path, load_config, seed_from_config
@@ -340,7 +341,7 @@ def calendar_view(
 
 
 def _propose_bounded(
-    ctx: CaptureContext, target_label: str | None
+    ctx: FocusedContext, target_label: str | None
 ) -> list[ProposalRead]:
     """Call the configured assistant with a bounded timeout; degrade to [].
 
@@ -385,49 +386,20 @@ def capture_with_proposals(
 ) -> CaptureResponse:
     """Propose changes for a capture; apply nothing without Confirm (ASSIST-2).
 
-    Two paths:
-      * **Existing item** (``work_item_id`` set): append the raw text as a
-        ``source=human`` note to that item — genuine human content added to an
-        item the member explicitly targeted (WORKITEM-2) — commit (publishes via
-        the seam → SSE), then propose. Returns the item.
-      * **New item** (no ``work_item_id``): save NOTHING. Bare text no longer
-        auto-creates a work item; instead the assistant proposes
-        ``create_work_item`` / ``create_event`` for the human to Confirm. Returns
-        ``item=None``.
-
-    Proposals are transient (no suggestions table) and returned only to the
-    caller (author's device).
+    Two-stage, propose-only (v1): stage 1 ``focus()`` resolves the raw text into a
+    FocusedContext (DB lookups → calendar window; no target resolved yet, so this
+    is always a NEW capture); stage 2 ``propose()`` returns proposals. Nothing is
+    persisted — the human confirms via /actions/confirm. Explicit note-append to
+    an existing item is POST /work-items/{id}/updates, not here.
     """
     now = datetime.now(UTC)
     fam = session.get(Family, member.family_id)
-    timezone = fam.timezone if fam else "UTC"
-
-    if payload.work_item_id is not None:
-        item = _load_work_item(session, payload.work_item_id)
-        session.add(
-            WorkItemUpdate(
-                work_item_id=item.id,
-                author_id=member.id,
-                source="human",
-                body=payload.text,
-                created_at=now,
-            )
-        )
-        item.updated_at = now
-        session.commit()  # the human note publishes via the seam → SSE
-        session.refresh(item)
-        ctx = CaptureContext(
-            text=payload.text, work_item_id=item.id, timezone=timezone, now=now
-        )
-        proposals = _propose_bounded(ctx, target_label=item.title)
-        return CaptureResponse(
-            item=_work_item_detail(session, item), proposals=proposals
-        )
-
-    # New-item capture: propose-only, nothing persisted.
-    ctx = CaptureContext(
-        text=payload.text, work_item_id=None, timezone=timezone, now=now
+    request = CaptureRequest(
+        text=payload.text,
+        timezone=fam.timezone if fam else "UTC",
+        now=now,
     )
+    ctx = focus(request, session, member)
     proposals = _propose_bounded(ctx, target_label=None)
     return CaptureResponse(item=None, proposals=proposals)
 

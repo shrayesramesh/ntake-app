@@ -21,9 +21,9 @@ def test_off_is_null(monkeypatch):
     # NullAssistant proposes nothing regardless of input.
     from datetime import UTC, datetime
 
-    from app.assistant.base import CaptureContext
+    from app.assistant.base import FocusedContext
 
-    ctx = CaptureContext(
+    ctx = FocusedContext(
         text="friday", work_item_id=1, timezone="UTC", now=datetime.now(UTC)
     )
     assert a.propose(ctx) == []

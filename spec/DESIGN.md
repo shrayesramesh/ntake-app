@@ -205,6 +205,53 @@ The daily loop, and the most important flow in the product. The assistant runs
 **inline, synchronously in the request path** — parsing input **and** proposing,
 in one round trip.
 
+#### Two-stage pipeline: focus → propose
+
+Capture is split into **two stages**, each with its own swappable client
+(deterministic fakes in v1; local-model implementations on the host, task 7):
+
+```
+CaptureRequest {text, timezone, now}          ← raw input from the endpoint
+        │
+        ▼  [ STAGE 1 — focus() ]  app-coupled: DB lookups, entity resolution,
+        │                         parameter grounding. (app/assistant/capture.py)
+FocusedContext {text, timezone, now,
+                work_item_id,                  ← the resolved target (None in v1)
+                item_log: [str],               ← the target item's recent updates
+                calendar_window: [EventSummary]}  ← nearby events, WITH ids
+        │
+        ▼  [ STAGE 2 — AssistantClient.propose() ]  engine-clean: no Session, no
+        │                         ORM. Pure reasoning over the focused context.
+[ ProposedAction, … ]  executable by construction: real target ids + grounded
+                       params (stage 1 already resolved them)
+```
+
+- **Stage 1 = `focus()`** turns raw text into the *focused world* the action will
+  operate on: it queries the DB and resolves the relevant **entities (with real
+  ids)** and grounds temporal params (e.g. "friday 3pm" → a concrete UTC
+  datetime). This is why `calendar_window` is a typed `EventSummary` list carrying
+  **ids**, not prose — stage 2 needs real ids to emit an *executable* action
+  (`deconflict_events` targeting `event_id=8`). `focus()` is app-coupled (takes a
+  `Session`) and lives in `app/assistant/capture.py`.
+- **Stage 2 = `propose()`** reasons over the `FocusedContext` and emits
+  `ProposedAction`s. It is **engine-clean** (no `Session`/ORM/app imports) — the
+  reusable piece. Because stage 1 resolved the entities/params, every proposal
+  fully defines its operation and is confirmable as-is.
+- **v1 scope:** stage-1 resolution is **deterministic**, not yet an LLM call —
+  `focus()` populates `calendar_window` from events but does **not** resolve a
+  target work item from free text, so `work_item_id` is always `None` and every
+  capture is a *new* capture. The second **LLM** call (stage 1 as a query-planner
+  that reads the text to decide what to fetch / which item to target) is a v2 /
+  task-7 upgrade that slots into `focus()` with no change to stage 2. Until then
+  the existing-item note-append path (below) is dormant.
+- Both stages sit behind fakes for TDD: a `FakeAssistant` (stage 2) reasons over a
+  hand-built `FocusedContext` with zero DB, and a deterministic `focus()` (a
+  "fake resolver") produces focused contexts from seeded rows. Promoted to a
+  `Resolver` interface + config only when the Ollama implementation lands (task 7).
+
+The rest of this section describes the confirm half of the loop.
+
+
 ```
 Member enters an event capture or a work-item update (free text) in the PWA
         │

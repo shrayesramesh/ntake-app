@@ -15,14 +15,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.assistant.base import CaptureContext
+from app.assistant.base import FocusedContext
 from app.assistant.fake import FakeAssistant
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 
 
-def _ctx(text: str, target_id=None) -> CaptureContext:
-    return CaptureContext(
+def _ctx(text: str, target_id=None) -> FocusedContext:
+    return FocusedContext(
         text=text, work_item_id=target_id, timezone="America/New_York", now=NOW
     )
 
