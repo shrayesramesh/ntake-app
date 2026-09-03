@@ -157,6 +157,15 @@ class ActionSpec[ContextT: ActionContext]:
             line += f"  (exactly one of: {groups})"
         return line
 
+    def execute(self, params: dict, context: ContextT) -> str:
+        """Execute this action (a confirmed tool call): validate its own required
+        params, then apply. The spec owns its validation — it knows its param
+        contract — so the registry only needs to resolve name→spec. Raises
+        ActionError on a missing required param.
+        """
+        require_params(params, self.required)
+        return self.apply(context, params)
+
 
 def require_params(params: dict, keys: list[str]) -> None:
     """Raise ActionError if any required key is missing/empty."""
@@ -203,16 +212,16 @@ class ActionRegistry[ContextT: ActionContext]:
         return spec.describe(params)
 
     def dispatch(self, name: str, params: dict, context: ContextT) -> str:
-        """Validate + apply a confirmed action. Returns a human summary.
+        """Resolve ``name`` → spec and execute the confirmed tool call.
 
-        Raises ActionError for unknown names or missing required params. The
-        handler does the actual work using the plugin's ``context``.
+        The registry owns name resolution + the unknown-name policy; the spec
+        owns validation + apply (``ActionSpec.execute``). Raises ActionError for
+        an unknown name or a missing required param.
         """
         spec = self._actions.get(name)
         if spec is None:
             raise ActionError(f"unknown action: {name}")
-        require_params(params, spec.required)
-        return spec.apply(context, params)
+        return spec.execute(params, context)
 
 
 # --- bounded, graceful-degrade propose ------------------------------------

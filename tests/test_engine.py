@@ -93,6 +93,28 @@ def test_dispatch_missing_required_param_raises():
         reg.dispatch("echo", {}, context={"who": "x"})
 
 
+# --- ActionSpec.execute: the spec owns validate + apply -------------------
+
+
+def test_spec_execute_validates_then_applies():
+    spec = ActionSpec(
+        name="echo",
+        params=[Param("msg", "string", required=True)],
+        apply=lambda ctx, p: f"echo {p['msg']} for {ctx['who']}",
+    )
+    assert spec.execute({"msg": "hi"}, {"who": "t"}) == "echo hi for t"
+
+
+def test_spec_execute_raises_on_missing_required_param():
+    spec = ActionSpec(
+        name="echo",
+        params=[Param("msg", "string", required=True)],
+        apply=lambda ctx, p: "unused",
+    )
+    with pytest.raises(ActionError):
+        spec.execute({}, context={})
+
+
 def test_describe_uses_the_spec_and_falls_back_to_name():
     reg = _registry()
     assert reg.describe("echo", {"msg": "yo"}) == "Echo yo"
