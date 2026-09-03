@@ -49,6 +49,11 @@ class ProposedAction:
     params: dict
     llm_rationale: str = ""
     target_id: int | None = None
+    # What the action targets: "work_item", "event", or None (targets nothing —
+    # e.g. create_work_item / create_event of a brand-new thing). Drives the
+    # conditional log rule: a source=assistant work_item_update is appended only
+    # when the action targets a work item (WORKITEM-3).
+    target_type: str | None = None
 
 
 class AssistantClient(ABC):

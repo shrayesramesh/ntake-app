@@ -108,6 +108,7 @@ class ProposalRead(BaseModel):
     action_summary: str
     llm_rationale: str = ""
     target_id: int | None = None
+    target_type: str | None = None  # "work_item" | "event" | None (task 12)
     target_label: str | None = None  # the target item's title, for card context
 
 
@@ -129,3 +130,4 @@ class ConfirmAction(BaseModel):
     name: str
     params: dict = {}
     target_id: int | None = None
+    target_type: str | None = None  # "work_item" | "event" | None (task 12)

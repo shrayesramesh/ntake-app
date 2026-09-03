@@ -62,7 +62,7 @@ Split the single `ProposedAction.summary` into two distinct concepts:
   context. Update `ProposedAction`, `ProposalRead`, `_propose_bounded`, the
   registry entries, and `web.py` card render. TDD.
 
-## Task 12 — Generalize the action target (2b)
+## Task 12 — Generalize the action target (2b)  ✅ DONE
 
 An action can target a **work item OR an event OR neither** — don't force
 everything through a work item.

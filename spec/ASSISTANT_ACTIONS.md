@@ -38,14 +38,19 @@ no formal per-action schema system required). Each action is one map entry:
 "<action_name>": {
     params: { <name>: <type/constraint>, ... },
     applies_to: <what data-model change it makes>,
-    on_confirm_also: append a source=assistant work_item_updates row (always),
+    on_confirm_also: append a source=assistant work_item_updates row IFF the
+                     action targets a work item (conditional — see below),
     grounds: <requirement / data-model reference>,
     scope: v1 | v2 | deferred,
 }
 ```
 
-Every action, on Confirm, appends a `source=assistant` update row (WORKITEM-3) —
-that is universal and omitted per-row below.
+On Confirm, an action appends a `source=assistant` update row (WORKITEM-3)
+**only when it targets a work item** (`target_type == "work_item"`). This was
+originally described as universal; task 12 made it **conditional on the target**
+so an action can target a work item, an event, or nothing. Event-only actions
+(e.g. a standalone `create_event`) mutate the event and append **no** work-item
+update — events aren't part of the labor log. It is omitted per-row below.
 
 ---
 
@@ -186,8 +191,9 @@ for v2+/deferred; add later by registering the entry (no rework of the flow).
 - Capture targets an **explicit work item** for item-scoped actions (`set_due_date`,
   `complete_work_item`) — assistant routing of free text to the right existing
   item is v2 (OQ-A2). `create_work_item` covers the new-item branch.
-- All five actions are **propose-and-confirm** (ASSIST-2); each confirmed action
-  also appends a `source=assistant` update (universal rule).
+- All five actions are **propose-and-confirm** (ASSIST-2); a confirmed action
+  also appends a `source=assistant` update **when it targets a work item**
+  (conditional rule, task 12 — a standalone event append nothing).
 - Lightweight param checks at apply time (the registry entry lists expected
   keys); invalid/unknown actions are dropped, the raw human input is still saved
   (graceful degradation, OQ-A3).

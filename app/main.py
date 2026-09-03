@@ -366,6 +366,7 @@ def _propose_bounded(
             # The model's own narration — passed through, may be wrong/empty.
             llm_rationale=a.llm_rationale,
             target_id=a.target_id,
+            target_type=a.target_type,
             target_label=target_label,
         )
         for a in actions
@@ -443,7 +444,12 @@ def confirm_action(
     """
     try:
         summary = apply_action(
-            session, member, payload.name, payload.target_id, payload.params
+            session,
+            member,
+            payload.name,
+            payload.target_id,
+            payload.params,
+            target_type=payload.target_type,
         )
     except ActionError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e

@@ -247,7 +247,8 @@ SHELL_PAGE = """<!doctype html>
     function confirmProposal(p, card) {
       fetch('/actions/confirm', {
         method: 'POST', headers: authHeaders(true),
-        body: JSON.stringify({ name: p.name, params: p.params, target_id: p.target_id })
+        body: JSON.stringify({ name: p.name, params: p.params,
+                               target_id: p.target_id, target_type: p.target_type })
       })
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
         .then(() => { card.remove(); reloadBoard(); reloadCalendar(); })

@@ -32,8 +32,10 @@ class ActionError(Exception):
     """
 
 
-# Handler signature: (session, member, target_id, params) -> human summary str.
-Handler = Callable[[Session, Member, int | None, dict], str]
+# Handler signature: (session, member, target_id, target_type, params) -> summary.
+# target_type is "work_item" | "event" | None — handlers that can target more
+# than one thing (create_event) branch on it; work-item-only handlers ignore it.
+Handler = Callable[[Session, Member, int | None, str | None, dict], str]
 
 # describe signature: (params) -> deterministic action_summary str. A pure fn of
 # params only (no app types) so it is engine-extractable.
@@ -93,7 +95,7 @@ def _append_assistant_update(
 # --- handlers -------------------------------------------------------------
 
 
-def _apply_set_due_date(session, member, target_id, params) -> str:
+def _apply_set_due_date(session, member, target_id, target_type, params) -> str:
     _require(params, ["due_at"])
     due = _parse_dt(params["due_at"])
     wi = _load_item(session, target_id)
@@ -105,7 +107,7 @@ def _apply_set_due_date(session, member, target_id, params) -> str:
     return f"Set due date to {due.isoformat()}"
 
 
-def _apply_complete(session, member, target_id, params) -> str:
+def _apply_complete(session, member, target_id, target_type, params) -> str:
     wi = _load_item(session, target_id)
     now = datetime.now(UTC)
     wi.status = "done"
@@ -115,24 +117,38 @@ def _apply_complete(session, member, target_id, params) -> str:
     return "Marked done"
 
 
-def _apply_create_event(session, member, target_id, params) -> str:
+def _apply_create_event(session, member, target_id, target_type, params) -> str:
+    """Create an event — standalone OR driven by a work item (task 12).
+
+    * **From a work item** (``target_type == "work_item"`` and a ``target_id``):
+      append the driving ``source=assistant`` update, then link the event back to
+      it via ``source_update_id`` (EVENT-7). This is the labor-log path.
+    * **Standalone** (no work-item target): just insert the event. Events aren't
+      part of the labor log, so NO work_item_update is appended (WORKITEM-3).
+    """
     _require(params, ["title"])
-    wi = _load_item(session, target_id)
     now = datetime.now(UTC)
-    # Append the driving update first so we can link the event back to it.
-    upd = _append_assistant_update(
-        session, member, wi.id, f"Created calendar event: {params['title']}"
-    )
+
+    source_update_id = None
+    family_id = member.family_id
+    if target_type == "work_item" and target_id is not None:
+        wi = _load_item(session, target_id)
+        family_id = wi.family_id
+        upd = _append_assistant_update(
+            session, member, wi.id, f"Created calendar event: {params['title']}"
+        )
+        source_update_id = upd.id
+
     all_day = bool(params.get("start_date"))
     ev = Event(
-        family_id=wi.family_id,
+        family_id=family_id,
         title=params["title"],
         description=params.get("description"),
         location=params.get("location"),
         all_day=all_day,
         start_at=_parse_dt(params["start_at"]) if params.get("start_at") else None,
         end_at=_parse_dt(params["end_at"]) if params.get("end_at") else None,
-        source_update_id=upd.id,
+        source_update_id=source_update_id,
         created_at=now,
         updated_at=now,
     )
@@ -140,7 +156,7 @@ def _apply_create_event(session, member, target_id, params) -> str:
     return f"Created event: {params['title']}"
 
 
-def _apply_create_work_item(session, member, target_id, params) -> str:
+def _apply_create_work_item(session, member, target_id, target_type, params) -> str:
     _require(params, ["title"])
     now = datetime.now(UTC)
     wi = WorkItem(
@@ -160,7 +176,7 @@ def _apply_create_work_item(session, member, target_id, params) -> str:
     return f"Created work item: {params['title']}"
 
 
-def _apply_no_action(session, member, target_id, params) -> str:
+def _apply_no_action(session, member, target_id, target_type, params) -> str:
     return "No action"
 
 
@@ -242,9 +258,20 @@ def describe_action(name: str, params: dict) -> str:
 
 
 def apply_action(
-    session: Session, member: Member, name: str, target_id: int | None, params: dict
+    session: Session,
+    member: Member,
+    name: str,
+    target_id: int | None,
+    params: dict,
+    target_type: str | None = None,
 ) -> str:
     """Validate + apply a confirmed action. Returns a human summary.
+
+    ``target_type`` ("work_item" | "event" | None) generalizes the target (task
+    12): the conditional log rule lives in the handlers (only a work-item target
+    appends a source=assistant update). For backwards compatibility, a present
+    ``target_id`` with no explicit ``target_type`` is treated as a work-item
+    target, so existing work-item confirms keep logging + linking.
 
     Does not commit — the caller commits so the write publishes once via the seam.
     Raises ActionError for unknown names / missing params / bad targets.
@@ -253,6 +280,8 @@ def apply_action(
     if spec is None:
         raise ActionError(f"unknown action: {name}")
     _require(params, spec.required)
-    summary = spec.apply(session, member, target_id, params)
+    if target_type is None and target_id is not None:
+        target_type = "work_item"
+    summary = spec.apply(session, member, target_id, target_type, params)
     session.flush()  # autoflush is off; make all pending rows visible pre-commit
     return summary

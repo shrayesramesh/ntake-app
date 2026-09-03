@@ -54,6 +54,7 @@ class FakeAssistant(AssistantClient):
                     params={"title": ctx.text},
                     llm_rationale="New capture — could be a work item.",
                     target_id=None,
+                    target_type=None,  # creates a brand-new thing
                 )
             )
 
@@ -67,6 +68,7 @@ class FakeAssistant(AssistantClient):
                     params={"due_at": due},
                     llm_rationale="Detected a weekday in the text.",
                     target_id=tid,
+                    target_type="work_item",
                 )
             )
             if any(w in text for w in _EVENT_WORDS):
@@ -77,6 +79,8 @@ class FakeAssistant(AssistantClient):
                         params={"title": ctx.text, "start_at": due, "end_at": end},
                         llm_rationale="Looks like a scheduled event.",
                         target_id=tid,
+                        # From an existing item -> link+log; else standalone event.
+                        target_type="work_item" if tid is not None else "event",
                     )
                 )
 
@@ -87,6 +91,7 @@ class FakeAssistant(AssistantClient):
                     params={},
                     llm_rationale="Text mentions completion.",
                     target_id=tid,
+                    target_type="work_item",
                 )
             )
 

@@ -86,6 +86,29 @@ def test_confirm_create_event_applies(client, session, auth_headers):
     assert ev.title == "Plumber visit"
 
 
+def test_confirm_create_event_standalone_no_work_item_update(
+    client, session, auth_headers
+):
+    """A standalone event (target_type=event, no target_id) is created with NO
+    work-item update — task 12 generalized target."""
+    start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC).isoformat()
+    end = datetime(2026, 9, 5, 20, 0, tzinfo=UTC).isoformat()
+    r = client.post(
+        "/actions/confirm",
+        json={
+            "name": "create_event",
+            "params": {"title": "Standalone party", "start_at": start, "end_at": end},
+            "target_type": "event",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    session.expire_all()
+    ev = session.query(Event).filter_by(title="Standalone party").one()
+    assert ev.source_update_id is None
+    assert session.query(WorkItemUpdate).count() == 0
+
+
 def test_confirm_unknown_action_is_422(client, session, auth_headers):
     wid = _create(session)
     r = client.post(
