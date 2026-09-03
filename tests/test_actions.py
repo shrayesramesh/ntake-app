@@ -41,6 +41,7 @@ def test_registry_has_v1_actions():
         "complete_work_item",
         "create_work_item",
         "no_action",
+        "deconflict_events",
     }
 
 
@@ -69,8 +70,12 @@ def test_all_actions_are_wellformed():
     # Exactly the actions that don't operate on an existing item skip a target.
     assert ACTIONS["create_work_item"].needs_target is False
     assert ACTIONS["no_action"].needs_target is False
-    # no_action is the only non-logging action (it appends no assistant update).
-    assert [n for n, s in ACTIONS.items() if not s.logs] == ["no_action"]
+    # Non-logging actions: no_action (meta) and event-only actions (no work item
+    # to log against, e.g. deconflict_events).
+    assert {n for n, s in ACTIONS.items() if not s.logs} == {
+        "no_action",
+        "deconflict_events",
+    }
 
 
 def test_describe_set_due_date_uses_param():

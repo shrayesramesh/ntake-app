@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -180,6 +180,37 @@ def _apply_no_action(session, member, target_id, target_type, params) -> str:
     return "No action"
 
 
+def _load_event(session: Session, target_id: int | None) -> Event:
+    ev = session.get(Event, target_id) if target_id is not None else None
+    if ev is None:
+        raise ActionError(f"event not found: {target_id}")
+    return ev
+
+
+def _apply_deconflict_events(session, member, target_id, target_type, params) -> str:
+    """Move the target event to the next day to resolve an overlap (task 10).
+
+    A deliberate PLACEHOLDER proving calendar context flows in → action out →
+    apply — NOT smart scheduling. Event-only: it mutates just the event and
+    appends NO work-item update (events aren't part of the labor log). Shifts the
+    timing pair (timed start_at/end_at, or all-day start_date/end_date) by +1 day.
+    """
+    ev = _load_event(session, target_id)
+    day = timedelta(days=1)
+    if ev.all_day:
+        if ev.start_date is not None:
+            ev.start_date = ev.start_date + day
+        if ev.end_date is not None:
+            ev.end_date = ev.end_date + day
+    else:
+        if ev.start_at is not None:
+            ev.start_at = ev.start_at + day
+        if ev.end_at is not None:
+            ev.end_at = ev.end_at + day
+    ev.updated_at = datetime.now(UTC)
+    return f"Moved event “{ev.title}” to the next day"
+
+
 # --- describe fns: params -> deterministic action_summary -----------------
 # Pure functions of params (ground truth for the card). They run on UNCONFIRMED
 # proposals, so they must tolerate missing/partial params and never raise.
@@ -213,6 +244,10 @@ def _describe_no_action(params: dict) -> str:
     return "No action"
 
 
+def _describe_deconflict(params: dict) -> str:
+    return "Move the event to the next day (deconflict)"
+
+
 ACTIONS: dict[str, ActionSpec] = {
     "set_due_date": ActionSpec(
         required=["due_at"],
@@ -238,6 +273,13 @@ ACTIONS: dict[str, ActionSpec] = {
         logs=False,
         apply=_apply_no_action,
         describe=_describe_no_action,
+    ),
+    "deconflict_events": ActionSpec(
+        # Targets an existing event; event-only so it appends NO work-item update.
+        needs_target=True,
+        logs=False,
+        apply=_apply_deconflict_events,
+        describe=_describe_deconflict,
     ),
 }
 
