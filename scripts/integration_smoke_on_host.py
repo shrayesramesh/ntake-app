@@ -181,15 +181,21 @@ def run_checks(base: str, token: str) -> bool:
         assert result.get("frame"), "no SSE frame received"
 
     def assistant_capture_propose_confirm():
-        # New-item capture is propose-only: nothing saved, item is null, and the
-        # assistant proposes create_work_item (+ set_due_date for 'friday').
+        # New-item capture is propose-only AND executable-only: nothing saved,
+        # item is null, and the assistant proposes create_work_item (a
+        # self-contained action). It does NOT propose set_due_date here — there is
+        # no item yet to target (that comes on the existing-item capture below).
         r = _post_json(f"{base}/capture", {"text": "call plumber friday"}, token)
         assert r.status == 201
         data = json.loads(r.read())
         assert data["item"] is None, "new-item capture must not auto-create"
         names = [p["name"] for p in data["proposals"]]
         assert "create_work_item" in names, names
-        assert "set_due_date" in names, names
+        assert "set_due_date" not in names, "no item-targeting action on new capture"
+        # Every proposal is executable as-is: no null target on a targeting action.
+        for p in data["proposals"]:
+            if p["name"] in ("set_due_date", "complete_work_item"):
+                assert p["target_id"] is not None, p
         # Confirm create_work_item -> the item is created now (human-driven).
         cwi = next(p for p in data["proposals"] if p["name"] == "create_work_item")
         c = _post_json(

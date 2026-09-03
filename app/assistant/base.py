@@ -54,6 +54,14 @@ class ProposedAction:
     # conditional log rule: a source=assistant work_item_update is appended only
     # when the action targets a work item (WORKITEM-3).
     target_type: str | None = None
+    # Batch-local handle (e.g. "p1"), assigned by the engine seam so a proposal
+    # has a stable identity within one capture response. NOT a DB id.
+    proposal_id: str = ""
+    # Reserved for v2 dependency chaining: a target_ref points at another
+    # proposal's proposal_id when this action targets that proposal's
+    # to-be-created entity. In v1 this MUST be None — every proposal fully
+    # defines its own operation (executable in isolation, no dangling reference).
+    target_ref: str | None = None
 
 
 class AssistantClient(ABC):

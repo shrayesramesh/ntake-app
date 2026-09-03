@@ -204,6 +204,38 @@ for v2+/deferred; add later by registering the entry (no rework of the flow).
 - **OQ-A1** Confirm granularity: one action per card, each independently
   confirmable (per ASSIST-2). Since actions aren't persisted, the Confirm payload
   IS the action object the client sends back. Endpoint shape TBD.
+  - **v1 rule — every proposal FULLY DEFINES its operation.** A returned proposal
+    must be executable in isolation: a targeting action references a real,
+    existing `target_id` (+ `target_type`); a creating action fully specifies the
+    new entity in its params. Capture never returns an item-targeting action with
+    a null target. Consequence: a brand-new item's due date is NOT a second card
+    on a new-item capture (there's no item yet) — the new item is proposed via
+    `create_work_item`, and its due date is set later by capturing onto it once it
+    exists (correct-by-restate). Each proposal carries a batch-local
+    **`proposal_id`** (e.g. "p1"), a stable handle within one response.
+  - **`target_id` is a CREATE-vs-MODIFY distinction.** `target_id` is the id of an
+    **existing** entity the action modifies. A *create* action has nothing
+    existing to point at, so `target_id=None` and the new row's id is assigned on
+    Confirm: a standalone `create_event` is `target_type="event"`, `target_id=None`
+    (fully defined by its params); a `create_event` *from* a work item is
+    `target_type="work_item"`, `target_id=<work item id>` (links back + logs). A
+    future *modify* action (`reschedule_event`) would be `target_type="event"` with
+    a **non-null** `target_id=<existing event id>`. So `target_type="event"` does
+    double duty (what the action concerns vs. an existing event it modifies) —
+    keyed by whether `target_id` is set. The "fully defines its operation" check is
+    therefore: a `work_item` target must have a concrete `target_id`; a standalone
+    create is defined by its params.
+  - **v2 (deferred) — dependency chaining via `target_ref`.** A proposal could
+    reference another proposal's to-be-created entity by its `proposal_id`
+    (`target_ref="p1"`), letting "create item" + "set its due date" come back as
+    two independent cards. Gating: the dependent card is **disabled until its
+    referent is confirmed** (the confirm response returns the created entity's
+    real id/type, which the client resolves into the dependent card's target),
+    backed by the **server rejecting an unresolved target with 422** (defense in
+    depth — the UI gate is convenience, the server is the guarantee). This is
+    generic engine behavior and belongs with the propose-confirm engine
+    extraction, not the ntake plugin. `target_ref` is reserved in the shape now
+    and MUST be None in v1.
 - **OQ-A2** How `create_work_item` vs. `append_update` routing is decided in the
   capture flow (assistant-decided vs. UI-explicit-target) — affects whether
   capture is one endpoint or two.

@@ -1,10 +1,47 @@
 """FakeAssistant — deterministic canned proposals (Phase 4, task 3).
 
-Derives proposals from keywords in the input text so the entire
-capture->propose->confirm flow is testable with no model. Deliberately simple and
-predictable; it is NOT trying to be smart — the real interpretation is the
-OllamaAssistant's job (task 7). Obeys the interface: read-only, returns a list of
-ProposedAction with valid registry names.
+Derives proposals from keywords so the entire capture->propose->confirm flow is
+testable with no model. Deliberately dumb (substring keyword matching, canned
+timing) but **expressive**: the trigger vocabulary below can drive every v1
+action and combination, so tests/smoke can exercise each path predictably. The
+real interpretation is the OllamaAssistant's job (task 7).
+
+Every proposal FULLY DEFINES its operation (executable in isolation): a
+targeting action references a real ``target_id``; a creating action fully
+specifies the new entity. A new-item capture never returns an item-targeting
+action with a null target.
+
+Trigger vocabulary
+==================
+Timing always comes from a **weekday** word (monday…sunday) → next occurrence
+3–4pm local; "due by <weekday>" is just a natural phrasing of the same weekday.
+Event creation and a project's event/due-date REQUIRE a weekday.
+
+New-item capture (no existing target) — self-contained proposals only:
+  • **event word** (appointment/event/meeting/visit) **+ weekday**
+        → ``create_event`` ONLY (standalone, timed). No work item.
+  • **"project"** **+ weekday** (or "due by <weekday>")
+        → ``create_work_item`` **and** standalone ``create_event`` (both).
+  • anything else
+        → ``create_work_item`` only.
+  (An event word or "project" WITHOUT a weekday yields just ``create_work_item``
+   — there's no time to build an event from.)
+
+Existing-item capture (real target_id) — item-targeting actions are valid:
+  • **weekday** → ``set_due_date`` on the item.
+  • **event word / "project" + weekday** → also a linked ``create_event``.
+  • **done word** (done/finished/complete/completed) → ``complete_work_item``.
+  • none of the above → ``no_action``.
+
+Examples
+--------
+  "dentist appointment friday"     → create_event only (timed)
+  "project kickoff monday"         → create_work_item + create_event
+  "project taxes due by friday"    → create_work_item + create_event
+  "buy milk"                       → create_work_item only
+  "team meeting"      (no weekday)  → create_work_item only
+  "he is coming friday" (on item)  → set_due_date
+  "all done"          (on item)    → complete_work_item
 """
 
 from __future__ import annotations
@@ -25,6 +62,7 @@ _WEEKDAYS = {
 }
 _DONE_WORDS = ("done", "finished", "completed", "complete")
 _EVENT_WORDS = ("appointment", "event", "meeting", "visit")
+_PROJECT_WORD = "project"
 
 
 def _next_weekday(ctx: CaptureContext, weekday: int, hour: int = 9) -> str:
@@ -42,24 +80,50 @@ def _next_weekday(ctx: CaptureContext, weekday: int, hour: int = 9) -> str:
 class FakeAssistant(AssistantClient):
     def propose(self, ctx: CaptureContext) -> list[ProposedAction]:
         text = ctx.text.lower()
-        proposals: list[ProposedAction] = []
         tid = ctx.work_item_id
-
-        # New-item capture (no target): the confirmable "make this a work item"
-        # path. Bare text no longer auto-creates an item — it's a proposal now.
-        if tid is None:
-            proposals.append(
-                ProposedAction(
-                    name="create_work_item",
-                    params={"title": ctx.text},
-                    llm_rationale="New capture — could be a work item.",
-                    target_id=None,
-                    target_type=None,  # creates a brand-new thing
-                )
-            )
-
-        # A weekday mention → propose a due date (and an event if event-ish).
         weekday = next((wd for name, wd in _WEEKDAYS.items() if name in text), None)
+        event_word = any(w in text for w in _EVENT_WORDS)
+        is_project = _PROJECT_WORD in text
+
+        if tid is None:
+            return self._propose_new_item(ctx, weekday, event_word, is_project)
+        return self._propose_existing_item(ctx, tid, text, weekday, event_word)
+
+    # --- new-item capture: self-contained proposals only ------------------
+
+    def _propose_new_item(
+        self, ctx: CaptureContext, weekday, event_word: bool, is_project: bool
+    ) -> list[ProposedAction]:
+        timed = weekday is not None
+
+        # Event word + weekday → event ONLY (no work item).
+        if event_word and timed:
+            return [self._event(ctx, weekday, target_id=None, target_type="event")]
+
+        proposals: list[ProposedAction] = [
+            ProposedAction(
+                name="create_work_item",
+                params={"title": ctx.text},
+                llm_rationale="New capture — could be a work item.",
+                target_id=None,
+                target_type=None,
+            )
+        ]
+        # "project" + weekday → also a standalone event (work item AND event).
+        if is_project and timed:
+            proposals.append(
+                self._event(ctx, weekday, target_id=None, target_type="event")
+            )
+        return proposals
+
+    # --- existing-item capture: item-targeting actions are valid ----------
+
+    def _propose_existing_item(
+        self, ctx: CaptureContext, tid: int, text: str, weekday, event_word: bool
+    ) -> list[ProposedAction]:
+        proposals: list[ProposedAction] = []
+        is_project = _PROJECT_WORD in text
+
         if weekday is not None:
             due = _next_weekday(ctx, weekday, hour=15)
             proposals.append(
@@ -71,17 +135,9 @@ class FakeAssistant(AssistantClient):
                     target_type="work_item",
                 )
             )
-            if any(w in text for w in _EVENT_WORDS):
-                end = _next_weekday(ctx, weekday, hour=16)
+            if event_word or is_project:
                 proposals.append(
-                    ProposedAction(
-                        name="create_event",
-                        params={"title": ctx.text, "start_at": due, "end_at": end},
-                        llm_rationale="Looks like a scheduled event.",
-                        target_id=tid,
-                        # From an existing item -> link+log; else standalone event.
-                        target_type="work_item" if tid is not None else "event",
-                    )
+                    self._event(ctx, weekday, target_id=tid, target_type="work_item")
                 )
 
         if any(w in text for w in _DONE_WORDS):
@@ -102,3 +158,19 @@ class FakeAssistant(AssistantClient):
                 )
             )
         return proposals
+
+    # --- helpers ----------------------------------------------------------
+
+    def _event(
+        self, ctx: CaptureContext, weekday: int, *, target_id, target_type: str
+    ) -> ProposedAction:
+        """A fully-specified create_event (timed from the weekday, 3–4pm local)."""
+        start = _next_weekday(ctx, weekday, hour=15)
+        end = _next_weekday(ctx, weekday, hour=16)
+        return ProposedAction(
+            name="create_event",
+            params={"title": ctx.text, "start_at": start, "end_at": end},
+            llm_rationale="Looks like a scheduled event.",
+            target_id=target_id,
+            target_type=target_type,
+        )

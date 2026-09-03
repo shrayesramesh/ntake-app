@@ -367,9 +367,13 @@ def _propose_bounded(
             llm_rationale=a.llm_rationale,
             target_id=a.target_id,
             target_type=a.target_type,
+            # Batch-local handle assigned here (engine seam) so every assistant
+            # implementation gets consistent ids: p1, p2, … within one response.
+            proposal_id=a.proposal_id or f"p{i}",
+            target_ref=a.target_ref,
             target_label=target_label,
         )
-        for a in actions
+        for i, a in enumerate(actions, start=1)
     ]
 
 

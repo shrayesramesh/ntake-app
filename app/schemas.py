@@ -109,6 +109,8 @@ class ProposalRead(BaseModel):
     llm_rationale: str = ""
     target_id: int | None = None
     target_type: str | None = None  # "work_item" | "event" | None (task 12)
+    proposal_id: str = ""  # batch-local handle, assigned by the engine seam
+    target_ref: str | None = None  # v2 dependency hook; always None in v1
     target_label: str | None = None  # the target item's title, for card context
 
 

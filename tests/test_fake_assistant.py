@@ -1,9 +1,22 @@
 """Phase 4, task 3 — AssistantClient interface + FakeAssistant.
 
-The FakeAssistant returns deterministic canned proposals derived from the input
-text, so the entire propose->confirm flow is testable with no model. It must obey
-the interface contract: never mutate, always return a list of ProposedAction
-whose names are valid registry keys.
+The FakeAssistant is a dumb-but-expressive test instrument: deterministic
+keyword rules that can drive every v1 action and combination. These tests pin
+the trigger vocabulary as its contract (see the fake's module docstring):
+
+  New-item capture (no target):
+    • event word (appointment/event/meeting/visit) + weekday → create_event ONLY
+    • "project" + weekday                                    → work item + event
+    • event word / "project" WITHOUT a weekday               → work item only
+    • anything else                                          → work item only
+  Existing-item capture (real target):
+    • weekday                    → set_due_date
+    • + event word / "project"   → also a linked create_event
+    • done word                  → complete_work_item
+    • none of the above          → no_action
+
+Every proposal must FULLY DEFINE its operation: a targeting action (needs_target)
+carries a real target_id; a creating action fully specifies the new entity.
 """
 
 from __future__ import annotations
@@ -17,7 +30,7 @@ from app.assistant.fake import FakeAssistant
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 
 
-def _ctx(text: str, target_id: int | None = 7) -> CaptureContext:
+def _ctx(text: str, target_id: int | None = None) -> CaptureContext:
     return CaptureContext(
         text=text,
         work_item_id=target_id,
@@ -26,37 +39,123 @@ def _ctx(text: str, target_id: int | None = 7) -> CaptureContext:
     )
 
 
+def _names(props) -> list[str]:
+    return [p.name for p in props]
+
+
+# --- valid registry names + fully-defined operations ----------------------
+
+
 def test_proposals_use_valid_registry_names():
     fake = FakeAssistant()
-    samples = ["he's coming friday at 3", "we finished it", "nothing here", "buy milk"]
+    samples = [
+        "dentist appointment friday",
+        "project kickoff monday",
+        "we finished it",
+        "nothing here",
+        "buy milk",
+    ]
     for text in samples:
         for p in fake.propose(_ctx(text)):
             assert isinstance(p, ProposedAction)
             assert p.name in ACTIONS
 
 
-def test_friday_text_proposes_due_date():
-    props = FakeAssistant().propose(_ctx("plumber coming friday"))
-    names = [p.name for p in props]
-    assert "set_due_date" in names
+def test_every_proposal_fully_defines_its_operation():
+    """No proposal targets a nonexistent thing: a needs_target action always has
+    a concrete target_id; a creating action carries its required params."""
+    fake = FakeAssistant()
+    for text in ["dentist appointment friday", "project x monday", "buy milk", "hmm"]:
+        for target in (None, 7):
+            for p in fake.propose(_ctx(text, target_id=target)):
+                spec = ACTIONS[p.name]
+                # A work-item target must be concrete; a standalone event
+                # (target_type='event') is fully defined by its params instead.
+                if p.target_type == "work_item":
+                    assert p.target_id is not None, (text, p.name)
+                for key in spec.required:
+                    assert p.params.get(key) not in (None, ""), (text, p.name, key)
+                # v1 never leaves a dependency dangling.
+                assert p.target_ref is None
+
+
+# --- new-item capture vocabulary ------------------------------------------
+
+
+def test_new_event_word_with_weekday_proposes_event_only():
+    props = FakeAssistant().propose(_ctx("dentist appointment friday"))
+    assert _names(props) == ["create_event"]
+    ev = props[0]
+    assert ev.target_type == "event"
+    assert ev.target_id is None  # standalone but fully specified (has title+time)
+    assert ev.params["start_at"] and ev.params["end_at"]
+
+
+def test_new_event_word_without_weekday_is_work_item_only():
+    # An event word with no weekday has no time to build an event → work item.
+    props = FakeAssistant().propose(_ctx("team meeting"))
+    assert _names(props) == ["create_work_item"]
+
+
+def test_new_project_with_weekday_proposes_work_item_and_event():
+    props = FakeAssistant().propose(_ctx("project kickoff monday"))
+    assert set(_names(props)) == {"create_work_item", "create_event"}
+    ev = next(p for p in props if p.name == "create_event")
+    assert ev.target_type == "event" and ev.target_id is None
+
+
+def test_new_project_due_by_weekday_also_both():
+    # "due by <weekday>" is just a natural phrasing of the weekday.
+    props = FakeAssistant().propose(_ctx("project taxes due by friday"))
+    assert set(_names(props)) == {"create_work_item", "create_event"}
+
+
+def test_new_project_without_weekday_is_work_item_only():
+    props = FakeAssistant().propose(_ctx("project brainstorm"))
+    assert _names(props) == ["create_work_item"]
+
+
+def test_new_bland_text_is_work_item_only():
+    assert _names(FakeAssistant().propose(_ctx("buy milk"))) == ["create_work_item"]
+
+
+def test_new_capture_never_proposes_item_targeting_actions():
+    # set_due_date / complete_work_item need an existing item; never on new items.
+    for text in ["soccer game on monday", "all done", "project x monday"]:
+        names = _names(FakeAssistant().propose(_ctx(text)))
+        assert "set_due_date" not in names
+        assert "complete_work_item" not in names
+
+
+# --- existing-item capture vocabulary -------------------------------------
+
+
+def test_existing_weekday_proposes_due_date():
+    props = FakeAssistant().propose(_ctx("he is coming friday", target_id=7))
     due = next(p for p in props if p.name == "set_due_date")
-    assert "due_at" in due.params  # a concrete datetime string
-    assert due.target_id == 7
+    assert due.target_id == 7 and due.target_type == "work_item"
+    assert "due_at" in due.params
 
 
-def test_done_text_proposes_complete():
-    props = FakeAssistant().propose(_ctx("all done, finished the taxes"))
-    assert "complete_work_item" in [p.name for p in props]
+def test_existing_event_word_plus_weekday_also_links_event():
+    props = FakeAssistant().propose(_ctx("dentist appointment friday", target_id=7))
+    names = _names(props)
+    assert "set_due_date" in names and "create_event" in names
+    ev = next(p for p in props if p.name == "create_event")
+    assert ev.target_id == 7 and ev.target_type == "work_item"  # linked + logged
 
 
-def test_event_text_proposes_create_event():
-    props = FakeAssistant().propose(_ctx("dentist appointment thursday 9am"))
-    assert "create_event" in [p.name for p in props]
+def test_existing_done_word_proposes_complete():
+    props = FakeAssistant().propose(_ctx("all done, finished the taxes", target_id=7))
+    assert "complete_work_item" in _names(props)
 
 
-def test_unmatched_text_proposes_no_action():
-    props = FakeAssistant().propose(_ctx("hmm"))
-    assert [p.name for p in props] == ["no_action"]
+def test_existing_untriggered_text_proposes_no_action():
+    props = FakeAssistant().propose(_ctx("just a note", target_id=7))
+    assert _names(props) == ["no_action"]
+
+
+# --- contract: read-only + rationale --------------------------------------
 
 
 def test_propose_does_not_touch_the_db(session):
@@ -65,20 +164,13 @@ def test_propose_does_not_touch_the_db(session):
 
     before_items = session.query(WorkItem).count()
     before_updates = session.query(WorkItemUpdate).count()
-    FakeAssistant().propose(_ctx("friday"))
+    FakeAssistant().propose(_ctx("project x friday"))
     assert session.query(WorkItem).count() == before_items
     assert session.query(WorkItemUpdate).count() == before_updates
 
 
 def test_proposals_carry_llm_rationale():
-    # The assistant supplies its OWN narration (llm_rationale), not the ground-
-    # truth action_summary (that's derived server-side from the registry).
-    for p in FakeAssistant().propose(_ctx("plumber friday")):
+    for p in FakeAssistant().propose(_ctx("project x friday")):
         assert isinstance(p.llm_rationale, str)
-    # A matched proposal has a non-empty rationale.
-    due = next(
-        p
-        for p in FakeAssistant().propose(_ctx("plumber friday"))
-        if p.name == "set_due_date"
-    )
-    assert due.llm_rationale
+    ev = FakeAssistant().propose(_ctx("dentist appointment friday"))[0]
+    assert ev.llm_rationale

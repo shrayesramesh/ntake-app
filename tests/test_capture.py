@@ -14,9 +14,13 @@ Auth-protected. Proposals are returned only to the caller (author's device).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import app.main as main
 from app.assistant.base import AssistantClient
 from app.models import Event, WorkItem, WorkItemUpdate
+
+NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
 
 def test_capture_requires_auth(client):
@@ -33,11 +37,11 @@ def test_capture_new_item_persists_nothing_and_proposes(client, session, auth_he
     assert body["item"] is None
     assert session.query(WorkItem).count() == 0
     assert session.query(WorkItemUpdate).count() == 0
-    # The assistant proposed create_work_item (the confirmable "new item" path)
-    # plus the due-date suggestion (fake: 'friday').
+    # New-item capture with no event word / "project" → create_work_item only.
+    # (set_due_date is NOT proposed here — there is no item yet to target.)
     names = [p["name"] for p in body["proposals"]]
     assert "create_work_item" in names
-    assert "set_due_date" in names
+    assert "set_due_date" not in names
 
 
 def test_capture_new_item_proposals_have_no_target(client, auth_headers):
@@ -101,11 +105,23 @@ def test_capture_returns_no_action_proposal_for_untriggered_text(
     assert body["item"] is None
 
 
-def test_capture_proposals_carry_two_summaries(client, auth_headers):
+def test_capture_proposals_carry_two_summaries(client, session, auth_headers):
     """Each proposal has a registry-derived action_summary (ground truth) AND an
-    llm_rationale (model narration) — the task-8 split."""
+    llm_rationale (model narration) — the task-8 split. Uses an existing-item
+    capture, where set_due_date is a valid (fully-defined) proposal."""
+    from app.models import Family, WorkItem
+
+    fam = session.query(Family).filter_by(name="TestFam").one()
+    wi = WorkItem(
+        family_id=fam.id, title="call plumber", created_at=NOW, updated_at=NOW
+    )
+    session.add(wi)
+    session.commit()
+
     body = client.post(
-        "/capture", json={"text": "call plumber friday"}, headers=auth_headers
+        "/capture",
+        json={"text": "he is coming friday", "work_item_id": wi.id},
+        headers=auth_headers,
     ).json()
     due = next(p for p in body["proposals"] if p["name"] == "set_due_date")
     assert "due" in due["action_summary"].lower()
@@ -180,6 +196,44 @@ def test_capture_existing_item_missing_returns_404(client, auth_headers):
 
 
 # --- registry-wide invariant: capture NEVER auto-applies any action ----------
+
+
+def test_capture_new_item_proposals_are_all_executable(client, auth_headers):
+    """Every proposal from a capture must FULLY DEFINE its operation — executable
+    in isolation, no dangling reference to a to-be-created entity (steer):
+
+      * a targeting action (needs_target) references a real target_id, AND
+      * every action's required params are present, AND
+      * no v1 proposal uses target_ref (the reserved v2 dependency hook).
+    """
+    from app.assistant.actions import ACTIONS
+
+    for text in ["soccer game on monday", "dentist appointment monday", "buy milk"]:
+        body = client.post("/capture", json={"text": text}, headers=auth_headers)
+        for p in body.json()["proposals"]:
+            spec = ACTIONS.get(p["name"])
+            assert spec is not None, p["name"]
+            # A work-item target must be concrete; a standalone event is fully
+            # defined by its params (target_type='event', no work-item id needed).
+            if p.get("target_type") == "work_item":
+                assert p["target_id"] is not None, f"{p['name']} ({text})"
+            # Required params fully specify the operation.
+            for key in spec.required:
+                assert p["params"].get(key) not in (None, ""), f"{p['name']}.{key}"
+            # v1 never leaves a dependency dangling via target_ref.
+            assert p.get("target_ref") is None, p["name"]
+
+
+def test_capture_proposals_have_unique_proposal_ids(client, auth_headers):
+    """The engine seam assigns each proposal a stable batch-local proposal_id."""
+    body = client.post(
+        "/capture",
+        json={"text": "dentist appointment monday"},
+        headers=auth_headers,
+    ).json()
+    ids = [p["proposal_id"] for p in body["proposals"]]
+    assert all(ids), "every proposal has a non-empty proposal_id"
+    assert len(ids) == len(set(ids)), "proposal_ids are unique within the batch"
 
 
 def test_capture_never_mutates_across_all_actions(client, session, auth_headers):
