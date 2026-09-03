@@ -118,10 +118,126 @@ rather than hard-coding (v2 nicety; v1's six actions fetch the obvious slice).
   `link` returns ids and a lightweight `deep_fetch` stays. Decide with OQ-1.
 - **OQ-4 — target attachment.** Type-based, ≤1 resolved entity per type for v1;
   multi-entity / `target_ref` chaining is v2.
-- **OQ-5 — JSON schema richness.** Registry `required` alone is too thin (e.g.
-  `create_event`'s timed-vs-all-day **one-of**). Lean: full schema (typed params +
-  one-of) owned by the `ollama/` package, **coverage-tested** against the registry
-  action names — not by bloating `ActionSpec` (engine stays minimal).
+- **OQ-5 — action param schema. RESOLVED (see "Resolved: action param schema"
+  below).** Typed params live **on `ActionSpec`** as `list[Param]` (option B):
+  the engine carries them as plain data (not required-only, not a schema
+  framework), and both validation and the model catalog/prompt derive from them.
+
+## Resolved: action param schema (OQ-5 → option B, typed params on the spec)
+
+The model must cite an action **name** + its **params**. Deriving the param
+contract needs types + optionality + a cross-param one-of — more than the
+current `required: list[str]`. Decision: carry that **on `ActionSpec` as
+`list[Param]`** (single source; validation *and* the model catalog/prompt both
+derive from it), rather than a second catalog in the ollama package.
+
+Authoring style chosen: **lightest engine, verbose authoring** — plain `Param`
+dataclass, no stringly-typed `!` convention, no signature introspection.
+
+```python
+@dataclass(frozen=True)
+class Param:
+    name: str
+    datatype: str        # closed vocab (engine treats as opaque data):
+                         # "string" | "datetime" | "date" | "integer"
+                         # | "array<string>" | "array<integer>" | "object"
+    required: bool = False
+
+
+@dataclass(frozen=True)
+class ActionSpec[ContextT: ActionContext]:
+    name: str                                            # identifier AND registry key
+    description: str = ""                                # human sentence for the model
+    params: list[Param] = field(default_factory=list)
+    exclusive_params: list[list[str]] = field(default_factory=list)  # groups; supply exactly one group (param names)
+    needs_target: bool = True
+    logs: bool = True
+    apply: Handler[ContextT] = None       # type: ignore[assignment]
+    describe: DescribeFn = None            # type: ignore[assignment]
+
+    @property
+    def required(self) -> list[str]:       # derived — single source is params
+        return [p.name for p in self.params if p.required]
+
+    @property
+    def prompt_line(self) -> str:          # renders ITSELF as the LLM menu line
+        parts = [f"{p.name}: {p.datatype}{'' if p.required else '?'}" for p in self.params]
+        params_txt = ", ".join(parts) if parts else "(no params)"
+        line = f"- {self.name}: {self.description} — params: {params_txt}"
+        if self.exclusive_params:
+            groups = " OR ".join(
+                "{" + ", ".join(g) + "}" for g in self.exclusive_params
+            )
+            line += f"  (exactly one of: {groups})"
+        return line
+```
+
+Decisions locked:
+
+- **`datatype`, not `type`** — avoids shadowing the builtin; `datatype` is used
+  throughout our code. The literal JSON-Schema keyword `"type"` appears ONLY at
+  the final schema-emission step in the ollama package.
+- **`name` on the spec IS the registry key.** `register(spec)` uses `spec.name`
+  (drop the separate `name` arg to `register`). No duplication; `prompt_line`
+  needs no argument because `self.name` is present.
+- **`description` kept** (distinct from `name`): the human sentence materially
+  helps a small model; cheap to author.
+- **`required` is a derived property** (single source = `params`); `dispatch` /
+  `require_params` are unchanged (they still read `spec.required`).
+- **`exclusive_params` is separate** (mutually-exclusive param *groups*, supply
+  exactly one group; references param names); the engine ignores it — the ollama
+  schema generator turns it into JSON-Schema `oneOf`. Named for the domain
+  property, not JSON Schema's keyword (same reasoning as `datatype` vs `type`).
+- **`prompt_line` lives on `ActionSpec`** (data renders itself). It formats only
+  its own generic fields — imports nothing app/LLM-specific, so the engine
+  boundary test still holds.
+
+Example authored actions (v1):
+
+```python
+ActionSpec(
+    name="set_due_date",
+    description="Set a work item's due date.",
+    params=[Param("due_at", "datetime", required=True)],
+    apply=_apply_set_due_date, describe=_describe_set_due_date,
+)
+
+ActionSpec(
+    name="create_event",
+    description="Create a calendar event (timed OR all-day).",
+    params=[
+        Param("title", "string", required=True),
+        Param("description", "string"),
+        Param("location", "string"),
+        Param("start_at", "datetime"),
+        Param("end_at", "datetime"),
+        Param("start_date", "date"),
+        Param("end_date", "date"),
+    ],
+    exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
+    apply=_apply_create_event, describe=_describe_create_event,
+)
+```
+
+Entity-target params (`work_item_id`, `event_id`) are NOT params — they are the
+server-attached `target` (opaque to the model). v1 type vocabulary actually
+needed: `string`, `datetime`, `date`, plus the one-of. (`integer`,
+`array<*>`, `object` are pre-shaped for v2 actions — assign, checklist,
+participants.)
+
+**Catalog / prompt** = the registry loop the model reads:
+`"\n".join(spec.prompt_line for spec in registry.all())`. The JSON `format`
+schema (option A output shape) is generated from the same specs: a uniform
+`{actions: [{name: enum[...], params: object}]}`, with params validated against
+each spec's `params`/`exclusive_params` **after** emission (graceful-degrade: drop invalid).
+
+**Implementation order (engine-first, TDD, `make check` green each step):**
+1. Add `Param`; swap `ActionSpec.required` → `params: list[Param]` + derived
+   `required`; add `name`/`description`/`exclusive_params`/`prompt_line`;
+   `register(spec)`
+   keys off `spec.name`. Prove `dispatch`/validation unchanged.
+2. Migrate the six v1 specs to `params=[Param(...)]`.
+3. Catalog/prompt builder + the JSON-schema generator (ollama package).
 
 ## Doc debt
 
