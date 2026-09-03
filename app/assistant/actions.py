@@ -19,11 +19,12 @@ the stable public surface the endpoints and tests use.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import Event, Member, WorkItem, WorkItemUpdate
+from app.models import ChecklistItem, Event, Member, WorkItem, WorkItemUpdate
 
 # Engine (domain-agnostic) — the plugin builds on these.
 from app.routing import (
@@ -112,6 +113,124 @@ def _apply_complete(ctx: NtakeActionContext, params: dict) -> str:
     wi.updated_at = now
     _append_assistant_update(ctx.session, ctx.member, wi.id, "Marked done")
     return "Marked done"
+
+
+def _set_status(ctx: NtakeActionContext, status: str, note: str) -> str:
+    """Shared status-transition handler: set status, log, return the note."""
+    wi = _load_item(ctx.session, ctx.target_id)
+    wi.status = status
+    wi.updated_at = datetime.now(UTC)
+    _append_assistant_update(ctx.session, ctx.member, wi.id, note)
+    return note
+
+
+def _apply_start(ctx: NtakeActionContext, params: dict) -> str:
+    return _set_status(ctx, "doing", "Started work")
+
+
+def _apply_move_to_on_deck(ctx: NtakeActionContext, params: dict) -> str:
+    return _set_status(ctx, "on_deck", "Moved to On deck")
+
+
+def _apply_move_to_todo(ctx: NtakeActionContext, params: dict) -> str:
+    return _set_status(ctx, "todo", "Moved to Todo")
+
+
+def _apply_reopen(ctx: NtakeActionContext, params: dict) -> str:
+    """Reopen a completed item: back to todo and clear completed_at."""
+    wi = _load_item(ctx.session, ctx.target_id)
+    wi.status = "todo"
+    wi.completed_at = None
+    wi.updated_at = datetime.now(UTC)
+    _append_assistant_update(ctx.session, ctx.member, wi.id, "Reopened")
+    return "Reopened"
+
+
+def _apply_assign(ctx: NtakeActionContext, params: dict) -> str:
+    """Assign the work item to a family member.
+
+    ``member_id`` is a context id the model chose; whitelist-validate it belongs
+    to the confirming member's family (else ActionError — the first instance of
+    the validate-a-model-chosen-id pattern).
+    """
+    require_params(params, ["member_id"])
+    wi = _load_item(ctx.session, ctx.target_id)
+    member_id = params["member_id"]
+    assignee = ctx.session.get(Member, member_id)
+    if assignee is None or assignee.family_id != ctx.member.family_id:
+        raise ActionError(f"member not in family: {member_id}")
+    wi.assigned_to = assignee.id
+    wi.updated_at = datetime.now(UTC)
+    note = f"Assigned to {assignee.display_name}"
+    _append_assistant_update(ctx.session, ctx.member, wi.id, note)
+    return note
+
+
+def _apply_reschedule_event(ctx: NtakeActionContext, params: dict) -> str:
+    """Move an existing event to new timing (modify-existing; event-only).
+
+    Updates ONLY the timing fields, keyed by which timing pair was supplied
+    (timed ``start_at``/``end_at`` OR all-day ``start_date``/``end_date``).
+    Event-only: appends NO work-item update.
+    """
+    ev = _load_event(ctx.session, ctx.target_id)
+    if params.get("start_at"):
+        ev.all_day = False
+        ev.start_at = _parse_dt(params["start_at"])
+        ev.end_at = _parse_dt(params["end_at"]) if params.get("end_at") else ev.start_at
+        ev.start_date = ev.end_date = None
+    elif params.get("start_date"):
+        ev.all_day = True
+        ev.start_date = date.fromisoformat(params["start_date"])
+        ev.end_date = (
+            date.fromisoformat(params["end_date"])
+            if params.get("end_date")
+            else ev.start_date
+        )
+        ev.start_at = ev.end_at = None
+    else:
+        raise ActionError("reschedule_event requires a timed or all-day timing pair")
+    ev.updated_at = datetime.now(UTC)
+    return f"Rescheduled event “{ev.title}”"
+
+
+def _apply_archive_work_item(ctx: NtakeActionContext, params: dict) -> str:
+    """Archive a work item. Invariant (GROOM-4): only a ``done`` item may be
+    archived — else ActionError."""
+    wi = _load_item(ctx.session, ctx.target_id)
+    if wi.status != "done":
+        raise ActionError("only a done work item may be archived")
+    now = datetime.now(UTC)
+    wi.archived_at = now
+    wi.updated_at = now
+    _append_assistant_update(ctx.session, ctx.member, wi.id, "Archived")
+    return "Archived"
+
+
+def _apply_add_checklist_items(ctx: NtakeActionContext, params: dict) -> str:
+    """Insert checklist items (grocery-list style) onto the target work item.
+
+    v1 add-only: takes ``items: [str]`` and appends rows after the current max
+    position. (check/uncheck/remove — which need by-name/by-id addressing — are
+    deferred.)
+    """
+    require_params(params, ["items"])
+    items = params["items"]
+    if not isinstance(items, list) or not items:
+        raise ActionError("items must be a non-empty list of strings")
+    wi = _load_item(ctx.session, ctx.target_id)
+    start_pos = (
+        ctx.session.query(func.max(ChecklistItem.position))
+        .filter(ChecklistItem.work_item_id == wi.id)
+        .scalar()
+    )
+    pos = (start_pos or 0) + 1
+    for text in items:
+        ctx.session.add(ChecklistItem(work_item_id=wi.id, text=str(text), position=pos))
+        pos += 1
+    note = f"Added {len(items)} checklist item(s)"
+    _append_assistant_update(ctx.session, ctx.member, wi.id, note)
+    return note
 
 
 def _apply_create_event(ctx: NtakeActionContext, params: dict) -> str:
@@ -215,6 +334,43 @@ def _describe_complete(params: dict) -> str:
     return "Mark the work item done"
 
 
+def _describe_start(params: dict) -> str:
+    return "Start work on the item (move to Doing)"
+
+
+def _describe_move_to_on_deck(params: dict) -> str:
+    return "Move the item to On deck"
+
+
+def _describe_move_to_todo(params: dict) -> str:
+    return "Move the item to Todo"
+
+
+def _describe_reopen(params: dict) -> str:
+    return "Reopen the item (back to Todo)"
+
+
+def _describe_assign(params: dict) -> str:
+    mid = params.get("member_id")
+    return f"Assign the item to member {mid}" if mid else "Assign the item"
+
+
+def _describe_reschedule_event(params: dict) -> str:
+    when = params.get("start_at") or params.get("start_date")
+    return f"Reschedule the event to {when}" if when else "Reschedule the event"
+
+
+def _describe_archive(params: dict) -> str:
+    return "Archive the (done) work item"
+
+
+def _describe_add_checklist_items(params: dict) -> str:
+    items = params.get("items")
+    if isinstance(items, list) and items:
+        return f"Add checklist items: {', '.join(str(i) for i in items)}"
+    return "Add checklist items"
+
+
 def _describe_create_event(params: dict) -> str:
     title = params.get("title")
     when = params.get("start_at") or params.get("start_date")
@@ -258,6 +414,50 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         apply=_apply_complete,
         describe=_describe_complete,
     ),
+    "start_work_item": ActionSpec(
+        name="start_work_item",
+        description="Start work on an item (move it to Doing).",
+        apply=_apply_start,
+        describe=_describe_start,
+    ),
+    "move_to_on_deck": ActionSpec(
+        name="move_to_on_deck",
+        description="Move a work item to On deck (queued up next).",
+        apply=_apply_move_to_on_deck,
+        describe=_describe_move_to_on_deck,
+    ),
+    "move_to_todo": ActionSpec(
+        name="move_to_todo",
+        description="Move a work item back to Todo.",
+        apply=_apply_move_to_todo,
+        describe=_describe_move_to_todo,
+    ),
+    "reopen_work_item": ActionSpec(
+        name="reopen_work_item",
+        description="Reopen a completed item (back to Todo; clears completion).",
+        apply=_apply_reopen,
+        describe=_describe_reopen,
+    ),
+    "assign_work_item": ActionSpec(
+        name="assign_work_item",
+        description="Assign a work item to a family member.",
+        params=[Param("member_id", "integer", required=True)],
+        apply=_apply_assign,
+        describe=_describe_assign,
+    ),
+    "archive_work_item": ActionSpec(
+        name="archive_work_item",
+        description="Archive a work item (only a done item may be archived).",
+        apply=_apply_archive_work_item,
+        describe=_describe_archive,
+    ),
+    "add_checklist_items": ActionSpec(
+        name="add_checklist_items",
+        description="Add checklist items (e.g. a grocery list) to a work item.",
+        params=[Param("items", "array<string>", required=True)],
+        apply=_apply_add_checklist_items,
+        describe=_describe_add_checklist_items,
+    ),
     "create_event": ActionSpec(
         name="create_event",
         description="Create a calendar event (timed OR all-day).",
@@ -273,6 +473,22 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
         apply=_apply_create_event,
         describe=_describe_create_event,
+    ),
+    "reschedule_event": ActionSpec(
+        name="reschedule_event",
+        description="Move an existing event to new timing (timed OR all-day).",
+        params=[
+            Param("start_at", "datetime"),
+            Param("end_at", "datetime"),
+            Param("start_date", "date"),
+            Param("end_date", "date"),
+        ],
+        exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
+        # Targets an existing event; event-only so it appends NO work-item update.
+        needs_target=True,
+        logs=False,
+        apply=_apply_reschedule_event,
+        describe=_describe_reschedule_event,
     ),
     "create_work_item": ActionSpec(
         name="create_work_item",
