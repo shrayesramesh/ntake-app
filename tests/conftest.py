@@ -153,3 +153,76 @@ def seeded_events(session, event_factory):
         fam.id, title="Seeded all-day", all_day=True, start_date=date(2026, 9, 5)
     )
     return [timed, all_day]
+
+
+@pytest.fixture()
+def populated_family(session, event_factory):
+    """A realistically-seeded family for world-view / assistant tests.
+
+    Seeds real rows so downstream tests build the world view from *actual seeded
+    content* via ``build_world_view`` — not a hand-mocked string that could drift
+    from what the queries yield. Covers the cases the world view cares about:
+    two members (adult + child), work items spanning statuses **including one
+    ``done`` and one ``archived``** (to exercise done-included / archived-excluded),
+    and events **inside and outside** the default 7-day window plus an all-day one.
+
+    Returns a small bundle (``.now`` is the reference clock the window is relative
+    to; ids let a test assert against known targets, e.g. that the world view can
+    target work item ``w<items['doing']>``):
+
+        {family, now, tz, members: {name: id}, items: {key: id}, events: {key: id}}
+    """
+    from datetime import UTC, date, datetime
+    from types import SimpleNamespace
+
+    from app.models import Family, Member, WorkItem
+
+    # Reference "now": Thu 2026-09-03 12:00 UTC = 08:00 America/New_York.
+    now = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)
+    tz = "America/New_York"
+
+    fam = Family(name="PopulatedFam", timezone=tz)
+    session.add(fam)
+    session.commit()
+
+    members: dict[str, int] = {}
+    for name, role in (("Alex", "adult"), ("Sam", "child")):
+        m = Member(family_id=fam.id, display_name=name, role=role, created_at=now)
+        session.add(m)
+        session.commit()
+        members[name] = m.id
+
+    items: dict[str, int] = {}
+    specs = [
+        ("todo", {"title": "buy stamps", "status": "todo"}),
+        ("doing", {"title": "call plumber", "status": "doing"}),
+        ("done", {"title": "file taxes", "status": "done", "completed_at": now}),
+        (
+            "archived",
+            {"title": "old chore", "status": "done", "archived_at": now},
+        ),
+    ]
+    for key, kw in specs:
+        wi = WorkItem(family_id=fam.id, created_at=now, updated_at=now, **kw)
+        session.add(wi)
+        session.commit()
+        items[key] = wi.id
+
+    events: dict[str, int] = {}
+    # in-window (2 days ago), out-of-window (30 days ago), future, and all-day.
+    events["recent"] = event_factory(
+        fam.id, title="Soccer", start_at=datetime(2026, 9, 1, 19, 0, tzinfo=UTC)
+    ).id
+    events["old"] = event_factory(
+        fam.id, title="Old picnic", start_at=datetime(2026, 8, 4, 19, 0, tzinfo=UTC)
+    ).id
+    events["future"] = event_factory(
+        fam.id, title="Dentist", start_at=datetime(2026, 12, 1, 19, 0, tzinfo=UTC)
+    ).id
+    events["all_day"] = event_factory(
+        fam.id, title="Holiday", all_day=True, start_date=date(2026, 9, 5)
+    ).id
+
+    return SimpleNamespace(
+        family=fam, now=now, tz=tz, members=members, items=items, events=events
+    )

@@ -266,3 +266,20 @@ def test_fmt_event_naive_start_at_treated_as_utc():
     )
     line = _fmt_event(row, TZ)
     assert "3:00" in line and "4:00" in line
+
+
+# --- the populated_family fixture: real seeded content -> real world view -
+
+
+def test_populated_family_world_view_reflects_seeded_content(session, populated_family):
+    p = populated_family
+    out = build_world_view(session, p.family.id, p.now, p.tz)
+
+    # members
+    assert "Alex" in out and "Sam" in out
+    # work items: done included, archived excluded
+    assert "call plumber" in out and "file taxes" in out
+    assert "old chore" not in out
+    # events: in-window + future + all-day present, out-of-window absent
+    assert "Soccer" in out and "Dentist" in out and "Holiday" in out
+    assert "Old picnic" not in out
