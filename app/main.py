@@ -15,18 +15,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import urllib.parse
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 import app.db as db
 from app import __version__
-from app.auth import current_member
+from app.auth import current_member, current_member_stream
 from app.config import config_path, load_config, seed_from_config
 from app.db import SessionLocal, get_session, init_schema, register_change_events
 from app.event_emitter import InProcessEmitter
@@ -39,6 +41,7 @@ from app.schemas import (
     WorkItemUpdateCreate,
     WorkItemUpdateRead,
 )
+from app.web import SHELL_PAGE, render_board
 
 
 @asynccontextmanager
@@ -120,7 +123,7 @@ def subscribe(emitter: InProcessEmitter) -> tuple[asyncio.Queue, Callable[[], No
 
 @app.get("/events/stream")
 async def events_stream(
-    _member: Member = Depends(current_member),
+    _member: Member = Depends(current_member_stream),
 ) -> EventSourceResponse:
     """Server-Sent Events stream of change notifications (checkpoint 1e).
 
@@ -251,6 +254,20 @@ def append_update(
 BOARD_COLUMNS = ["todo", "on_deck", "doing", "done"]
 
 
+def _board_columns(session: Session) -> dict[str, list[WorkItem]]:
+    """Group non-archived work items into the 4 fixed columns, ordered."""
+    columns: dict[str, list[WorkItem]] = {col: [] for col in BOARD_COLUMNS}
+    items = session.scalars(
+        select(WorkItem)
+        .where(WorkItem.archived_at.is_(None))
+        .order_by(WorkItem.position, WorkItem.id)
+    ).all()
+    for wi in items:
+        if wi.status in columns:
+            columns[wi.status].append(wi)
+    return columns
+
+
 @app.get("/board", response_model=dict[str, list[WorkItemRead]])
 def get_board(
     session: Session = Depends(get_session),
@@ -261,13 +278,57 @@ def get_board(
     Ordered within each column by ``position`` then ``id``. No archive/move
     actions here (GROOM is deferred); updates flow via the Phase 4 capture loop.
     """
-    board: dict[str, list[WorkItemRead]] = {col: [] for col in BOARD_COLUMNS}
-    items = session.scalars(
-        select(WorkItem)
-        .where(WorkItem.archived_at.is_(None))
-        .order_by(WorkItem.position, WorkItem.id)
-    ).all()
-    for wi in items:
-        if wi.status in board:
-            board[wi.status].append(_work_item_detail(session, wi))
-    return board
+    return {
+        col: [_work_item_detail(session, wi) for wi in items]
+        for col, items in _board_columns(session).items()
+    }
+
+
+# --- Thin HTMX front end (Phase 3 task 6) --------------------------------
+
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> str:
+    """The shell page: token entry + free-text capture + board container."""
+    return SHELL_PAGE
+
+
+@app.get("/board/view", response_class=HTMLResponse)
+def board_view(
+    session: Session = Depends(get_session),
+    _member: Member = Depends(current_member),
+) -> str:
+    """Read-only board as an HTML fragment (HTMX swaps it; SSE triggers reload)."""
+    return render_board(_board_columns(session))
+
+
+@app.post("/work-items/capture", response_class=HTMLResponse)
+async def capture(
+    request: Request,
+    session: Session = Depends(get_session),
+    member: Member = Depends(current_member),
+) -> str:
+    """Free-text capture — the ONLY write control in the UI.
+
+    Accepts a form-encoded ``title`` (what the HTMX form posts, no JSON gymnastics
+    and no python-multipart dependency: we parse the urlencoded body directly).
+    The text becomes the item title for now; the Phase 4 assistant will split
+    title/body/tags. Returns the refreshed board fragment so HTMX swaps it.
+    """
+    raw = (await request.body()).decode()
+    fields = urllib.parse.parse_qs(raw)
+    title = (fields.get("title", [""])[0]).strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="title is required")
+
+    now = datetime.now(UTC)
+    session.add(
+        WorkItem(
+            family_id=member.family_id,
+            title=title,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.commit()  # publishes {work_items, id, create} via the seam -> SSE
+    return render_board(_board_columns(session))

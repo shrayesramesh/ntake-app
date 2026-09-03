@@ -92,3 +92,45 @@ def test_events_rejects_token_whose_member_was_removed(client, session):
 
     r = client.get("/events", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 401
+
+
+def test_stream_auth_accepts_query_token(session, monkeypatch):
+    """EventSource can't send headers, so stream auth accepts ?token= too.
+
+    Tested at the dependency level: a live 200 SSE stream can't be read through
+    the TestClient (the infinite generator blocks), so we exercise the auth unit
+    directly rather than the socket.
+    """
+    from app.auth import current_member_stream
+
+    monkeypatch.setenv("NTAKE_TOKEN_SECRET", SECRET)
+    token = _enroll(session)
+    member = current_member_stream(authorization=None, token=token, session=session)
+    assert member is not None
+
+
+def test_stream_auth_accepts_header(session, monkeypatch):
+    from app.auth import current_member_stream
+
+    monkeypatch.setenv("NTAKE_TOKEN_SECRET", SECRET)
+    token = _enroll(session)
+    member = current_member_stream(
+        authorization=f"Bearer {token}", token=None, session=session
+    )
+    assert member is not None
+
+
+def test_stream_auth_rejects_missing_and_bad(session, monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+
+    from app.auth import current_member_stream
+    from app.tokens import generate_token
+
+    monkeypatch.setenv("NTAKE_TOKEN_SECRET", SECRET)
+    with pytest.raises(HTTPException):
+        current_member_stream(authorization=None, token=None, session=session)
+    with pytest.raises(HTTPException):
+        current_member_stream(
+            authorization=None, token=generate_token(), session=session
+        )

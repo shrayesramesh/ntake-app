@@ -21,7 +21,7 @@ SRC  := app tests
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup test run lint format typecheck check freeze clean
+.PHONY: help setup test run lint format typecheck check coverage smoke freeze clean
 
 help: ## Show available targets
 	@echo "Targets:"
@@ -57,6 +57,10 @@ typecheck: ## Static type check (mypy)
 coverage: ## Run tests with coverage report (terminal, shows missing lines)
 	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
 	$(PYTEST) -W ignore --cov=app --cov-report=term-missing
+
+smoke: ## Host integration smoke (real server, temp DB, self-cleaning). --serve via script
+	@test -x $(PY) || { echo "No venv found — run 'make setup' first."; exit 1; }
+	$(PY) scripts/integration_smoke_on_host.py
 
 check: ## Everything gate: lint + typecheck + coverage-enforced tests
 	@$(MAKE) lint
