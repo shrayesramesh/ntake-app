@@ -108,3 +108,11 @@ class CaptureResponse(BaseModel):
 
     item: WorkItemRead
     proposals: list[ProposalRead] = []
+
+
+class ConfirmAction(BaseModel):
+    """A proposed action the client sends back to confirm & apply."""
+
+    name: str
+    params: dict = {}
+    target_id: int | None = None

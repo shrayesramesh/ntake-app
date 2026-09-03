@@ -30,6 +30,7 @@ from sse_starlette.sse import EventSourceResponse
 
 import app.db as db
 from app import __version__
+from app.assistant.actions import ActionError, apply_action
 from app.assistant.base import CaptureContext
 from app.assistant.factory import get_assistant
 from app.auth import current_member, current_member_stream
@@ -48,6 +49,7 @@ from app.schemas import (
     CaptureCreate,
     CaptureResponse,
     ChecklistItemRead,
+    ConfirmAction,
     EventRead,
     ProposalRead,
     WorkItemCreate,
@@ -419,3 +421,27 @@ def capture_with_proposals(
     )
     proposals = _propose_bounded(ctx)
     return CaptureResponse(item=_work_item_detail(session, item), proposals=proposals)
+
+
+@app.post("/actions/confirm")
+def confirm_action(
+    payload: ConfirmAction,
+    session: Session = Depends(get_session),
+    member: Member = Depends(current_member),
+) -> dict:
+    """Apply a confirmed proposed action (propose-and-confirm; ASSIST-2).
+
+    The client sends back the chosen action object (proposals aren't persisted).
+    We validate + apply via the registry — which mutates AND appends a
+    source=assistant update authored by the confirming member — then commit so
+    the change publishes via the seam -> SSE. Dismiss needs no call. Invalid
+    actions (unknown / missing params / bad target) -> 422.
+    """
+    try:
+        summary = apply_action(
+            session, member, payload.name, payload.target_id, payload.params
+        )
+    except ActionError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    session.commit()  # one commit -> one seam publish -> SSE
+    return {"applied": payload.name, "summary": summary}
