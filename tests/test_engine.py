@@ -19,6 +19,7 @@ from app.routing import (
     ActionRegistry,
     ActionSpec,
     NullAssistant,
+    Param,
     ProposedAction,
     propose_bounded,
 )
@@ -50,30 +51,28 @@ def test_engine_does_not_import_app_specific_modules():
 
 
 def _registry() -> ActionRegistry:
-    reg = ActionRegistry()
-
     def _apply_echo(context, params) -> str:
         # context is opaque to the engine; here it's just a dict the test injects.
         return f"echo {params['msg']} for {context['who']}"
 
-    reg.register(
-        "echo",
-        ActionSpec(
-            required=["msg"],
-            apply=_apply_echo,
-            describe=lambda p: f"Echo {p.get('msg', '?')}",
-        ),
+    return ActionRegistry(
+        [
+            ActionSpec(
+                name="echo",
+                description="Echo a message.",
+                params=[Param("msg", "string", required=True)],
+                apply=_apply_echo,
+                describe=lambda p: f"Echo {p.get('msg', '?')}",
+            ),
+            ActionSpec(
+                name="noop",
+                needs_target=False,
+                logs=False,
+                apply=lambda c, p: "ok",
+                describe=lambda p: "Do nothing",
+            ),
+        ]
     )
-    reg.register(
-        "noop",
-        ActionSpec(
-            needs_target=False,
-            logs=False,
-            apply=lambda c, p: "ok",
-            describe=lambda p: "Do nothing",
-        ),
-    )
-    return reg
 
 
 def test_dispatch_validates_and_calls_handler_with_opaque_context():
@@ -109,6 +108,85 @@ def test_registry_get_returns_spec_or_none():
     reg = _registry()
     assert reg.get("echo") is not None
     assert reg.get("nope") is None
+
+
+# --- Param + ActionSpec: derived required, prompt_line, registry.all() -----
+
+
+def test_required_is_derived_from_params():
+    spec = ActionSpec(
+        name="x",
+        params=[
+            Param("a", "string", required=True),
+            Param("b", "string"),  # optional
+            Param("c", "datetime", required=True),
+        ],
+    )
+    assert spec.required == ["a", "c"]  # order preserved; optionals excluded
+
+
+def test_registry_built_from_flat_list_keys_by_spec_name():
+    reg = ActionRegistry(
+        [
+            ActionSpec(name="solo", apply=lambda c, p: "ok"),
+            ActionSpec(name="duo", apply=lambda c, p: "ok"),
+        ]
+    )
+    assert reg.get("solo") is not None and reg.get("duo") is not None
+    assert set(reg.names()) == {"solo", "duo"}
+
+
+def test_registry_all_returns_specs_in_registration_order():
+    reg = _registry()
+    names = [s.name for s in reg.all()]
+    assert names == ["echo", "noop"]
+
+
+def test_prompt_line_renders_name_description_and_params():
+    spec = ActionSpec(
+        name="set_due_date",
+        description="Set a work item's due date.",
+        params=[Param("due_at", "datetime", required=True)],
+    )
+    line = spec.prompt_line
+    assert line == (
+        "- set_due_date: Set a work item's due date. — params: due_at: datetime"
+    )
+
+
+def test_prompt_line_marks_optional_params_with_question_mark():
+    spec = ActionSpec(
+        name="create_work_item",
+        description="Create a work item.",
+        params=[
+            Param("title", "string", required=True),
+            Param("description", "string"),
+        ],
+    )
+    line = spec.prompt_line
+    assert "title: string" in line
+    assert "description: string?" in line  # optional marked
+
+
+def test_prompt_line_no_params():
+    spec = ActionSpec(name="no_action", description="Nothing to suggest.")
+    assert spec.prompt_line == "- no_action: Nothing to suggest. — params: (no params)"
+
+
+def test_prompt_line_renders_exclusive_params_clause():
+    spec = ActionSpec(
+        name="create_event",
+        description="Create an event.",
+        params=[
+            Param("start_at", "datetime"),
+            Param("end_at", "datetime"),
+            Param("start_date", "date"),
+            Param("end_date", "date"),
+        ],
+        exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
+    )
+    line = spec.prompt_line
+    assert "(exactly one of: {start_at, end_at} OR {start_date, end_date})" in line
 
 
 # --- ProposedAction is a plain domain-free record -------------------------

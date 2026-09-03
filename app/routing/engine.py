@@ -94,16 +94,68 @@ class ActionError(Exception):
 
 
 @dataclass(frozen=True)
+class Param:
+    """One action parameter: its name, value type, and whether it's required.
+
+    ``datatype`` is a closed vocabulary the *tools view* / JSON-schema generator
+    interprets — the engine treats it as opaque data. Values: ``"string"``,
+    ``"datetime"``, ``"date"``, ``"integer"``, ``"array<string>"``,
+    ``"array<integer>"``, ``"object"``. (Named ``datatype`` to avoid shadowing the
+    builtin ``type``; the literal JSON-Schema keyword ``"type"`` appears only at
+    schema emission.)
+    """
+
+    name: str
+    datatype: str
+    required: bool = False
+
+
+@dataclass(frozen=True)
 class ActionSpec[ContextT: ActionContext]:
-    """A registered action: its param contract, flags, describe, and handler.
+    """A registered action: identifier, human description, typed param contract,
+    flags, describe, and handler. Parameterized by the plugin's context type so
+    ``apply`` is fully typed.
 
-    Parameterized by the plugin's context type so ``apply`` is fully typed."""
+    ``name`` is the identifier AND the registry key (``register(spec)`` keys off
+    it). ``params`` is the single source of the param contract — ``required`` is
+    derived from it. ``exclusive_params`` holds mutually-exclusive param *groups*
+    (supply exactly one group; references param names) — the one cross-param
+    constraint a flat ``params`` list can't express (e.g. create_event's
+    timed-vs-all-day). ``description`` is the human sentence shown to the model.
+    """
 
-    required: list[str] = field(default_factory=list)
+    name: str = ""
+    description: str = ""
+    params: list[Param] = field(default_factory=list)
+    exclusive_params: list[list[str]] = field(default_factory=list)
     needs_target: bool = True  # operates on an existing entity?
     logs: bool = True  # appends a source=assistant log entry on apply?
     apply: Handler[ContextT] = None  # type: ignore[assignment]
     describe: DescribeFn = None  # type: ignore[assignment]
+
+    @property
+    def required(self) -> list[str]:
+        """The required param names — derived; ``params`` is the single source."""
+        return [p.name for p in self.params if p.required]
+
+    @property
+    def prompt_line(self) -> str:
+        """This action rendered as one free-text line for the LLM tools view.
+
+        Renders ALL params (the model needs the optional ones too), marking
+        optional with ``?``, plus the exclusive-group clause when present.
+        """
+        parts = [
+            f"{p.name}: {p.datatype}{'' if p.required else '?'}" for p in self.params
+        ]
+        params_txt = ", ".join(parts) if parts else "(no params)"
+        line = f"- {self.name}: {self.description} — params: {params_txt}"
+        if self.exclusive_params:
+            groups = " OR ".join(
+                "{" + ", ".join(g) + "}" for g in self.exclusive_params
+            )
+            line += f"  (exactly one of: {groups})"
+        return line
 
 
 def require_params(params: dict, keys: list[str]) -> None:
@@ -114,23 +166,30 @@ def require_params(params: dict, keys: list[str]) -> None:
 
 
 class ActionRegistry[ContextT: ActionContext]:
-    """A name → ActionSpec registry with validate + dispatch + describe.
+    """A name → ActionSpec lookup with validate + dispatch + describe.
 
-    Parameterized by the plugin's context type: the app registers its actions and
+    Built from a flat list of specs (the config); no imperative registration.
+    Parameterized by the plugin's context type: the app supplies its actions and
     injects a ``ContextT`` at dispatch time. Reusable across projects.
     """
 
-    def __init__(self) -> None:
-        self._actions: dict[str, ActionSpec[ContextT]] = {}
-
-    def register(self, name: str, spec: ActionSpec[ContextT]) -> None:
-        self._actions[name] = spec
+    def __init__(self, specs: list[ActionSpec[ContextT]] | None = None) -> None:
+        """Build the name→spec map from a flat list of specs (keyed by
+        ``spec.name``). The specs ARE the config; there is no imperative
+        registration step."""
+        self._actions: dict[str, ActionSpec[ContextT]] = {
+            s.name: s for s in (specs or [])
+        }
 
     def get(self, name: str) -> ActionSpec[ContextT] | None:
         return self._actions.get(name)
 
     def names(self) -> list[str]:
         return list(self._actions)
+
+    def all(self) -> list[ActionSpec[ContextT]]:
+        """All specs, in config order (for the tools view)."""
+        return list(self._actions.values())
 
     def describe(self, name: str, params: dict) -> str:
         """The deterministic action_summary for ``name`` + ``params``.

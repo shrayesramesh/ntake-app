@@ -31,6 +31,7 @@ from app.routing import (
     ActionError,
     ActionRegistry,
     ActionSpec,
+    Param,
     require_params,
 )
 
@@ -238,35 +239,64 @@ def _describe_deconflict(params: dict) -> str:
 
 
 # The ntake action set (spec/ASSISTANT_ACTIONS.md, v1). A plain dict of engine
-# ActionSpecs — kept public as ``ACTIONS`` for callers/tests — registered into an
-# engine ActionRegistry below.
+# The ntake action set (spec/ASSISTANT_ACTIONS.md, v1). A name→spec dict kept
+# public as ``ACTIONS`` for callers/tests; the engine ActionRegistry is built
+# from its values (the flat spec list is the config — no imperative registration).
+# Each spec's ``name`` is the identifier the model emits and the registry keys on;
+# the dict key mirrors it for lookup ergonomics.
 ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
     "set_due_date": ActionSpec(
-        required=["due_at"],
+        name="set_due_date",
+        description="Set a work item's due date.",
+        params=[Param("due_at", "datetime", required=True)],
         apply=_apply_set_due_date,
         describe=_describe_set_due_date,
     ),
     "complete_work_item": ActionSpec(
-        apply=_apply_complete, describe=_describe_complete
+        name="complete_work_item",
+        description="Mark a work item done.",
+        apply=_apply_complete,
+        describe=_describe_complete,
     ),
     "create_event": ActionSpec(
-        required=["title"],
+        name="create_event",
+        description="Create a calendar event (timed OR all-day).",
+        params=[
+            Param("title", "string", required=True),
+            Param("description", "string"),
+            Param("location", "string"),
+            Param("start_at", "datetime"),
+            Param("end_at", "datetime"),
+            Param("start_date", "date"),
+            Param("end_date", "date"),
+        ],
+        exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
         apply=_apply_create_event,
         describe=_describe_create_event,
     ),
     "create_work_item": ActionSpec(
-        required=["title"],
+        name="create_work_item",
+        description="Create a new work item (a task/todo).",
+        params=[
+            Param("title", "string", required=True),
+            Param("description", "string"),
+            Param("tags", "array<string>"),
+        ],
         needs_target=False,
         apply=_apply_create_work_item,
         describe=_describe_create_work_item,
     ),
     "no_action": ActionSpec(
+        name="no_action",
+        description="Nothing to suggest.",
         needs_target=False,
         logs=False,
         apply=_apply_no_action,
         describe=_describe_no_action,
     ),
     "deconflict_events": ActionSpec(
+        name="deconflict_events",
+        description="Move an event to the next day to resolve a same-time conflict.",
         # Targets an existing event; event-only so it appends NO work-item update.
         needs_target=True,
         logs=False,
@@ -275,10 +305,8 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
     ),
 }
 
-# The engine registry instance the app dispatches through.
-REGISTRY: ActionRegistry[NtakeActionContext] = ActionRegistry()
-for _name, _spec in ACTIONS.items():
-    REGISTRY.register(_name, _spec)
+# The engine registry the app dispatches through — built from the flat spec list.
+REGISTRY: ActionRegistry[NtakeActionContext] = ActionRegistry(list(ACTIONS.values()))
 
 
 def apply_action(
