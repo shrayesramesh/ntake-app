@@ -33,11 +33,19 @@
   `reschedule_event` (modify-existing event), `create_work_item`, `no_action`,
   `deconflict_events`.
 - **The two prompt views (built + full-string snapshot tested):**
-  `build_world_view(session, family_id, now, tz)` (`app/assistant/world.py`) —
-  "state of the world" (members, non-archived items, windowed events, ids inline,
-  family-tz times); and `build_tools_view(registry)` (`app/assistant/tools.py`) —
-  the LLM tool menu, one `spec.prompt_line` per action. Vocabulary: actions =
-  execute (internal), tools = present-to-LLM.
+  `build_world_view(session, family_id, now, tz, *, window_days=7)`
+  (`app/assistant/world.py`) — "state of the world": all members, **non-archived**
+  work items (done INCLUDED, archived EXCLUDED), events in `[now − window_days, ∞)`
+  rendered in family tz (date+time, start+end), ids inline as `[m#]/[w#]/[e#]`.
+  And `build_tools_view(registry)` (`app/assistant/tools.py`) — the LLM tool menu,
+  one `spec.prompt_line` per action. Vocabulary: actions = execute (internal),
+  tools = present-to-LLM. (The richer `WorldView`/`FocusedContext` shapes for the
+  full pipeline are designed in the LLD, not all built yet.)
+- **Test infra:** `conftest.py` has seeding factories
+  (`family_factory`/`member_factory`/`work_item_factory`/`event_factory`) +
+  composites (`fam_member`, `fam_member_item`, `populated_family` — real seeded
+  content → real `build_world_view`). Use these, not per-file seed helpers. The
+  new actions have confirm-endpoint integration tests in `test_confirm.py`.
 - **Capture** is propose-only and always new (`work_item_id=None` in v1). Each
   proposal carries a registry-derived `action_summary` (ground truth) +
   `llm_rationale` (the model's account — the fake passes the focused context
@@ -65,6 +73,27 @@
   `NTAKE_RESOLVER`). Revisit only if we need to mix stages for debugging.
 - **Q2 — no shim.** The old module-level `focus()` was removed; callers go through
   `get_capture_resolver().focus(...)`.
+- **Engine/vocabulary decisions (this session).** "Actions" = what we execute
+  (internal: `ActionSpec`/`ActionRegistry`/`ProposedAction`); "tools" = how they're
+  presented to the LLM (`build_tools_view`, the JSON schema). Param contract is
+  **typed data on the spec** (`list[Param]`, `datatype` not `type`,
+  `exclusive_params` not `one_of`) — lightest-engine/verbose-authoring, no
+  stringly-typed markers or introspection. `ActionRegistry` is built from a **flat
+  list** (no `register()`); `ActionSpec.execute()` owns validate+apply. Dropped the
+  `app/routing/__init__` re-export facade (import from `app.routing.engine`).
+
+## Deferred / considered-and-parked (don't re-debate)
+
+- **`FocusedContext.as_text` / `ActionRegistry.as_text`** (render-as-property):
+  discussed, **parked**. The registry one is entangled with the actions-vs-tools
+  boundary (the "AVAILABLE TOOLS:" header is LLM-vocab that shouldn't live on the
+  domain-agnostic engine) — revisit only if it clearly pays off.
+- **Checklist check/uncheck/remove/reorder** — deferred; they need by-name/by-id
+  addressing + checklist items surfaced in context. Only `add_checklist_items` is
+  built.
+- **Board grooming UI** (manual archive/unarchive) — Phase 5.
+- **`unassign_work_item`** and the other v2/deferred registry rows — pre-shaped
+  slots; add by registering a spec (no flow rework).
 
 ## FakeAssistant trigger vocabulary (for smoke/manual testing)
 
@@ -91,17 +120,33 @@ app/assistant/ollama/
 │                 #   the registered actions (names + params). No prompt/domain logic.
 ├── assistant.py  # OllamaAssistant[FocusedContext] (stage 2): build prompt+schema,
 │                 #   call client, parse -> [ProposedAction]
-├── resolver.py   # OllamaCaptureResolver (stage 1): the real focus() — resolve a
-│                 #   target work item (work_item_id becomes non-None), plan lookups,
-│                 #   write a genuine llm_rationale (replacing the fake pass-through)
+├── resolver.py   # OllamaCaptureResolver (stage 1) — SEE OQ-1 FIRST. Late in this
+│                 #   session we leaned toward keeping stage-1 focus() DETERMINISTIC
+│                 #   for v1 (no stage-1 LLM; semantic text→target linking is v2),
+│                 #   which collapses the pipeline toward ONE LLM call (propose).
+│                 #   Decide OQ-1 before building this — it may be deferred to v2.
 ├── prompt.py     # system + context prompt templates for both stages
 └── infra.py      # host mgmt: health/pull (install stays a documented human step)
 ```
 
+> **⚠ OQ-1 / pipeline shape — decide before writing Ollama code.** The stage
+> layout above (a separate LLM resolver) predates the LLD debate. Current lean:
+> **stage 1 (`focus()`) stays deterministic in v1** — `build_world_view` gathers
+> ambient state, `propose()` is the single LLM call reasoning over
+> world-view + tools-view + raw text. Whether the model emits target ids
+> (whitelisted against context) vs. code attaches them, and whether there's one
+> LLM call or two, is unresolved. Read `spec/LLD-assistant-pipeline.md` OQ-1..OQ-5
+> and settle it first; the sub-package layout may shrink (no `resolver.py` LLM in
+> v1).
+
 - **Config:** `NTAKE_ASSISTANT=ollama`, `NTAKE_ASSISTANT_MODEL` (default
   `llama3.1:8b`), `NTAKE_OLLAMA_URL` (default `http://localhost:11434`),
-  `NTAKE_ASSISTANT_TIMEOUT` (default 4.0). Wire the `ollama` branch in both
-  factory functions (currently both fall back to the fake).
+  `NTAKE_ASSISTANT_TIMEOUT` (currently 4.0 — set for the fake). Wire the `ollama`
+  branch in both factory functions (currently both fall back to the fake).
+  **⚠ Cold start:** a local model's *first* call after idle takes ~10–30s to load
+  into VRAM; 4.0s would guarantee a cold-miss → graceful-degrade to `[]`. Give the
+  ollama path its own larger timeout, and/or `keep_alive` + a startup warm ping in
+  `infra.py`. Decide the value against real host measurement.
 - **Prompt:** system (role + available actions/params, "propose only from these;
   use no_action; dates in family tz") + context (now, tz, item log, calendar
   window) + raw text. Non-thinking model → no `<think>` stripping.
@@ -129,7 +174,9 @@ functional design + open questions (incl. OQ-1 pipeline shape / the 2-call goal)
 - **Integration coverage (real-stack) gaps** worth closing in the smoke script:
   (1) confirm a **standalone `create_event`** over real HTTP → shows in
   `/calendar/view`, no work item; (2) **`deconflict_events`** end-to-end;
-  (3) SSE-triggered calendar refresh.
+  (3) SSE-triggered calendar refresh. (Note: `scripts/integration_smoke_on_host.py`
+  still exercises the older `{"text":…, "work_item_id":…}` capture shape in its
+  assistant check — verify/adjust against the current `/capture` contract.)
 - **Double-confirm semantics:** proposals aren't persisted, so confirming twice
   re-applies (deconflict → +2 days). Accepted for v1; document if it surfaces.
 - **GROOM board UI** — the board is read-only today (no archive/unarchive UI).
