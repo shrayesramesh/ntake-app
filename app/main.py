@@ -29,9 +29,8 @@ from sse_starlette.sse import EventSourceResponse
 import app.db as db
 from app import __version__
 from app.assistant.actions import REGISTRY, ActionError, apply_action
-from app.assistant.capture import focus
 from app.assistant.context import CaptureRequest, FocusedContext
-from app.assistant.factory import get_assistant
+from app.assistant.factory import get_assistant, get_capture_resolver
 from app.auth import current_member, current_member_stream
 from app.config import config_path, load_config, seed_from_config
 from app.db import SessionLocal, get_session, init_schema, register_change_events
@@ -407,7 +406,7 @@ def capture_with_proposals(
         timezone=fam.timezone if fam else "UTC",
         now=now,
     )
-    ctx = focus(request, session, member)
+    ctx = get_capture_resolver().focus(request, session, member)
     proposals = _propose_bounded(ctx, target_label=None)
     return CaptureResponse(item=None, proposals=proposals)
 
