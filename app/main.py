@@ -56,7 +56,7 @@ from app.schemas import (
     WorkItemUpdateCreate,
     WorkItemUpdateRead,
 )
-from app.web import SHELL_PAGE, render_board
+from app.web import SHELL_PAGE, render_board, render_calendar
 
 
 @asynccontextmanager
@@ -315,6 +315,25 @@ def board_view(
 ) -> str:
     """Read-only board as an HTML fragment (HTMX swaps it; SSE triggers reload)."""
     return render_board(_board_columns(session))
+
+
+@app.get("/calendar/view", response_class=HTMLResponse)
+def calendar_view(
+    session: Session = Depends(get_session),
+    _member: Member = Depends(current_member),
+) -> str:
+    """Events as an HTML fragment — a skinny agenda list (task 11).
+
+    Auth-protected; HTMX swaps it and an SSE change triggers reload, like the
+    board. Ordered by start_at then start_date so timed and all-day events sort
+    together into one readable list.
+    """
+    events = list(
+        session.scalars(
+            select(Event).order_by(Event.start_at, Event.start_date, Event.id)
+        ).all()
+    )
+    return render_calendar(events)
 
 
 # --- Capture with proposals (Phase 4, task 4) ----------------------------

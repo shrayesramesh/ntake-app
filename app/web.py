@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from html import escape
 
-from app.models import WorkItem
+from app.models import Event, WorkItem
 
 # Display labels for the fixed status codes (UI-layer, per DESIGN §3).
 COLUMN_LABELS = {
@@ -56,7 +56,60 @@ def render_board(columns: dict[str, list[WorkItem]]) -> str:
     return "".join(parts)
 
 
-# The shell page. Minimal HTMX + a little JS for token handling and SSE refresh.
+def _event_when(ev: Event) -> str:
+    """A short human-facing time/date line for an event card (skinny render).
+
+    All-day events show their date range as plain dates (no tz — DESIGN §3);
+    timed events show the stored UTC start (formatted later; ISO is fine for the
+    testing list). Kept deliberately minimal — the UI is improved in a later task.
+    """
+    if ev.all_day:
+        start = ev.start_date.isoformat() if ev.start_date else "?"
+        end = ev.end_date.isoformat() if ev.end_date else start
+        span = start if end == start else f"{start} – {end}"
+        return f"all-day · {span}"
+    if ev.start_at is not None:
+        # Minute precision is enough for a card; drop seconds/microseconds.
+        return ev.start_at.strftime("%Y-%m-%d %H:%M") + " UTC"
+    return "unscheduled"
+
+
+def render_calendar(events: list[Event]) -> str:
+    """Render events as a simple long list of cards (task 11, skinny render).
+
+    Agenda/list only — no grid. Each card shows the escaped title, a time/date
+    line, and optional tag chips. ``events`` is already ordered by the caller.
+    Titles/locations are escaped (untrusted free text).
+    """
+    parts: list[str] = ['<div class="calendar" id="calendar">']
+    if events:
+        parts.append('<ul class="events">')
+        for ev in events:
+            title = escape(ev.title)
+            when = escape(_event_when(ev))
+            location = (
+                f'<span class="loc">@ {escape(ev.location)}</span>'
+                if ev.location
+                else ""
+            )
+            tags = "".join(
+                f'<span class="tag">{escape(t)}</span>'
+                for t in (getattr(ev, "tags", None) or [])
+            )
+            parts.append(
+                '<li class="event-card">'
+                f'<span class="title">{title}</span>'
+                f'<span class="when">{when}</span>'
+                f"{location}{tags}"
+                "</li>"
+            )
+        parts.append("</ul>")
+    else:
+        parts.append('<p class="empty">No events.</p>')
+    parts.append("</div>")
+    return "".join(parts)
+
+
 # The capture form is the only write control; it POSTs free text to /work-items
 # (the text becomes the item title for now — the Phase 4 assistant will split it).
 SHELL_PAGE = """<!doctype html>
@@ -76,6 +129,14 @@ SHELL_PAGE = """<!doctype html>
     .tag { display: inline-block; font-size: .7rem; background: #e0e7ff;
            border-radius: 4px; padding: 0 .35rem; margin-left: .35rem; }
     .empty { color: #a1a1aa; text-align: center; }
+    .calendar { margin-top: 1rem; }
+    .calendar .events { list-style: none; margin: 0; padding: 0; }
+    .event-card { background: #fff; border: 1px solid #e4e4e7; border-radius: 6px;
+                  padding: .5rem .6rem; margin-bottom: .4rem; display: flex;
+                  gap: .5rem; align-items: baseline; flex-wrap: wrap; }
+    .event-card .title { font-weight: 600; }
+    .event-card .when { font-size: .8rem; color: #52525b; }
+    .event-card .loc { font-size: .8rem; color: #6b7280; }
     #capture { display: flex; gap: .5rem; margin-bottom: .5rem; }
     #capture input { flex: 1; padding: .5rem; font-size: 1rem; }
     #token-bar { margin-bottom: 1rem; font-size: .85rem; color: #52525b; }
@@ -109,6 +170,9 @@ SHELL_PAGE = """<!doctype html>
 
   <div id="board-container">Enter your device token to load the board.</div>
 
+  <h2 style="font-size:1rem;margin:1rem 0 .5rem;">Calendar</h2>
+  <div id="calendar-container">Enter your device token to load the calendar.</div>
+
   <script>
     function getToken() { return localStorage.getItem('ntake_token') || ''; }
     function authHeaders(json) {
@@ -120,7 +184,7 @@ SHELL_PAGE = """<!doctype html>
       const t = document.getElementById('token').value.trim();
       if (t) { localStorage.setItem('ntake_token', t);
                document.getElementById('token-status').textContent = 'saved';
-               startSSE(); reloadBoard(); }
+               startSSE(); reloadBoard(); reloadCalendar(); }
     }
 
     // Capture: POST free text to /capture (JSON) -> {item, proposals}. Save the
@@ -185,16 +249,26 @@ SHELL_PAGE = """<!doctype html>
         .catch(() => { document.getElementById('board-container').textContent =
                        'Could not load board (check your token).'; });
     }
+    function reloadCalendar() {
+      const t = getToken(); if (!t) return;
+      fetch('/calendar/view', { headers: authHeaders(false) })
+        .then(r => r.ok ? r.text() : Promise.reject(r.status))
+        .then(html => {
+          document.getElementById('calendar-container').innerHTML = html; })
+        .catch(() => { document.getElementById('calendar-container').textContent =
+                       'Could not load calendar (check your token).'; });
+    }
     let es = null;
     function startSSE() {
       const t = getToken(); if (!t) return;
       if (es) es.close();
       es = new EventSource('/events/stream?token=' + encodeURIComponent(t));
       es.addEventListener('change', reloadBoard);
+      es.addEventListener('change', reloadCalendar);
     }
     // On load, if a token is already saved, go.
     if (getToken()) { document.getElementById('token-status').textContent = 'saved';
-                      startSSE(); reloadBoard(); }
+                      startSSE(); reloadBoard(); reloadCalendar(); }
   </script>
 </body>
 </html>

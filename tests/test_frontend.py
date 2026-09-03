@@ -23,6 +23,8 @@ def test_index_serves_shell_without_auth(client):
     # Shell has the capture control, proposals surface, board container + token JS.
     assert "Capture a note" in body
     assert "board-container" in body
+    assert "calendar-container" in body  # skinny calendar list (task 11)
+    assert "/calendar/view" in body
     assert "proposals" in body  # inline proposal cards render here
     assert "/capture" in body  # capture posts to the JSON capture endpoint
     assert "/actions/confirm" in body  # Confirm posts the action
