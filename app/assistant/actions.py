@@ -1,0 +1,182 @@
+"""Action registry + apply-handlers (Phase 4, task 2).
+
+The registry ``ACTIONS`` is a plain ``dict[str, ActionSpec]`` — the confirmable
+capabilities the assistant may propose (see spec/ASSISTANT_ACTIONS.md, v1 set).
+``apply_action`` is called ONLY on human Confirm (never auto): it validates the
+params lightly, runs the handler's mutation, and — except ``no_action`` — appends
+a ``source=assistant`` work_item_updates row authored by the confirming member
+(the universal on-confirm rule, WORKITEM-3). It does NOT commit; the caller
+commits so the change publishes once via the 1d seam.
+
+``work_item_id`` (the capture target) is passed by the server, never taken from
+model params — the model doesn't guess row IDs. It is ``None`` for actions that
+don't operate on an existing item (``create_work_item``, ``no_action``).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+
+from sqlalchemy.orm import Session
+
+from app.models import Event, Member, WorkItem, WorkItemUpdate
+
+
+class ActionError(Exception):
+    """Raised for an unknown action, missing/invalid params, or a bad target.
+
+    The caller (confirm endpoint / propose validation) catches this and drops
+    the action rather than failing the whole request.
+    """
+
+
+# Handler signature: (session, member, target_id, params) -> human summary str.
+Handler = Callable[[Session, Member, int | None, dict], str]
+
+
+@dataclass(frozen=True)
+class ActionSpec:
+    required: list[str] = field(default_factory=list)
+    needs_target: bool = True  # operates on an existing work item?
+    logs: bool = True  # appends a source=assistant update on apply?
+    apply: Handler = None  # type: ignore[assignment]
+
+
+def _require(params: dict, keys: list[str]) -> None:
+    for k in keys:
+        if params.get(k) in (None, ""):
+            raise ActionError(f"missing required param: {k}")
+
+
+def _parse_dt(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except (TypeError, ValueError) as e:
+        raise ActionError(f"invalid datetime: {value!r}") from e
+
+
+def _load_item(session: Session, target_id: int | None) -> WorkItem:
+    wi = session.get(WorkItem, target_id) if target_id is not None else None
+    if wi is None:
+        raise ActionError(f"work item not found: {target_id}")
+    return wi
+
+
+def _append_assistant_update(
+    session: Session, member: Member, work_item_id: int, body: str
+) -> WorkItemUpdate:
+    """Append the source=assistant narration; author is the confirming member."""
+    upd = WorkItemUpdate(
+        work_item_id=work_item_id,
+        author_id=member.id,
+        source="assistant",
+        body=body,
+        created_at=datetime.now(UTC),
+    )
+    session.add(upd)
+    session.flush()  # assign id (create_event links to it)
+    return upd
+
+
+# --- handlers -------------------------------------------------------------
+
+
+def _apply_set_due_date(session, member, target_id, params) -> str:
+    _require(params, ["due_at"])
+    due = _parse_dt(params["due_at"])
+    wi = _load_item(session, target_id)
+    wi.due_at = due
+    wi.updated_at = datetime.now(UTC)
+    _append_assistant_update(
+        session, member, wi.id, f"Set due date to {due.isoformat()}"
+    )
+    return f"Set due date to {due.isoformat()}"
+
+
+def _apply_complete(session, member, target_id, params) -> str:
+    wi = _load_item(session, target_id)
+    now = datetime.now(UTC)
+    wi.status = "done"
+    wi.completed_at = now
+    wi.updated_at = now
+    _append_assistant_update(session, member, wi.id, "Marked done")
+    return "Marked done"
+
+
+def _apply_create_event(session, member, target_id, params) -> str:
+    _require(params, ["title"])
+    wi = _load_item(session, target_id)
+    now = datetime.now(UTC)
+    # Append the driving update first so we can link the event back to it.
+    upd = _append_assistant_update(
+        session, member, wi.id, f"Created calendar event: {params['title']}"
+    )
+    all_day = bool(params.get("start_date"))
+    ev = Event(
+        family_id=wi.family_id,
+        title=params["title"],
+        description=params.get("description"),
+        location=params.get("location"),
+        all_day=all_day,
+        start_at=_parse_dt(params["start_at"]) if params.get("start_at") else None,
+        end_at=_parse_dt(params["end_at"]) if params.get("end_at") else None,
+        source_update_id=upd.id,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(ev)
+    return f"Created event: {params['title']}"
+
+
+def _apply_create_work_item(session, member, target_id, params) -> str:
+    _require(params, ["title"])
+    now = datetime.now(UTC)
+    wi = WorkItem(
+        family_id=member.family_id,
+        title=params["title"],
+        description=params.get("description"),
+        tags=params.get("tags", []),
+        assigned_to=params.get("assigned_to"),
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(wi)
+    session.flush()
+    _append_assistant_update(
+        session, member, wi.id, f"Created work item: {params['title']}"
+    )
+    return f"Created work item: {params['title']}"
+
+
+def _apply_no_action(session, member, target_id, params) -> str:
+    return "No action"
+
+
+ACTIONS: dict[str, ActionSpec] = {
+    "set_due_date": ActionSpec(required=["due_at"], apply=_apply_set_due_date),
+    "complete_work_item": ActionSpec(apply=_apply_complete),
+    "create_event": ActionSpec(required=["title"], apply=_apply_create_event),
+    "create_work_item": ActionSpec(
+        required=["title"], needs_target=False, apply=_apply_create_work_item
+    ),
+    "no_action": ActionSpec(needs_target=False, logs=False, apply=_apply_no_action),
+}
+
+
+def apply_action(
+    session: Session, member: Member, name: str, target_id: int | None, params: dict
+) -> str:
+    """Validate + apply a confirmed action. Returns a human summary.
+
+    Does not commit — the caller commits so the write publishes once via the seam.
+    Raises ActionError for unknown names / missing params / bad targets.
+    """
+    spec = ACTIONS.get(name)
+    if spec is None:
+        raise ActionError(f"unknown action: {name}")
+    _require(params, spec.required)
+    summary = spec.apply(session, member, target_id, params)
+    session.flush()  # autoflush is off; make all pending rows visible pre-commit
+    return summary
