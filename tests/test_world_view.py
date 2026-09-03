@@ -14,7 +14,14 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from app.assistant.world import build_world_view
+from app.assistant.world import (
+    _EventRow,
+    _fmt_event,
+    _MemberRow,
+    _render,
+    _WorkItemRow,
+    build_world_view,
+)
 from app.manage import seed_event
 from app.models import Family, Member, WorkItem
 
@@ -177,3 +184,85 @@ def test_empty_world_is_a_string_with_no_crash(session):
     fam = _family(session)
     out = _view(session, fam)
     assert isinstance(out, str) and out  # non-empty (section headers present)
+
+
+# --- _render / _fmt_event: pure formatting over rows (no DB, no session) --
+
+
+def test_render_formats_members_items_and_events_with_inline_ids():
+    out = _render(
+        members=[_MemberRow(id=1, display_name="Alex", role="adult")],
+        items=[_WorkItemRow(id=7, title="call plumber", status="doing")],
+        events=[
+            _EventRow(
+                id=3,
+                title="Soccer",
+                all_day=False,
+                start_at=datetime(2026, 9, 5, 19, 0, tzinfo=UTC),
+                end_at=datetime(2026, 9, 5, 20, 0, tzinfo=UTC),
+                start_date=None,
+                end_date=None,
+            )
+        ],
+        tz=TZ,
+    )
+    assert "[m1] Alex (adult)" in out
+    assert "[w7] call plumber (doing)" in out
+    assert "[e3] Soccer" in out
+    # section headers present
+    assert "FAMILY MEMBERS:" in out
+    assert "OPEN WORK ITEMS:" in out
+    assert "EVENTS:" in out
+
+
+def test_render_shows_none_for_empty_sections():
+    out = _render(members=[], items=[], events=[], tz=TZ)
+    assert out.count("- (none)") == 3  # one per empty section
+
+
+def test_fmt_event_timed_renders_family_tz_start_and_end():
+    row = _EventRow(
+        id=3,
+        title="Soccer",
+        all_day=False,
+        start_at=datetime(2026, 9, 5, 19, 0, tzinfo=UTC),  # 3 PM ET
+        end_at=datetime(2026, 9, 5, 20, 0, tzinfo=UTC),  # 4 PM ET
+        start_date=None,
+        end_date=None,
+    )
+    line = _fmt_event(row, TZ)
+    assert "[e3] Soccer" in line
+    assert "3:00" in line and "4:00" in line
+    assert "19:00" not in line  # not the UTC hour
+
+
+def test_fmt_event_all_day_renders_date_and_all_day_marker():
+    row = _EventRow(
+        id=9,
+        title="Holiday",
+        all_day=True,
+        start_at=None,
+        end_at=None,
+        start_date=date(2026, 12, 25),
+        end_date=date(2026, 12, 25),
+    )
+    line = _fmt_event(row, TZ)
+    assert "[e9] Holiday" in line
+    assert "Dec 25" in line
+    assert "all day" in line
+
+
+def test_fmt_event_naive_start_at_treated_as_utc():
+    # DB datetimes come back tz-naive (UTC). The formatter must attach UTC before
+    # converting, so a naive 19:00 still renders as 3 PM ET (not left ambiguous).
+    row = _EventRow(
+        id=5,
+        title="Dentist",
+        all_day=False,
+        start_at=datetime(2026, 9, 5, 19, 0),  # naive, represents UTC
+        end_at=datetime(2026, 9, 5, 20, 0),
+        start_date=None,
+        end_date=None,
+    )
+    line = _fmt_event(row, TZ)
+    assert "3:00" in line and "4:00" in line
