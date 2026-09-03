@@ -17,8 +17,9 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
@@ -29,8 +30,15 @@ from app.auth import current_member
 from app.config import config_path, load_config, seed_from_config
 from app.db import SessionLocal, get_session, init_schema, register_change_events
 from app.event_emitter import InProcessEmitter
-from app.models import Event, Member
-from app.schemas import EventRead
+from app.models import ChecklistItem, Event, Member, WorkItem, WorkItemUpdate
+from app.schemas import (
+    ChecklistItemRead,
+    EventRead,
+    WorkItemCreate,
+    WorkItemRead,
+    WorkItemUpdateCreate,
+    WorkItemUpdateRead,
+)
 
 
 @asynccontextmanager
@@ -131,3 +139,107 @@ async def events_stream(
             unsubscribe()
 
     return EventSourceResponse(event_generator())
+
+
+# --- Work items (Phase 3, checkpoint 2) ----------------------------------
+
+
+def _load_work_item(session: Session, work_item_id: int) -> WorkItem:
+    wi = session.get(WorkItem, work_item_id)
+    if wi is None:
+        raise HTTPException(status_code=404, detail="Work item not found.")
+    return wi
+
+
+def _work_item_detail(session: Session, wi: WorkItem) -> WorkItemRead:
+    """Build the detail DTO: the item + its update log + checklist."""
+    updates = session.scalars(
+        select(WorkItemUpdate)
+        .where(WorkItemUpdate.work_item_id == wi.id)
+        .order_by(WorkItemUpdate.created_at, WorkItemUpdate.id)
+    ).all()
+    checklist = session.scalars(
+        select(ChecklistItem)
+        .where(ChecklistItem.work_item_id == wi.id)
+        .order_by(ChecklistItem.position)
+    ).all()
+    dto = WorkItemRead.model_validate(wi)
+    dto.updates = [WorkItemUpdateRead.model_validate(u) for u in updates]
+    dto.checklist = [ChecklistItemRead.model_validate(c) for c in checklist]
+    return dto
+
+
+@app.post("/work-items", response_model=WorkItemRead, status_code=201)
+def create_work_item(
+    payload: WorkItemCreate,
+    session: Session = Depends(get_session),
+    member: Member = Depends(current_member),
+) -> WorkItemRead:
+    """Create a work item (WORKITEM). Auth-protected; scoped to the member's family."""
+    now = datetime.now(UTC)
+    wi = WorkItem(
+        family_id=member.family_id,
+        title=payload.title,
+        description=payload.description,
+        tags=payload.tags,
+        assigned_to=payload.assigned_to,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(wi)
+    session.commit()  # commit publishes {work_items, id, create} via the 1d seam
+    session.refresh(wi)
+    return _work_item_detail(session, wi)
+
+
+@app.get("/work-items", response_model=list[WorkItemRead])
+def list_work_items(
+    session: Session = Depends(get_session),
+    _member: Member = Depends(current_member),
+) -> list[WorkItemRead]:
+    """List work items (detail DTOs, each with its log + checklist)."""
+    items = session.scalars(select(WorkItem).order_by(WorkItem.id)).all()
+    return [_work_item_detail(session, wi) for wi in items]
+
+
+@app.get("/work-items/{work_item_id}", response_model=WorkItemRead)
+def get_work_item(
+    work_item_id: int,
+    session: Session = Depends(get_session),
+    _member: Member = Depends(current_member),
+) -> WorkItemRead:
+    """Read one work item with its update log + checklist."""
+    wi = _load_work_item(session, work_item_id)
+    return _work_item_detail(session, wi)
+
+
+@app.post(
+    "/work-items/{work_item_id}/updates",
+    response_model=WorkItemUpdateRead,
+    status_code=201,
+)
+def append_update(
+    work_item_id: int,
+    payload: WorkItemUpdateCreate,
+    session: Session = Depends(get_session),
+    member: Member = Depends(current_member),
+) -> WorkItemUpdate:
+    """Append a human update — the primary daily interaction (WORKITEM-2).
+
+    Author is the authenticated member; source is 'human'. Appending also bumps
+    the item's updated_at (activity signal). Each commit publishes via the seam.
+    """
+    wi = _load_work_item(session, work_item_id)
+    now = datetime.now(UTC)
+    upd = WorkItemUpdate(
+        work_item_id=wi.id,
+        author_id=member.id,
+        source="human",
+        body=payload.body,
+        created_at=now,
+    )
+    wi.updated_at = now
+    session.add(upd)
+    session.commit()
+    session.refresh(upd)
+    return upd

@@ -27,3 +27,60 @@ class EventRead(BaseModel):
     end_at: datetime | None = None
     start_date: date | None = None
     end_date: date | None = None
+
+
+class WorkItemCreate(BaseModel):
+    """Payload to create a work item (title required; rest optional)."""
+
+    title: str
+    description: str | None = None
+    tags: list[str] = []
+    assigned_to: int | None = None
+
+
+class WorkItemUpdateCreate(BaseModel):
+    """Payload to append a human update to a work item."""
+
+    body: str
+
+
+class WorkItemUpdateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    work_item_id: int
+    author_id: int | None = None
+    source: str
+    body: str
+    created_at: datetime
+
+
+class ChecklistItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    text: str
+    checked: bool
+    position: int
+
+
+class WorkItemRead(BaseModel):
+    """A work item; the detail view also carries its update log + checklist."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    family_id: int
+    assigned_to: int | None = None
+    title: str
+    description: str | None = None
+    status: str
+    position: int
+    due_at: datetime | None = None
+    tags: list[str] = []
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+    archived_at: datetime | None = None
+    updates: list[WorkItemUpdateRead] = []
+    checklist: list[ChecklistItemRead] = []

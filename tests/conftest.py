@@ -11,8 +11,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.pool import StaticPool
 
-from app.db import get_session, init_schema, make_session_factory
-from app.main import app
+from app.db import (
+    get_session,
+    init_schema,
+    make_session_factory,
+    register_change_events,
+)
+from app.main import app, app_emitter
 
 
 @pytest.fixture()
@@ -22,7 +27,10 @@ def session():
     StaticPool + a single shared connection keeps the in-memory DB alive across
     the session's operations within one test. Schema + factory come from the
     shared db helpers so tests exercise the same construction path as the app;
-    PRAGMA foreign_keys=ON matches the app engine so FK actions are enforced.
+    PRAGMA foreign_keys=ON matches the app engine so FK actions are enforced. The
+    change-event seam is bound to this factory + the app emitter so tests also
+    exercise the write->emit path (matching the app, where it's bound to
+    SessionLocal).
     """
     engine = create_engine(
         "sqlite://",
@@ -37,7 +45,9 @@ def session():
         cur.close()
 
     init_schema(engine)
-    db = make_session_factory(engine)()
+    factory = make_session_factory(engine)
+    register_change_events(factory, app_emitter)
+    db = factory()
     try:
         yield db
     finally:
