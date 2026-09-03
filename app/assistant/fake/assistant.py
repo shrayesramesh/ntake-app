@@ -49,7 +49,7 @@ from __future__ import annotations
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
-from app.assistant.context import (
+from app.assistant.base import (
     AssistantClient,
     FocusedContext,
     ProposedAction,

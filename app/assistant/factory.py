@@ -11,9 +11,8 @@ from __future__ import annotations
 
 import os
 
-from app.assistant.capture import CaptureResolver, FakeCaptureResolver
-from app.assistant.context import AssistantClient, NullAssistant
-from app.assistant.fake import FakeAssistant
+from app.assistant.base import AssistantClient, CaptureResolver, NullAssistant
+from app.assistant.fake import FakeAssistant, FakeCaptureResolver
 
 
 def _kind() -> str:

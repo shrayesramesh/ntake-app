@@ -41,7 +41,7 @@ def test_ollama_falls_back_to_fake_until_implemented(monkeypatch):
 
 def test_capture_resolver_default_is_fake(monkeypatch):
     monkeypatch.delenv("NTAKE_ASSISTANT", raising=False)
-    from app.assistant.capture import FakeCaptureResolver
+    from app.assistant.fake import FakeCaptureResolver
 
     assert isinstance(get_capture_resolver(), FakeCaptureResolver)
 
@@ -50,13 +50,13 @@ def test_capture_resolver_off_still_uses_fake(monkeypatch):
     # 'off' disables stage-2 proposing only; the endpoint still needs a resolver
     # to build a FocusedContext, so stage 1 stays the fake.
     monkeypatch.setenv("NTAKE_ASSISTANT", "off")
-    from app.assistant.capture import FakeCaptureResolver
+    from app.assistant.fake import FakeCaptureResolver
 
     assert isinstance(get_capture_resolver(), FakeCaptureResolver)
 
 
 def test_capture_resolver_ollama_falls_back_to_fake_until_implemented(monkeypatch):
     monkeypatch.setenv("NTAKE_ASSISTANT", "ollama")
-    from app.assistant.capture import FakeCaptureResolver
+    from app.assistant.fake import FakeCaptureResolver
 
     assert isinstance(get_capture_resolver(), FakeCaptureResolver)

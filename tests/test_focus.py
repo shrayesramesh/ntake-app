@@ -14,8 +14,9 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from app.assistant.capture import CaptureResolver, FakeCaptureResolver
+from app.assistant.base import CaptureResolver
 from app.assistant.context import CaptureRequest, EventSummary, FocusedContext
+from app.assistant.fake import FakeCaptureResolver
 from app.manage import seed_event
 from app.models import Family, Member
 
