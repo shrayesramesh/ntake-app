@@ -225,11 +225,21 @@ needed: `string`, `datetime`, `date`, plus the one-of. (`integer`,
 `array<*>`, `object` are pre-shaped for v2 actions — assign, checklist,
 participants.)
 
-**Catalog / prompt** = the registry loop the model reads:
-`"\n".join(spec.prompt_line for spec in registry.all())`. The JSON `format`
-schema (option A output shape) is generated from the same specs: a uniform
-`{actions: [{name: enum[...], params: object}]}`, with params validated against
-each spec's `params`/`exclusive_params` **after** emission (graceful-degrade: drop invalid).
+**Vocabulary — "actions" vs "tools".** "Actions" are what we *execute*
+(`ActionSpec`/`ActionRegistry`/`ProposedAction`/`apply_action` — unchanged
+internal domain). "Tools" are how those same actions are *presented to the LLM*.
+An action becomes a *tool* only at the model boundary; a `ProposedAction` coming
+back is a *tool call* we translate into an action to execute. So the model-facing
+renderer + JSON schema live in the ollama package under the "tools" name, while
+the engine keeps the "action" vocabulary.
+
+**Catalog / prompt** = the registry loop the model reads, exposed at the LLM
+boundary as **`build_tools_view(registry) -> str`** (the parallel of
+`build_world_view`): `"\n".join(spec.prompt_line for spec in registry.all())`.
+The JSON `format` schema (option A output shape) is generated from the same
+specs — a uniform `{actions: [{name: enum[...], params: object}]}` — with params
+validated against each spec's `params`/`exclusive_params` **after** emission
+(graceful-degrade: drop invalid).
 
 **Implementation order (engine-first, TDD, `make check` green each step):**
 1. Add `Param`; swap `ActionSpec.required` → `params: list[Param]` + derived
