@@ -37,7 +37,7 @@ def test_capture_new_item_persists_nothing_and_proposes(client, session, auth_he
     assert body["item"] is None
     assert session.query(WorkItem).count() == 0
     assert session.query(WorkItemUpdate).count() == 0
-    # New-item capture with no event word / "project" → create_work_item only.
+    # New-item capture with no event word → create_work_item only.
     # (set_due_date is NOT proposed here — there is no item yet to target.)
     names = [p["name"] for p in body["proposals"]]
     assert "create_work_item" in names

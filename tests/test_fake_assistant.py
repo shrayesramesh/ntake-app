@@ -6,12 +6,11 @@ the trigger vocabulary as its contract (see the fake's module docstring):
 
   New-item capture (no target):
     • event word (appointment/event/meeting/visit) + weekday → create_event ONLY
-    • "project" + weekday                                    → work item + event
-    • event word / "project" WITHOUT a weekday               → work item only
+    • event word WITHOUT a weekday                            → work item only
     • anything else                                          → work item only
   Existing-item capture (real target):
     • weekday                    → set_due_date
-    • + event word / "project"   → also a linked create_event
+    • + event word               → also a linked create_event
     • done word                  → complete_work_item
     • none of the above          → no_action
 
@@ -50,7 +49,7 @@ def test_proposals_use_valid_registry_names():
     fake = FakeAssistant()
     samples = [
         "dentist appointment friday",
-        "project kickoff monday",
+        "team meeting tuesday",
         "we finished it",
         "nothing here",
         "buy milk",
@@ -65,7 +64,7 @@ def test_every_proposal_fully_defines_its_operation():
     """No proposal targets a nonexistent thing: a needs_target action always has
     a concrete target_id; a creating action carries its required params."""
     fake = FakeAssistant()
-    for text in ["dentist appointment friday", "project x monday", "buy milk", "hmm"]:
+    for text in ["dentist appointment friday", "meeting monday", "buy milk", "hmm"]:
         for target in (None, 7):
             for p in fake.propose(_ctx(text, target_id=target)):
                 spec = ACTIONS[p.name]
@@ -97,21 +96,10 @@ def test_new_event_word_without_weekday_is_work_item_only():
     assert _names(props) == ["create_work_item"]
 
 
-def test_new_project_with_weekday_proposes_work_item_and_event():
+def test_new_project_word_is_ordinary_text_now():
+    # 'project' is no longer a special trigger (dropped: created two unrelated
+    # rows). It is ordinary text -> a single create_work_item, no event.
     props = FakeAssistant().propose(_ctx("project kickoff monday"))
-    assert set(_names(props)) == {"create_work_item", "create_event"}
-    ev = next(p for p in props if p.name == "create_event")
-    assert ev.target_type == "event" and ev.target_id is None
-
-
-def test_new_project_due_by_weekday_also_both():
-    # "due by <weekday>" is just a natural phrasing of the weekday.
-    props = FakeAssistant().propose(_ctx("project taxes due by friday"))
-    assert set(_names(props)) == {"create_work_item", "create_event"}
-
-
-def test_new_project_without_weekday_is_work_item_only():
-    props = FakeAssistant().propose(_ctx("project brainstorm"))
     assert _names(props) == ["create_work_item"]
 
 
@@ -121,7 +109,7 @@ def test_new_bland_text_is_work_item_only():
 
 def test_new_capture_never_proposes_item_targeting_actions():
     # set_due_date / complete_work_item need an existing item; never on new items.
-    for text in ["soccer game on monday", "all done", "project x monday"]:
+    for text in ["soccer game on monday", "all done", "meeting notes monday"]:
         names = _names(FakeAssistant().propose(_ctx(text)))
         assert "set_due_date" not in names
         assert "complete_work_item" not in names
@@ -164,13 +152,13 @@ def test_propose_does_not_touch_the_db(session):
 
     before_items = session.query(WorkItem).count()
     before_updates = session.query(WorkItemUpdate).count()
-    FakeAssistant().propose(_ctx("project x friday"))
+    FakeAssistant().propose(_ctx("dentist appointment friday"))
     assert session.query(WorkItem).count() == before_items
     assert session.query(WorkItemUpdate).count() == before_updates
 
 
 def test_proposals_carry_llm_rationale():
-    for p in FakeAssistant().propose(_ctx("project x friday")):
+    for p in FakeAssistant().propose(_ctx("dentist appointment friday")):
         assert isinstance(p.llm_rationale, str)
     ev = FakeAssistant().propose(_ctx("dentist appointment friday"))[0]
     assert ev.llm_rationale

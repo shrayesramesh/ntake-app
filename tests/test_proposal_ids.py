@@ -56,10 +56,11 @@ def test_new_event_capture_is_standalone_and_executable():
     assert ev.params.get("start_at") and ev.params.get("end_at")
 
 
-def test_new_project_capture_batches_two_executable_proposals():
+def test_new_project_word_is_ordinary_text_now():
+    # 'project' dropped as a trigger (produced two unrelated rows) — it's now
+    # ordinary text: a single, fully-defined create_work_item.
     props = FakeAssistant().propose(_ctx("project launch monday"))
-    names = {p.name for p in props}
-    assert names == {"create_work_item", "create_event"}
+    assert [p.name for p in props] == ["create_work_item"]
     for p in props:
         if _needs_concrete_target(p):
             assert p.target_id is not None
@@ -73,6 +74,6 @@ def test_existing_item_capture_still_targets_the_item():
 
 
 def test_proposals_expose_proposal_id_and_no_target_ref():
-    for p in FakeAssistant().propose(_ctx("project launch monday")):
+    for p in FakeAssistant().propose(_ctx("dentist appointment monday")):
         assert hasattr(p, "proposal_id")
         assert p.target_ref is None  # v1: no dangling dependency

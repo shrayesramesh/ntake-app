@@ -20,24 +20,20 @@ Event creation and a project's event/due-date REQUIRE a weekday.
 New-item capture (no existing target) — self-contained proposals only:
   • **event word** (appointment/event/meeting/visit) **+ weekday**
         → ``create_event`` ONLY (standalone, timed). No work item.
-  • **"project"** **+ weekday** (or "due by <weekday>")
-        → ``create_work_item`` **and** standalone ``create_event`` (both).
   • anything else
         → ``create_work_item`` only.
-  (An event word or "project" WITHOUT a weekday yields just ``create_work_item``
-   — there's no time to build an event from.)
+  (An event word WITHOUT a weekday yields just ``create_work_item`` — there's no
+   time to build an event from.)
 
 Existing-item capture (real target_id) — item-targeting actions are valid:
   • **weekday** → ``set_due_date`` on the item.
-  • **event word / "project" + weekday** → also a linked ``create_event``.
+  • **event word + weekday** → also a linked ``create_event``.
   • **done word** (done/finished/complete/completed) → ``complete_work_item``.
   • none of the above → ``no_action``.
 
 Examples
 --------
   "dentist appointment friday"     → create_event only (timed)
-  "project kickoff monday"         → create_work_item + create_event
-  "project taxes due by friday"    → create_work_item + create_event
   "buy milk"                       → create_work_item only
   "team meeting"      (no weekday)  → create_work_item only
   "he is coming friday" (on item)  → set_due_date
@@ -62,7 +58,6 @@ _WEEKDAYS = {
 }
 _DONE_WORDS = ("done", "finished", "completed", "complete")
 _EVENT_WORDS = ("appointment", "event", "meeting", "visit")
-_PROJECT_WORD = "project"
 
 
 def _next_weekday(ctx: CaptureContext, weekday: int, hour: int = 9) -> str:
@@ -83,24 +78,21 @@ class FakeAssistant(AssistantClient):
         tid = ctx.work_item_id
         weekday = next((wd for name, wd in _WEEKDAYS.items() if name in text), None)
         event_word = any(w in text for w in _EVENT_WORDS)
-        is_project = _PROJECT_WORD in text
 
         if tid is None:
-            return self._propose_new_item(ctx, weekday, event_word, is_project)
+            return self._propose_new_item(ctx, weekday, event_word)
         return self._propose_existing_item(ctx, tid, text, weekday, event_word)
 
     # --- new-item capture: self-contained proposals only ------------------
 
     def _propose_new_item(
-        self, ctx: CaptureContext, weekday, event_word: bool, is_project: bool
+        self, ctx: CaptureContext, weekday, event_word: bool
     ) -> list[ProposedAction]:
-        timed = weekday is not None
-
-        # Event word + weekday → event ONLY (no work item).
-        if event_word and timed:
+        # Event word + weekday → event ONLY (no work item). Otherwise a work item.
+        if event_word and weekday is not None:
             return [self._event(ctx, weekday, target_id=None, target_type="event")]
 
-        proposals: list[ProposedAction] = [
+        return [
             ProposedAction(
                 name="create_work_item",
                 params={"title": ctx.text},
@@ -109,12 +101,6 @@ class FakeAssistant(AssistantClient):
                 target_type=None,
             )
         ]
-        # "project" + weekday → also a standalone event (work item AND event).
-        if is_project and timed:
-            proposals.append(
-                self._event(ctx, weekday, target_id=None, target_type="event")
-            )
-        return proposals
 
     # --- existing-item capture: item-targeting actions are valid ----------
 
@@ -122,7 +108,6 @@ class FakeAssistant(AssistantClient):
         self, ctx: CaptureContext, tid: int, text: str, weekday, event_word: bool
     ) -> list[ProposedAction]:
         proposals: list[ProposedAction] = []
-        is_project = _PROJECT_WORD in text
 
         if weekday is not None:
             due = _next_weekday(ctx, weekday, hour=15)
@@ -135,7 +120,7 @@ class FakeAssistant(AssistantClient):
                     target_type="work_item",
                 )
             )
-            if event_word or is_project:
+            if event_word:
                 proposals.append(
                     self._event(ctx, weekday, target_id=tid, target_type="work_item")
                 )
