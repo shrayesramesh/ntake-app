@@ -275,11 +275,25 @@ def test_populated_family_world_view_reflects_seeded_content(session, populated_
     p = populated_family
     out = build_world_view(session, p.family.id, p.now, p.tz)
 
-    # members
-    assert "Alex" in out and "Sam" in out
-    # work items: done included, archived excluded
-    assert "call plumber" in out and "file taxes" in out
-    assert "old chore" not in out
-    # events: in-window + future + all-day present, out-of-window absent
-    assert "Soccer" in out and "Dentist" in out and "Holiday" in out
-    assert "Old picnic" not in out
+    # Assert the ENTIRE rendered block, so the exact prompt context the model
+    # will see is visible and pinned here. Notes captured by this snapshot:
+    #  - done included ([w3] file taxes), archived excluded (no "old chore")
+    #  - out-of-window event excluded (no "Old picnic")
+    #  - all-day events sort first (start_at IS NULL sorts first), then by time
+    #  - tz correctness across DST: Sep event is EDT (3 PM), Dec is EST (2 PM)
+    expected = (
+        "FAMILY MEMBERS:\n"
+        "- [m1] Alex (adult)\n"
+        "- [m2] Sam (child)\n"
+        "\n"
+        "OPEN WORK ITEMS:\n"
+        "- [w1] buy stamps (todo)\n"
+        "- [w2] call plumber (doing)\n"
+        "- [w3] file taxes (done)\n"
+        "\n"
+        "EVENTS:\n"
+        "- [e4] Holiday — Sat Sep 5 (all day)\n"
+        "- [e1] Soccer — Tue Sep 1, 3:00 PM\n"
+        "- [e3] Dentist — Tue Dec 1, 2:00 PM"
+    )
+    assert out == expected
