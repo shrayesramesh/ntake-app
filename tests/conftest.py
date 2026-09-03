@@ -9,10 +9,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db import Base, get_session
+from app.db import get_session, init_schema, make_session_factory
 from app.main import app
 
 
@@ -21,16 +20,16 @@ def session():
     """A fresh in-memory SQLite session per test.
 
     StaticPool + a single shared connection keeps the in-memory DB alive across
-    the session's operations within one test.
+    the session's operations within one test. Schema + factory come from the
+    shared db helpers so tests exercise the same construction path as the app.
     """
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    Base.metadata.create_all(engine)
-    TestingSession = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    db = TestingSession()
+    init_schema(engine)
+    db = make_session_factory(engine)()
     try:
         yield db
     finally:

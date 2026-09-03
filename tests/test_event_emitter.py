@@ -12,7 +12,7 @@ async def test_emit():
         received.append((entity, id, op))
 
     emitter.add_listener(listener)
-    
+
     await emitter.emit("event", 123, "create")
-    
+
     assert received == [("event", 123, "create")]
