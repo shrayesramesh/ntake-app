@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.pool import StaticPool
 
 from app.db import get_session, init_schema, make_session_factory
@@ -21,13 +21,21 @@ def session():
 
     StaticPool + a single shared connection keeps the in-memory DB alive across
     the session's operations within one test. Schema + factory come from the
-    shared db helpers so tests exercise the same construction path as the app.
+    shared db helpers so tests exercise the same construction path as the app;
+    PRAGMA foreign_keys=ON matches the app engine so FK actions are enforced.
     """
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    @event.listens_for(engine, "connect")
+    def _enable_fk(dbapi_conn, _record):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.close()
+
     init_schema(engine)
     db = make_session_factory(engine)()
     try:

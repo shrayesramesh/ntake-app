@@ -2,9 +2,9 @@
 
 Minimal schema per research/04-data-layer.md (simplified 2026-08-30). Timestamps
 stored UTC (NFR-TIME); `families.timezone` required day-one. Defines Family and
-Event (checkpoint 1b) and the identity tables Member and DeviceToken (Phase 2,
-ACCESS). Work-item tables (WorkItem, WorkItemUpdate, ChecklistItem) come in
-Phase 3.
+Event (checkpoint 1b), the identity tables Member and DeviceToken (Phase 2,
+ACCESS), and the work-item tables WorkItem, WorkItemUpdate, ChecklistItem
+(Phase 3).
 
 Events are intentionally small: no iCalendar-mirroring columns (uid/sequence/
 status), no recurrence. `.ics` import/export is a deferred capability whose
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import JSON, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -59,7 +59,7 @@ class DeviceToken(Base):
     __tablename__ = "device_tokens"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    member_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
     token_hash: Mapped[str] = mapped_column(unique=True)
     label: Mapped[str]
     created_at: Mapped[datetime]
@@ -83,11 +83,77 @@ class Event(Base):
     start_date: Mapped[date | None] = mapped_column(default=None)  # all-day
     end_date: Mapped[date | None] = mapped_column(default=None)
 
-    # Attribution: the todo_updates record that drove this event, if any. Person
-    # + when + reason live on that update record (no person FK duplicated here).
-    # NOTE: FK to todo_updates.id deferred until that table exists (later
-    # checkpoint); plain nullable int for now so 1b is self-contained.
-    source_update_id: Mapped[int | None] = mapped_column(default=None)
+    # Attribution: the work_item_updates record that drove this event, if any.
+    # Person + when + reason live on that update record (no person FK duplicated
+    # here). SET NULL: removing the update unlinks the event, doesn't delete it.
+    source_update_id: Mapped[int | None] = mapped_column(
+        ForeignKey("work_item_updates.id", ondelete="SET NULL"), default=None
+    )
 
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
+
+
+class WorkItem(Base):
+    """A loose free-text work item + an append-only update log (WORKITEM).
+
+    Status is a fixed code set (todo|on_deck|doing|done); display labels are
+    UI-layer. ``tags`` is a shared-vocabulary string list (JSON column, portable).
+    ``due_at`` is assistant-inferred + human-confirmed, not a core human field.
+    """
+
+    __tablename__ = "work_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    family_id: Mapped[int] = mapped_column(ForeignKey("families.id"))
+    assigned_to: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL"), default=None
+    )
+    title: Mapped[str] = mapped_column()
+    description: Mapped[str | None] = mapped_column(default=None)
+    status: Mapped[str] = mapped_column(default="todo")  # todo|on_deck|doing|done
+    position: Mapped[int] = mapped_column(default=0)  # order within a status column
+    due_at: Mapped[datetime | None] = mapped_column(default=None)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column()
+    updated_at: Mapped[datetime] = mapped_column()
+    completed_at: Mapped[datetime | None] = mapped_column(default=None)
+    archived_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
+class WorkItemUpdate(Base):
+    """Append-only update log — the primary daily object (WORKITEM-2/3).
+
+    ``author`` is always a member: the human who wrote the note (human entries)
+    or confirmed the change (assistant entries). ``source`` distinguishes a
+    human-written note from a confirmed assistant-driven outcome — this is what
+    lets the labor view credit human effort without conflating it with
+    rubber-stamped assistant actions.
+    """
+
+    __tablename__ = "work_item_updates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    work_item_id: Mapped[int] = mapped_column(
+        ForeignKey("work_items.id", ondelete="CASCADE")
+    )
+    author_id: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL"), default=None
+    )
+    source: Mapped[str] = mapped_column()  # "human" | "assistant"
+    body: Mapped[str] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column()
+
+
+class ChecklistItem(Base):
+    """Sub-items for the grocery-list-style use case (WORKITEM-6)."""
+
+    __tablename__ = "checklist_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    work_item_id: Mapped[int] = mapped_column(
+        ForeignKey("work_items.id", ondelete="CASCADE")
+    )
+    text: Mapped[str] = mapped_column()
+    checked: Mapped[bool] = mapped_column(default=False)
+    position: Mapped[int] = mapped_column(default=0)

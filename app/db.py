@@ -39,12 +39,25 @@ def build_engine(url: str = DB_URL) -> Engine:
 
     Single place engines are constructed, so the app and tests share one code
     path. ``check_same_thread=False`` is the standard SQLite+SQLAlchemy setting
-    for use across FastAPI request threads.
+    for use across FastAPI request threads. We also enable
+    ``PRAGMA foreign_keys=ON`` per connection (DESIGN §3.1) so the FK actions
+    (CASCADE on work-item children, SET NULL on member/update links) are actually
+    enforced — SQLite ignores them otherwise.
     """
-    return create_engine(
+    eng = create_engine(
         url,
         connect_args={"check_same_thread": False} if url.startswith("sqlite") else {},
     )
+
+    if url.startswith("sqlite"):
+
+        @event.listens_for(eng, "connect")
+        def _enable_sqlite_fk(dbapi_conn, _record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.close()
+
+    return eng
 
 
 def make_session_factory(bind: Engine) -> sessionmaker[Session]:
