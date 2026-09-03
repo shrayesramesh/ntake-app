@@ -83,6 +83,19 @@ device (incl. wall display) reflects it live.
 **Exit:** free-text capture/updates yield correct, confirmable suggestions;
 calendar mutations only on confirm.
 
+> **Status:** the fake-first v1 is built as a **two-stage `focus()` → `propose()`
+> pipeline over a reusable engine** — see DESIGN §4.1a. `app/routing/` is the
+> domain-agnostic engine (registry/dispatch/`propose_bounded`, generic
+> `ActionContext`); `app/assistant/` is the ntake plugin (handlers, `describe`,
+> `FakeAssistant`, `focus()`). v1 action set: `set_due_date`, `create_event`
+> (standalone or work-item-linked), `complete_work_item`, `create_work_item`,
+> `deconflict_events` (calendar-context placeholder), `no_action`. Capture is
+> propose-only and always new (no `work_item_id`); proposals carry a
+> registry-derived `action_summary` + the model's `llm_rationale`. **Remaining:**
+> the **OllamaAssistant + OllamaResolver** (host-only live model, task 7) — the
+> real stage-1 text→target resolution and stage-2 reasoning slot into the seams
+> above with no architecture change.
+
 ### Phase 5 — labor view, grooming assist, hardening
 - **Labor view** (on demand): assistant reads the raw update log by author over
   time, using `source` to credit human effort vs. assistant-confirmed — surfaced

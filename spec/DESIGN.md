@@ -302,10 +302,19 @@ Member enters an event capture or a work-item update (free text) in the PWA
   response; **unacted proposals vanish with the session** (accepted — no
   persistence). Only confirmed **outcomes** persist (a log entry + the field
   change).
-- A capture onto an **existing item** saves its `source=human` note regardless of
-  Confirm/Dismiss — the human's prose is truth. A **new-item** capture saves
-  nothing until the human confirms a `create_work_item` / `create_event` proposal
-  (propose-only; bare text no longer auto-creates a work item).
+- **Capture is always a NEW propose-only capture (v1).** It takes only free text
+  (no `work_item_id`): bare text saves nothing until the human confirms a
+  `create_work_item` / `create_event` proposal. Appending a `source=human` note
+  to a *specific* existing item is a separate, explicit action —
+  `POST /work-items/{id}/updates` — not the capture path. (Resolving a target
+  work item *from the text* is a v2/Ollama focuser capability; see §4.1a.)
+- **The assistant describes what it understood.** Each proposal carries, in its
+  `llm_rationale`, the model's account of what it focused on / why it proposed
+  this (rendered as the card's secondary line). In v1 the fake passes the focused
+  context through verbatim (`render_focus`); a real model writes a genuine
+  description. The ground-truth "what this will do" line is separate and
+  registry-derived (`action_summary`), so a wrong rationale can't misstate the
+  action.
 
 **Accepted v1 limitations (deliberate, to ship; clean to refactor later):**
 - **Synchronous latency:** the save blocks on the local GPU model (seconds) before
@@ -318,6 +327,63 @@ Member enters an event capture or a work-item update (free text) in the PWA
   telling the assistant what's wrong ("make it 4pm at the downtown office") and it
   re-proposes in the same thread, still writing the calendar only on Confirm.
   Multi-turn refinement is a v2 build; the v1 Dismiss+restate loop is its seed.
+
+### 4.1a Assistant architecture: two stages + a reusable engine
+
+The assistant is built as **two stages behind a reusable, domain-agnostic
+engine**, so the machinery (propose → validate → dispatch) is separable from the
+ntake-specific actions.
+
+**Two stages (focus → propose).**
+
+```
+CaptureRequest {text, timezone, now}
+      │  [ STAGE 1 — focus() ]  app-coupled: DB lookups, entity resolution,
+      ▼                         param grounding.  (app/assistant/capture.py)
+FocusedContext {text, tz, now, work_item_id, item_log,
+                calendar_window: [EventSummary]}   ← resolved entities, WITH ids
+      │  [ STAGE 2 — AssistantClient.propose() ]  engine-clean: no Session/ORM
+      ▼
+[ ProposedAction, … ]  executable by construction (real ids + grounded params)
+```
+
+- **Stage 1 `focus()`** turns raw text into the *focused world* the action will
+  operate on — resolving relevant entities *with real ids* and grounding params.
+  App-coupled (takes a `Session`). `calendar_window` is a typed `EventSummary`
+  list carrying ids precisely because stage 2 needs a real id to emit an
+  executable action (e.g. `deconflict_events` targeting `event_id=8`). **v1:**
+  resolution is deterministic — no target resolved from text, so `work_item_id`
+  is always `None` (every capture is new). The second **LLM** call (stage 1 as a
+  query-planner reading the text to decide what to fetch / which item to target)
+  is a v2/task-7 upgrade behind the same seam.
+- **Stage 2 `propose()`** reasons over the `FocusedContext` and emits
+  `ProposedAction`s. Engine-clean; the reusable piece.
+
+**The reusable engine (`app/routing/`) vs. the ntake plugin (`app/assistant/`).**
+
+- **Engine — `app/routing/engine.py`** (imports NOTHING app-specific: no
+  `app.models`, no `sqlalchemy`, no `fastapi`; enforced by a boundary test):
+  `ProposedAction`, `AssistantClient`/`NullAssistant` (the propose contract);
+  `ActionRegistry`/`ActionSpec` (register name → `{required, describe, handler,
+  needs_target, logs}`; `dispatch(name, params, context)` validates + calls the
+  handler; `describe(name, params)` derives the ground-truth `action_summary`);
+  `ActionError`, `require_params`, `propose_bounded` (bounded-timeout +
+  graceful-degrade). The opaque context is a **bounded type parameter**
+  (`ContextT` bound to `ActionContext`, PEP 695 generics): the engine never
+  inspects it; each plugin binds its own (`ActionRegistry[NtakeActionContext]`,
+  `AssistantClient[FocusedContext]`). No `Any`.
+- **Plugin — `app/assistant/`**: registers ntake's actions (`set_due_date`,
+  `create_event`, `complete_work_item`, `create_work_item`, `deconflict_events`,
+  `no_action`) into an engine `ActionRegistry`. Each handler receives the opaque
+  `NtakeActionContext(session, member, target_id, target_type)` and does the ORM
+  mutation plus — only when it targets a work item — the `source=assistant`
+  update append (WORKITEM-3; conditional per the generalized target). The
+  `FakeAssistant`, the per-action `describe` text, and `focus()` live here.
+
+**Why the split:** the propose-confirm pattern is generic and reusable; the split
+keeps the engine extractable into its own package by a directory move (only if a
+second consumer appears — package-shape now, not a published package). See PLAN
+"reusable propose-confirm engine".
 
 ### 4.2 Views over the same data
 - **Calendar:** events + due work items in a date range (filter by `family_id` +
