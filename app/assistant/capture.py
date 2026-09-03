@@ -21,7 +21,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.assistant.base import CaptureRequest, EventSummary, FocusedContext
+from app.assistant.context import CaptureRequest, EventSummary, FocusedContext
 from app.models import Event, Member
 
 

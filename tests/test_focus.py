@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from app.assistant.base import CaptureRequest, EventSummary, FocusedContext
 from app.assistant.capture import focus
+from app.assistant.context import CaptureRequest, EventSummary, FocusedContext
 from app.manage import seed_event
 from app.models import Family, Member
 

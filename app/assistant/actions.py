@@ -275,15 +275,6 @@ for _name, _spec in ACTIONS.items():
     REGISTRY.register(_name, _spec)
 
 
-def describe_action(name: str, params: dict) -> str:
-    """Registry seam: the deterministic action_summary for ``name`` + ``params``.
-
-    Thin pass-through to the engine registry (``registry.describe``) — callers use
-    this rather than reaching into ``ACTIONS`` so the lookup stays decoupled.
-    """
-    return REGISTRY.describe(name, params)
-
-
 def apply_action(
     session: Session,
     member: Member,

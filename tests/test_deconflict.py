@@ -14,7 +14,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from app.assistant.actions import ACTIONS, ActionError, apply_action
-from app.assistant.base import EventSummary, FocusedContext
+from app.assistant.context import EventSummary, FocusedContext
 from app.assistant.fake import FakeAssistant
 from app.manage import seed_event
 from app.models import Event, Family, Member, WorkItemUpdate

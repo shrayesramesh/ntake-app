@@ -123,12 +123,13 @@ def test_describe_create_event_title_only():
 
 
 def test_describe_action_seam_resolves_and_falls_back():
-    from app.assistant.actions import describe_action
+    from app.assistant.actions import REGISTRY
 
     # Known action -> the registry-derived summary.
-    assert "buy stamps" in describe_action("create_work_item", {"title": "buy stamps"})
+    got = REGISTRY.describe("create_work_item", {"title": "buy stamps"})
+    assert "buy stamps" in got
     # Unknown action -> the name itself (display-only; never raises).
-    assert describe_action("frobnicate", {}) == "frobnicate"
+    assert REGISTRY.describe("frobnicate", {}) == "frobnicate"
 
 
 def test_describe_tolerates_missing_params():

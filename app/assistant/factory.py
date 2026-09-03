@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-from app.assistant.base import AssistantClient, NullAssistant
+from app.assistant.context import AssistantClient, NullAssistant
 from app.assistant.fake import FakeAssistant
 
 

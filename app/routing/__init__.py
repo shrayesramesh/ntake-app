@@ -6,19 +6,22 @@ an action, bounded propose — is reusable and knows nothing about work items,
 events, SQLAlchemy, or FastAPI. A boundary test enforces the import rule.
 
 Package-shape now (a self-contained sub-package), not a separately published
-package — extractable by a directory move if a second consumer appears.
+package — extractable by a directory move if a second consumer appears. The
+whole engine lives in :mod:`app.routing.engine`; this re-exports its public API.
 """
 
 from __future__ import annotations
 
-from app.routing.contract import AssistantClient, NullAssistant, ProposedAction
-from app.routing.propose import propose_bounded
-from app.routing.registry import (
+from app.routing.engine import (
     ActionError,
     ActionRegistry,
     ActionSpec,
+    AssistantClient,
     DescribeFn,
     Handler,
+    NullAssistant,
+    ProposedAction,
+    propose_bounded,
     require_params,
 )
 

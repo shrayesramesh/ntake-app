@@ -28,9 +28,9 @@ from sse_starlette.sse import EventSourceResponse
 
 import app.db as db
 from app import __version__
-from app.assistant.actions import ActionError, apply_action, describe_action
-from app.assistant.base import CaptureRequest, FocusedContext
+from app.assistant.actions import REGISTRY, ActionError, apply_action
 from app.assistant.capture import focus
+from app.assistant.context import CaptureRequest, FocusedContext
 from app.assistant.factory import get_assistant
 from app.auth import current_member, current_member_stream
 from app.config import config_path, load_config, seed_from_config
@@ -358,7 +358,7 @@ def _to_proposal_read(
     return ProposalRead(
         name=action.name,
         params=action.params,
-        action_summary=describe_action(action.name, action.params),
+        action_summary=REGISTRY.describe(action.name, action.params),
         llm_rationale=action.llm_rationale,
         target_id=action.target_id,
         target_type=action.target_type,

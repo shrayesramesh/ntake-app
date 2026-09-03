@@ -23,7 +23,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.assistant.actions import ACTIONS
-from app.assistant.base import FocusedContext, ProposedAction
+from app.assistant.context import FocusedContext, ProposedAction
 from app.assistant.fake import FakeAssistant
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
