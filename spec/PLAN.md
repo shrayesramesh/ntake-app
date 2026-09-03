@@ -104,7 +104,20 @@ view works; failures are visible.
 - Two-tier availability split; off-machine backup; Postgres.
 - Persisted labor metrics; drag-and-drop board; multi-household.
 
-## Deferred / future refactor — reusable propose-confirm engine
+## Deferred / future refactor — reusable propose-confirm engine  ✅ DONE
+
+> **Done — lives in `app/routing/`** (the domain-agnostic engine), with the
+> ntake plugin in `app/assistant/`. `app/routing/` holds `ProposedAction`,
+> `AssistantClient`/`NullAssistant` (contract.py), the generic `ActionRegistry`
+> + `ActionSpec` + `ActionError` + `require_params` (registry.py), and
+> `propose_bounded` (propose.py). Handlers receive an **opaque context** the app
+> injects (ntake's is `NtakeActionContext(session, member, target_id,
+> target_type)` in `app/assistant/actions.py`). The import boundary — engine
+> imports no `app.models` / `sqlalchemy` / `fastapi` — is enforced by
+> `tests/test_engine.py::test_engine_does_not_import_app_specific_modules`.
+> Still package-shape inside this repo (extractable by a directory move); the
+> Ollama `format`-constrained client (below) is the remaining piece, arriving
+> with task 7.
 
 The Phase 4 assistant (capture → propose `{name,params}` → human confirm →
 dispatch to a handler) is built modular **within the app**, but its engine is

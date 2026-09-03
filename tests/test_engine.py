@@ -1,0 +1,145 @@
+"""Engine boundary + generic registry contract (reusable propose-confirm engine).
+
+The engine (``app.routing``) is domain-agnostic: it knows how to register
+actions, validate params, dispatch to a handler with an OPAQUE context it never
+inspects, describe an action from its params, and run a bounded/graceful-degrade
+propose. It must import NOTHING app-specific — no app.models, no sqlalchemy, no
+fastapi — which is what makes it extractable into its own package later.
+
+These tests use a fake handler + a fake opaque context (a plain dict), so they
+exercise the engine with zero ORM / zero app types.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from app.routing import (
+    ActionError,
+    ActionRegistry,
+    ActionSpec,
+    NullAssistant,
+    ProposedAction,
+    propose_bounded,
+)
+
+# --- boundary: the engine imports nothing app-specific --------------------
+
+
+def test_engine_does_not_import_app_specific_modules():
+    """A fresh import of the engine must not transitively pull in app.models,
+    sqlalchemy, or fastapi. This is what guarantees extractability."""
+    import importlib
+    import sys
+
+    # Drop any already-imported engine submodules so we measure a clean import.
+    for name in list(sys.modules):
+        if name == "app.routing" or name.startswith("app.routing."):
+            del sys.modules[name]
+
+    before = set(sys.modules)
+    importlib.import_module("app.routing")
+    newly = set(sys.modules) - before
+
+    forbidden = {"app.models", "sqlalchemy", "fastapi"}
+    leaked = {m for m in newly if m in forbidden or m.split(".")[0] in forbidden}
+    assert not leaked, f"engine leaked app-specific imports: {leaked}"
+
+
+# --- generic registry: register / validate / dispatch ---------------------
+
+
+def _registry() -> ActionRegistry:
+    reg = ActionRegistry()
+
+    def _apply_echo(context, params) -> str:
+        # context is opaque to the engine; here it's just a dict the test injects.
+        return f"echo {params['msg']} for {context['who']}"
+
+    reg.register(
+        "echo",
+        ActionSpec(
+            required=["msg"],
+            apply=_apply_echo,
+            describe=lambda p: f"Echo {p.get('msg', '?')}",
+        ),
+    )
+    reg.register(
+        "noop",
+        ActionSpec(
+            needs_target=False,
+            logs=False,
+            apply=lambda c, p: "ok",
+            describe=lambda p: "Do nothing",
+        ),
+    )
+    return reg
+
+
+def test_dispatch_validates_and_calls_handler_with_opaque_context():
+    reg = _registry()
+    out = reg.dispatch("echo", {"msg": "hi"}, context={"who": "tester"})
+    assert out == "echo hi for tester"
+
+
+def test_dispatch_unknown_action_raises():
+    reg = _registry()
+    with pytest.raises(ActionError):
+        reg.dispatch("frobnicate", {}, context={})
+
+
+def test_dispatch_missing_required_param_raises():
+    reg = _registry()
+    with pytest.raises(ActionError):
+        reg.dispatch("echo", {}, context={"who": "x"})
+
+
+def test_describe_uses_the_spec_and_falls_back_to_name():
+    reg = _registry()
+    assert reg.describe("echo", {"msg": "yo"}) == "Echo yo"
+    assert reg.describe("unknown", {}) == "unknown"  # display-only, never raises
+
+
+def test_registry_names():
+    reg = _registry()
+    assert set(reg.names()) == {"echo", "noop"}
+
+
+def test_registry_get_returns_spec_or_none():
+    reg = _registry()
+    assert reg.get("echo") is not None
+    assert reg.get("nope") is None
+
+
+# --- ProposedAction is a plain domain-free record -------------------------
+
+
+def test_proposed_action_is_domain_free():
+    a = ProposedAction(name="echo", params={"msg": "hi"})
+    assert a.name == "echo" and a.params == {"msg": "hi"}
+    assert a.target_id is None and a.target_type is None
+    assert a.proposal_id == "" and a.target_ref is None
+
+
+# --- propose_bounded: timeout / graceful-degrade wrapper ------------------
+
+
+def test_propose_bounded_returns_actions_from_a_client():
+    class OneAction(NullAssistant):
+        def propose(self, ctx):
+            return [ProposedAction(name="echo", params={"msg": "hi"})]
+
+    out = propose_bounded(OneAction(), ctx=object(), timeout=2.0)
+    assert [a.name for a in out] == ["echo"]
+
+
+def test_propose_bounded_degrades_to_empty_on_error():
+    class Boom(NullAssistant):
+        def propose(self, ctx):
+            raise RuntimeError("model exploded")
+
+    assert propose_bounded(Boom(), ctx=object(), timeout=2.0) == []
+
+
+def test_propose_bounded_null_client_returns_empty():
+    assert propose_bounded(NullAssistant(), ctx=object(), timeout=2.0) == []

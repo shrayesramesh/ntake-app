@@ -17,7 +17,6 @@ import asyncio
 import json
 import os
 from collections.abc import AsyncIterator, Callable
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -45,6 +44,7 @@ from app.models import (
     WorkItem,
     WorkItemUpdate,
 )
+from app.routing import propose_bounded
 from app.schemas import (
     CaptureCreate,
     CaptureResponse,
@@ -343,33 +343,30 @@ def calendar_view(
 def _propose_bounded(
     ctx: FocusedContext, target_label: str | None
 ) -> list[ProposalRead]:
-    """Call the configured assistant with a bounded timeout; degrade to [].
+    """Get proposals from the configured assistant (bounded; degrade to []), then
+    map them to the app DTO — assigning batch-local proposal_ids and deriving each
+    action_summary from the registry (ground truth).
 
-    The assistant (esp. Ollama) runs synchronously and may block; we cap it at
-    NTAKE_ASSISTANT_TIMEOUT and treat any timeout/error as "no proposals" so a
-    capture never fails or hangs on the model. ``target_label`` is the captured
-    item's title, echoed onto each proposal so the confirm card shows context.
+    The bounded-timeout + graceful-degrade wrapper is the engine's
+    ``propose_bounded``; this function is the app boundary that turns engine
+    ProposedActions into ProposalReads. ``target_label`` is the captured item's
+    title, echoed onto each proposal so the confirm card shows context.
     """
     timeout = float(os.environ.get("NTAKE_ASSISTANT_TIMEOUT", "4.0"))
-    try:
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            actions = pool.submit(get_assistant().propose, ctx).result(timeout=timeout)
-    except Exception:  # noqa: BLE001 — graceful degrade on any failure/timeout
-        return []
+    actions = propose_bounded(get_assistant(), ctx, timeout)
     return [
         ProposalRead(
             name=a.name,
             params=a.params,
             # Ground truth: what the action WILL do, derived from the registry
-            # (NOT from the model). describe_action is the seam that becomes
-            # registry.describe(...) when the engine is extracted.
+            # (NOT from the model), via the describe seam.
             action_summary=describe_action(a.name, a.params),
             # The model's own narration — passed through, may be wrong/empty.
             llm_rationale=a.llm_rationale,
             target_id=a.target_id,
             target_type=a.target_type,
-            # Batch-local handle assigned here (engine seam) so every assistant
-            # implementation gets consistent ids: p1, p2, … within one response.
+            # Batch-local handle assigned here so every assistant implementation
+            # gets consistent ids: p1, p2, … within one response.
             proposal_id=a.proposal_id or f"p{i}",
             target_ref=a.target_ref,
             target_label=target_label,

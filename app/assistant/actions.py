@@ -1,65 +1,48 @@
-"""Action registry + apply-handlers (Phase 4, task 2).
+"""ntake action plugin — registers the app's actions into the routing engine.
 
-The registry ``ACTIONS`` is a plain ``dict[str, ActionSpec]`` — the confirmable
-capabilities the assistant may propose (see spec/ASSISTANT_ACTIONS.md, v1 set).
-``apply_action`` is called ONLY on human Confirm (never auto): it validates the
-params lightly, runs the handler's mutation, and — except ``no_action`` — appends
-a ``source=assistant`` work_item_updates row authored by the confirming member
-(the universal on-confirm rule, WORKITEM-3). It does NOT commit; the caller
-commits so the change publishes once via the 1d seam.
+The domain-agnostic machinery (registry, validate, dispatch, describe, the
+ActionSpec/ProposedAction shapes, ActionError) lives in ``app.routing``. This
+module is the **plugin**: the ntake-specific handlers that actually mutate work
+items and events, their ``describe`` text, and the registration that wires them
+into an engine :class:`ActionRegistry`.
 
-``work_item_id`` (the capture target) is passed by the server, never taken from
-model params — the model doesn't guess row IDs. It is ``None`` for actions that
-don't operate on an existing item (``create_work_item``, ``no_action``).
+Each handler receives the **opaque context** the app injects at dispatch time —
+here an :class:`NtakeActionContext` carrying ``(session, member, target_id,
+target_type)`` — and does the ORM mutation plus, when it targets a work item, the
+``source=assistant`` update append (WORKITEM-3; conditional per task 12). The
+engine never sees SQLAlchemy.
+
+``apply_action`` / ``describe_action`` / ``ACTIONS`` / ``ActionError`` are kept as
+the stable public surface the endpoints and tests use.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from app.models import Event, Member, WorkItem, WorkItemUpdate
 
+# Engine (domain-agnostic) — the plugin builds on these.
+from app.routing import ActionError, ActionRegistry, ActionSpec, require_params
 
-class ActionError(Exception):
-    """Raised for an unknown action, missing/invalid params, or a bad target.
 
-    The caller (confirm endpoint / propose validation) catches this and drops
-    the action rather than failing the whole request.
+@dataclass
+class NtakeActionContext:
+    """The opaque context ntake injects into the engine at dispatch time.
+
+    The engine never inspects this; the handlers below unpack it. ``target_type``
+    ("work_item" | "event" | None) generalizes the target (task 12): the
+    conditional log rule lives in the handlers (only a work-item target appends a
+    source=assistant update).
     """
 
-
-# Handler signature: (session, member, target_id, target_type, params) -> summary.
-# target_type is "work_item" | "event" | None — handlers that can target more
-# than one thing (create_event) branch on it; work-item-only handlers ignore it.
-Handler = Callable[[Session, Member, int | None, str | None, dict], str]
-
-# describe signature: (params) -> deterministic action_summary str. A pure fn of
-# params only (no app types) so it is engine-extractable.
-DescribeFn = Callable[[dict], str]
-
-
-@dataclass(frozen=True)
-class ActionSpec:
-    required: list[str] = field(default_factory=list)
-    needs_target: bool = True  # operates on an existing work item?
-    logs: bool = True  # appends a source=assistant update on apply?
-    apply: Handler = None  # type: ignore[assignment]
-    # describe(params) -> the deterministic, registry-derived ``action_summary``:
-    # what the action WILL do, built from params. This is ground truth, distinct
-    # from any LLM narration (``llm_rationale``). Pure fn of params — no Session,
-    # no ORM, no app types — so it moves cleanly into the reusable engine later.
-    # Must tolerate missing/partial params (it runs on unconfirmed proposals).
-    describe: DescribeFn = None  # type: ignore[assignment]
-
-
-def _require(params: dict, keys: list[str]) -> None:
-    for k in keys:
-        if params.get(k) in (None, ""):
-            raise ActionError(f"missing required param: {k}")
+    session: Session
+    member: Member
+    target_id: int | None
+    target_type: str | None
 
 
 def _parse_dt(value: str) -> datetime:
@@ -74,6 +57,13 @@ def _load_item(session: Session, target_id: int | None) -> WorkItem:
     if wi is None:
         raise ActionError(f"work item not found: {target_id}")
     return wi
+
+
+def _load_event(session: Session, target_id: int | None) -> Event:
+    ev = session.get(Event, target_id) if target_id is not None else None
+    if ev is None:
+        raise ActionError(f"event not found: {target_id}")
+    return ev
 
 
 def _append_assistant_update(
@@ -92,32 +82,32 @@ def _append_assistant_update(
     return upd
 
 
-# --- handlers -------------------------------------------------------------
+# --- handlers: (context, params) -> summary -------------------------------
 
 
-def _apply_set_due_date(session, member, target_id, target_type, params) -> str:
-    _require(params, ["due_at"])
+def _apply_set_due_date(ctx: NtakeActionContext, params: dict) -> str:
+    require_params(params, ["due_at"])
     due = _parse_dt(params["due_at"])
-    wi = _load_item(session, target_id)
+    wi = _load_item(ctx.session, ctx.target_id)
     wi.due_at = due
     wi.updated_at = datetime.now(UTC)
     _append_assistant_update(
-        session, member, wi.id, f"Set due date to {due.isoformat()}"
+        ctx.session, ctx.member, wi.id, f"Set due date to {due.isoformat()}"
     )
     return f"Set due date to {due.isoformat()}"
 
 
-def _apply_complete(session, member, target_id, target_type, params) -> str:
-    wi = _load_item(session, target_id)
+def _apply_complete(ctx: NtakeActionContext, params: dict) -> str:
+    wi = _load_item(ctx.session, ctx.target_id)
     now = datetime.now(UTC)
     wi.status = "done"
     wi.completed_at = now
     wi.updated_at = now
-    _append_assistant_update(session, member, wi.id, "Marked done")
+    _append_assistant_update(ctx.session, ctx.member, wi.id, "Marked done")
     return "Marked done"
 
 
-def _apply_create_event(session, member, target_id, target_type, params) -> str:
+def _apply_create_event(ctx: NtakeActionContext, params: dict) -> str:
     """Create an event — standalone OR driven by a work item (task 12).
 
     * **From a work item** (``target_type == "work_item"`` and a ``target_id``):
@@ -126,16 +116,16 @@ def _apply_create_event(session, member, target_id, target_type, params) -> str:
     * **Standalone** (no work-item target): just insert the event. Events aren't
       part of the labor log, so NO work_item_update is appended (WORKITEM-3).
     """
-    _require(params, ["title"])
+    require_params(params, ["title"])
     now = datetime.now(UTC)
 
     source_update_id = None
-    family_id = member.family_id
-    if target_type == "work_item" and target_id is not None:
-        wi = _load_item(session, target_id)
+    family_id = ctx.member.family_id
+    if ctx.target_type == "work_item" and ctx.target_id is not None:
+        wi = _load_item(ctx.session, ctx.target_id)
         family_id = wi.family_id
         upd = _append_assistant_update(
-            session, member, wi.id, f"Created calendar event: {params['title']}"
+            ctx.session, ctx.member, wi.id, f"Created calendar event: {params['title']}"
         )
         source_update_id = upd.id
 
@@ -152,15 +142,15 @@ def _apply_create_event(session, member, target_id, target_type, params) -> str:
         created_at=now,
         updated_at=now,
     )
-    session.add(ev)
+    ctx.session.add(ev)
     return f"Created event: {params['title']}"
 
 
-def _apply_create_work_item(session, member, target_id, target_type, params) -> str:
-    _require(params, ["title"])
+def _apply_create_work_item(ctx: NtakeActionContext, params: dict) -> str:
+    require_params(params, ["title"])
     now = datetime.now(UTC)
     wi = WorkItem(
-        family_id=member.family_id,
+        family_id=ctx.member.family_id,
         title=params["title"],
         description=params.get("description"),
         tags=params.get("tags", []),
@@ -168,26 +158,19 @@ def _apply_create_work_item(session, member, target_id, target_type, params) -> 
         created_at=now,
         updated_at=now,
     )
-    session.add(wi)
-    session.flush()
+    ctx.session.add(wi)
+    ctx.session.flush()
     _append_assistant_update(
-        session, member, wi.id, f"Created work item: {params['title']}"
+        ctx.session, ctx.member, wi.id, f"Created work item: {params['title']}"
     )
     return f"Created work item: {params['title']}"
 
 
-def _apply_no_action(session, member, target_id, target_type, params) -> str:
+def _apply_no_action(ctx: NtakeActionContext, params: dict) -> str:
     return "No action"
 
 
-def _load_event(session: Session, target_id: int | None) -> Event:
-    ev = session.get(Event, target_id) if target_id is not None else None
-    if ev is None:
-        raise ActionError(f"event not found: {target_id}")
-    return ev
-
-
-def _apply_deconflict_events(session, member, target_id, target_type, params) -> str:
+def _apply_deconflict_events(ctx: NtakeActionContext, params: dict) -> str:
     """Move the target event to the next day to resolve an overlap (task 10).
 
     A deliberate PLACEHOLDER proving calendar context flows in → action out →
@@ -195,7 +178,7 @@ def _apply_deconflict_events(session, member, target_id, target_type, params) ->
     appends NO work-item update (events aren't part of the labor log). Shifts the
     timing pair (timed start_at/end_at, or all-day start_date/end_date) by +1 day.
     """
-    ev = _load_event(session, target_id)
+    ev = _load_event(ctx.session, ctx.target_id)
     day = timedelta(days=1)
     if ev.all_day:
         if ev.start_date is not None:
@@ -248,6 +231,9 @@ def _describe_deconflict(params: dict) -> str:
     return "Move the event to the next day (deconflict)"
 
 
+# The ntake action set (spec/ASSISTANT_ACTIONS.md, v1). A plain dict of engine
+# ActionSpecs — kept public as ``ACTIONS`` for callers/tests — registered into an
+# engine ActionRegistry below.
 ACTIONS: dict[str, ActionSpec] = {
     "set_due_date": ActionSpec(
         required=["due_at"],
@@ -283,20 +269,19 @@ ACTIONS: dict[str, ActionSpec] = {
     ),
 }
 
+# The engine registry instance the app dispatches through.
+REGISTRY = ActionRegistry()
+for _name, _spec in ACTIONS.items():
+    REGISTRY.register(_name, _spec)
+
 
 def describe_action(name: str, params: dict) -> str:
     """Registry seam: the deterministic action_summary for ``name`` + ``params``.
 
-    Looks up the spec and calls its ``describe``. Callers (the capture endpoint)
-    use this rather than reaching into ``ACTIONS`` so the lookup is decoupled —
-    when the registry is extracted into the reusable engine this becomes
-    ``registry.describe(name, params)`` with a one-line repoint. Unknown names
-    fall back to the name itself (never raises; describe is display-only).
+    Thin pass-through to the engine registry (``registry.describe``) — callers use
+    this rather than reaching into ``ACTIONS`` so the lookup stays decoupled.
     """
-    spec = ACTIONS.get(name)
-    if spec is None or spec.describe is None:
-        return name
-    return spec.describe(params)
+    return REGISTRY.describe(name, params)
 
 
 def apply_action(
@@ -307,23 +292,24 @@ def apply_action(
     params: dict,
     target_type: str | None = None,
 ) -> str:
-    """Validate + apply a confirmed action. Returns a human summary.
+    """Validate + apply a confirmed action via the engine. Returns a summary.
 
-    ``target_type`` ("work_item" | "event" | None) generalizes the target (task
-    12): the conditional log rule lives in the handlers (only a work-item target
-    appends a source=assistant update). For backwards compatibility, a present
-    ``target_id`` with no explicit ``target_type`` is treated as a work-item
-    target, so existing work-item confirms keep logging + linking.
+    Builds the ntake opaque context and calls ``REGISTRY.dispatch``. For
+    backwards compatibility, a present ``target_id`` with no explicit
+    ``target_type`` is treated as a work-item target, so existing work-item
+    confirms keep logging + linking.
 
     Does not commit — the caller commits so the write publishes once via the seam.
     Raises ActionError for unknown names / missing params / bad targets.
     """
-    spec = ACTIONS.get(name)
-    if spec is None:
-        raise ActionError(f"unknown action: {name}")
-    _require(params, spec.required)
     if target_type is None and target_id is not None:
         target_type = "work_item"
-    summary = spec.apply(session, member, target_id, target_type, params)
+    context = NtakeActionContext(
+        session=session,
+        member=member,
+        target_id=target_id,
+        target_type=target_type,
+    )
+    summary = REGISTRY.dispatch(name, params, context)
     session.flush()  # autoflush is off; make all pending rows visible pre-commit
     return summary
