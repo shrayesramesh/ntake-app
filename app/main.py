@@ -243,3 +243,31 @@ def append_update(
     session.commit()
     session.refresh(upd)
     return upd
+
+
+# --- Board (read-only projection, Phase 3 checkpoint 5) ------------------
+
+# Fixed column order (GROOM). Display labels are a UI concern; these are codes.
+BOARD_COLUMNS = ["todo", "on_deck", "doing", "done"]
+
+
+@app.get("/board", response_model=dict[str, list[WorkItemRead]])
+def get_board(
+    session: Session = Depends(get_session),
+    _member: Member = Depends(current_member),
+) -> dict[str, list[WorkItemRead]]:
+    """Read-only board: non-archived items grouped into the 4 fixed columns.
+
+    Ordered within each column by ``position`` then ``id``. No archive/move
+    actions here (GROOM is deferred); updates flow via the Phase 4 capture loop.
+    """
+    board: dict[str, list[WorkItemRead]] = {col: [] for col in BOARD_COLUMNS}
+    items = session.scalars(
+        select(WorkItem)
+        .where(WorkItem.archived_at.is_(None))
+        .order_by(WorkItem.position, WorkItem.id)
+    ).all()
+    for wi in items:
+        if wi.status in board:
+            board[wi.status].append(_work_item_detail(session, wi))
+    return board
