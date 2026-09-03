@@ -152,6 +152,121 @@ def test_confirm_no_action_is_noop(client, session, auth_headers):
     assert session.query(WorkItemUpdate).count() == 0
 
 
+# --- confirm endpoint for the newer actions (assign / reschedule / archive) -
+# The handlers are unit-tested in test_actions; these prove they flow through
+# /actions/confirm (auth, target_type, commit) — the new target patterns.
+
+
+def test_confirm_assign_work_item(client, session, auth_headers):
+    wid = _create(session)
+    # A second member in the SAME family as the authed member (assign whitelists
+    # by family). auth_headers seeds "TestFam" + "Tester"; reuse that family.
+    fam = session.query(Family).first()
+    sam = Member(family_id=fam.id, display_name="Sam", role="child", created_at=NOW)
+    session.add(sam)
+    session.commit()
+    sam_id = sam.id
+
+    r = client.post(
+        "/actions/confirm",
+        json={
+            "name": "assign_work_item",
+            "params": {"member_id": sam_id},
+            "target_id": wid,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    session.expire_all()
+    assert session.get(WorkItem, wid).assigned_to == sam_id
+
+
+def test_confirm_assign_rejects_foreign_member_422(client, session, auth_headers):
+    wid = _create(session)
+    other = Family(name="Other", timezone="UTC")
+    session.add(other)
+    session.commit()
+    outsider = Member(
+        family_id=other.id, display_name="Outsider", role="adult", created_at=NOW
+    )
+    session.add(outsider)
+    session.commit()
+
+    r = client.post(
+        "/actions/confirm",
+        json={
+            "name": "assign_work_item",
+            "params": {"member_id": outsider.id},
+            "target_id": wid,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 422  # whitelist rejection surfaces as 422
+    session.expire_all()
+    assert session.get(WorkItem, wid).assigned_to is None
+
+
+def test_confirm_reschedule_event_target_type_event(client, session, auth_headers):
+    fam = session.query(Family).first()  # auth_headers seeds the family
+    ev = Event(
+        family_id=fam.id,
+        title="Dentist",
+        start_at=datetime(2026, 9, 5, 19, 0, tzinfo=UTC),
+        end_at=datetime(2026, 9, 5, 20, 0, tzinfo=UTC),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    session.add(ev)
+    session.commit()
+    ev_id = ev.id
+    new_start = datetime(2026, 9, 8, 15, 0, tzinfo=UTC).isoformat()
+
+    r = client.post(
+        "/actions/confirm",
+        json={
+            "name": "reschedule_event",
+            "params": {"start_at": new_start, "end_at": new_start},
+            "target_type": "event",
+            "target_id": ev_id,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    session.expire_all()
+    assert session.get(Event, ev_id).start_at is not None
+    # Event-only: no work-item update from a reschedule.
+    assert session.query(WorkItemUpdate).count() == 0
+
+
+def test_confirm_archive_requires_done_422(client, session, auth_headers):
+    wid = _create(session)  # status defaults to todo
+    r = client.post(
+        "/actions/confirm",
+        json={"name": "archive_work_item", "params": {}, "target_id": wid},
+        headers=auth_headers,
+    )
+    assert r.status_code == 422  # invariant violation → 422
+    session.expire_all()
+    assert session.get(WorkItem, wid).archived_at is None
+
+
+def test_confirm_archive_a_done_item(client, session, auth_headers):
+    wid = _create(session)
+    client.post(
+        "/actions/confirm",
+        json={"name": "complete_work_item", "params": {}, "target_id": wid},
+        headers=auth_headers,
+    )
+    r = client.post(
+        "/actions/confirm",
+        json={"name": "archive_work_item", "params": {}, "target_id": wid},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    session.expire_all()
+    assert session.get(WorkItem, wid).archived_at is not None
+
+
 # --- executable-only proposals + the proposal_id primitive -----------------
 # Unit-level (FakeAssistant.propose directly): the guarantees that make a
 # Confirm payload dispatchable as-is by the endpoint above.
