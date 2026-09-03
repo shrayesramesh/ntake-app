@@ -180,6 +180,23 @@ def run_checks(base: str, token: str) -> bool:
         assert "error" not in result, result.get("error")
         assert result.get("frame"), "no SSE frame received"
 
+    def assistant_capture_propose_confirm():
+        # Capture free text -> proposals (fake: 'friday' -> set_due_date).
+        r = _post_json(f"{base}/capture", {"text": "call plumber friday"}, token)
+        assert r.status == 201
+        data = json.loads(r.read())
+        item_id = data["item"]["id"]
+        names = [p["name"] for p in data["proposals"]]
+        assert "set_due_date" in names, names
+        due = next(p for p in data["proposals"] if p["name"] == "set_due_date")
+        # Confirm the proposed action -> applies it.
+        c = _post_json(
+            f"{base}/actions/confirm",
+            {"name": "set_due_date", "params": due["params"], "target_id": item_id},
+            token,
+        )
+        assert c.status == 200, c.status
+
     for name, fn in [
         ("health is ok", health),
         ("shell page renders", shell),
@@ -187,6 +204,7 @@ def run_checks(base: str, token: str) -> bool:
         ("authenticated create (201)", create_item),
         ("board fragment shows created item", board_shows_item),
         ("SSE delivers a change frame", sse_delivers_change),
+        ("assistant capture->propose->confirm", assistant_capture_propose_confirm),
     ]:
         ok = _check(name, fn) and ok
     return ok

@@ -20,9 +20,12 @@ def test_index_serves_shell_without_auth(client):
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
     body = r.text
-    # Shell has the capture control and the board container + token handling.
-    assert "Add something to the board" in body
+    # Shell has the capture control, proposals surface, board container + token JS.
+    assert "Capture a note" in body
     assert "board-container" in body
+    assert "proposals" in body  # inline proposal cards render here
+    assert "/capture" in body  # capture posts to the JSON capture endpoint
+    assert "/actions/confirm" in body  # Confirm posts the action
     assert "localStorage" in body
 
 
@@ -74,21 +77,3 @@ def test_board_view_escapes_html_in_titles(client, session, auth_headers):
     html = client.get("/board/view", headers=auth_headers).text
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;" in html  # escaped
-
-
-def test_capture_form_creates_item(client, auth_headers):
-    """The HTMX capture form posts form-encoded; the capture endpoint accepts it
-    and returns the refreshed board fragment (HTML) so HTMX can swap it."""
-    r = client.post(
-        "/work-items/capture",
-        data={"title": "buy milk"},  # form-encoded, as the browser sends
-        headers=auth_headers,
-    )
-    assert r.status_code == 200
-    assert "text/html" in r.headers["content-type"]
-    assert "buy milk" in r.text  # the new item is in the returned board fragment
-
-
-def test_capture_form_requires_auth(client):
-    r = client.post("/work-items/capture", data={"title": "x"})
-    assert r.status_code == 401

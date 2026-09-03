@@ -101,6 +101,7 @@ class ProposalRead(BaseModel):
     params: dict = {}
     summary: str
     target_id: int | None = None
+    target_label: str | None = None  # the target item's title, for card context
 
 
 class CaptureResponse(BaseModel):

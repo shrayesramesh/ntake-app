@@ -104,6 +104,32 @@ view works; failures are visible.
 - Two-tier availability split; off-machine backup; Postgres.
 - Persisted labor metrics; drag-and-drop board; multi-household.
 
+## Deferred / future refactor — reusable propose-confirm engine
+
+The Phase 4 assistant (capture → propose `{name,params}` → human confirm →
+dispatch to a handler) is built modular **within the app**, but its engine is
+worth extracting into a **domain-agnostic, reusable module** ("propose-confirm" /
+action-router) that other projects can consume. The split:
+
+- **Engine (reusable, imports nothing app-specific):** `AssistantClient` /
+  `ProposedAction` / a generic `CaptureContext`; a generic `ActionRegistry`
+  (register name → param spec + handler); validate/dispatch with a uniform error;
+  the bounded-timeout + graceful-degrade wrapper; the `{actions:[{name,params}]}`
+  contract + an Ollama `format`-constrained client that builds its JSON schema
+  from the registered actions. No `Session`, no `Member`, no ORM models.
+- **Plugin (this app):** registers ntake's actions (`set_due_date`,
+  `create_event`, …); each handler receives an **opaque context** the app injects
+  (here `(session, member, target_id)`) and does the ORM mutation +
+  `source=assistant` append. The engine never sees SQLAlchemy.
+
+**Approach (agreed):** *package-shape now, not a separate package.* Structure as a
+self-contained sub-package with a strict "engine imports nothing app-specific"
+rule, enforced by isolated engine tests (fake handler + fake context). Extractable
+into its own installable package later by a directory move — only if a concrete
+second consumer appears (don't pay packaging cost pre-emptively). Do this as a
+dedicated refactor task **after** the Phase 4 v1 flow lands, since it touches the
+task 2/4/5 code and is cleaner as its own focused, well-tested change.
+
 ## Deferred-decision ledger (decide at the forcing phase)
 | Decision | At |
 |---|---|

@@ -30,6 +30,8 @@ def test_capture_new_item_saves_human_and_returns_proposals(client, auth_headers
     assert "set_due_date" in names
     # Each proposal carries the target work item id.
     assert all(p["target_id"] == body["item"]["id"] for p in body["proposals"])
+    # ...and the target's label (title) so the card can show context.
+    assert all(p["target_label"] == "call plumber friday" for p in body["proposals"])
 
 
 def test_capture_saves_raw_before_proposing(client, session, auth_headers):

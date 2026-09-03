@@ -16,13 +16,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import urllib.parse
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -318,47 +317,18 @@ def board_view(
     return render_board(_board_columns(session))
 
 
-@app.post("/work-items/capture", response_class=HTMLResponse)
-async def capture(
-    request: Request,
-    session: Session = Depends(get_session),
-    member: Member = Depends(current_member),
-) -> str:
-    """Free-text capture — the ONLY write control in the UI.
-
-    Accepts a form-encoded ``title`` (what the HTMX form posts, no JSON gymnastics
-    and no python-multipart dependency: we parse the urlencoded body directly).
-    The text becomes the item title for now; the Phase 4 assistant will split
-    title/body/tags. Returns the refreshed board fragment so HTMX swaps it.
-    """
-    raw = (await request.body()).decode()
-    fields = urllib.parse.parse_qs(raw)
-    title = (fields.get("title", [""])[0]).strip()
-    if not title:
-        raise HTTPException(status_code=422, detail="title is required")
-
-    now = datetime.now(UTC)
-    session.add(
-        WorkItem(
-            family_id=member.family_id,
-            title=title,
-            created_at=now,
-            updated_at=now,
-        )
-    )
-    session.commit()  # publishes {work_items, id, create} via the seam -> SSE
-    return render_board(_board_columns(session))
-
-
 # --- Capture with proposals (Phase 4, task 4) ----------------------------
 
 
-def _propose_bounded(ctx: CaptureContext) -> list[ProposalRead]:
+def _propose_bounded(
+    ctx: CaptureContext, target_label: str | None
+) -> list[ProposalRead]:
     """Call the configured assistant with a bounded timeout; degrade to [].
 
     The assistant (esp. Ollama) runs synchronously and may block; we cap it at
     NTAKE_ASSISTANT_TIMEOUT and treat any timeout/error as "no proposals" so a
-    capture never fails or hangs on the model.
+    capture never fails or hangs on the model. ``target_label`` is the captured
+    item's title, echoed onto each proposal so the confirm card shows context.
     """
     timeout = float(os.environ.get("NTAKE_ASSISTANT_TIMEOUT", "4.0"))
     try:
@@ -368,7 +338,11 @@ def _propose_bounded(ctx: CaptureContext) -> list[ProposalRead]:
         return []
     return [
         ProposalRead(
-            name=a.name, params=a.params, summary=a.summary, target_id=a.target_id
+            name=a.name,
+            params=a.params,
+            summary=a.summary,
+            target_id=a.target_id,
+            target_label=target_label,
         )
         for a in actions
     ]
@@ -419,7 +393,7 @@ def capture_with_proposals(
         timezone=fam.timezone if fam else "UTC",
         now=now,
     )
-    proposals = _propose_bounded(ctx)
+    proposals = _propose_bounded(ctx, target_label=item.title)
     return CaptureResponse(item=_work_item_detail(session, item), proposals=proposals)
 
 
