@@ -1,9 +1,26 @@
-# LLD stub — assistant capture pipeline (focus → propose)
+# LLD — assistant capture pipeline (link → propose, two LLM calls)
 
-> **Status: DESIGN IN PROGRESS — not built.** Low-level design for the task-7
-> `focus()`/`propose()` functional shape. Parent HLD: DESIGN §4.1 / §4.1a.
-> Records decisions from the design debate; the fake-first v1 (built) is a
-> degenerate case of this. Graduates into DESIGN when implemented.
+> **Status: DESIGN — not built.** Low-level design for the task-7 capture
+> pipeline. Parent HLD: DESIGN §4.1 / §4.1a. Records the design-debate decisions;
+> the current fake-first v1 (built) is a degenerate case (deterministic `focus()`,
+> no linking LLM). Graduates into DESIGN when implemented.
+
+## The v1 pipeline in one picture (OQ-1, resolved: two LLM calls)
+
+```
+CALL 1 — LINK (LLM):  shallow WorldView (id-bearing menu) + the note
+                       → ResolvedIds  (which [w#]/[e#] the note is about)
+        ↓ deterministic
+   DEEP FETCH:         full records for ONLY those ids — a work item's entire
+                       work_item_updates history, the event's full record, …
+        ↓
+CALL 2 — PROPOSE (LLM): TOOLS VIEW + the note + the deep/narrow context
+                        → [ProposedAction]   (id-free; target attached in code)
+```
+
+Deliberate token trade: **broad-but-shallow to find the targets, then
+narrow-but-deep to reason.** Full details of the flow + rationale are under
+"Open questions → OQ-1".
 
 ## Frame: think in functions, not a central object
 
@@ -104,20 +121,41 @@ rather than hard-coding (v2 nicety; v1's six actions fetch the obvious slice).
 
 ## Open questions
 
-- **OQ-1 — the chain feels too long.** `request → world → link → deep_fetch →
-  focus → propose → attach`. Can it collapse without losing the session-free /
-  executable-by-construction properties? Candidates: have `link` return **thin
-  records** so `deep_fetch` disappears (see OQ-3); or fold `attach` into
-  `propose`. Revisit before implementing — do not cement the long chain.
-- **OQ-2 — `WorldView` window.** How far back do events go (past week? month?);
-  forward = open-ended.
-- **OQ-3 — `link` output shape.** Bare `ResolvedIds`, or already-thin records? If
-  `link` can return enough of each entity, `deep_fetch` collapses into it and the
-  chain shortens (directly serves OQ-1). Tension: `link` is LLM-side (no session);
-  returning *records* means the linking step would need DB access — so more likely
-  `link` returns ids and a lightweight `deep_fetch` stays. Decide with OQ-1.
+- **OQ-1 — pipeline shape. RESOLVED: two LLM calls (link → deep_fetch → propose).**
+  The v1 pipeline is `build_world_view → link(LLM) → deep_fetch → propose(LLM)`:
+  1. **Link (LLM call 1):** shallow `WorldView` (the id-bearing menu of members /
+     open items / windowed events) + the note → the **relevant identities**
+     (`ResolvedIds`: which `[w#]`/`[e#]` the note is about).
+  2. **Deep fetch (deterministic):** for *only* those ids, pull the **full
+     records** — a work item's entire `work_item_updates` history, the event's
+     full record, etc.
+  3. **Propose (LLM call 2):** `TOOLS VIEW` + the note + the **deep, narrow**
+     context (not the whole world) → `[ProposedAction]`.
+
+  Rationale (the deliberate token trade): **broad-but-shallow to find the
+  targets, then narrow-but-deep to reason.** Full histories for every entity in
+  call 1 would be wasteful (most are irrelevant); only the shallow world in call 2
+  would starve the reasoning. This also resolves target attachment cleanly — call
+  1 produces the ids, so by call 2 the target is already resolved server-side and
+  the propose model still emits id-free `{name, params}` (no id-guessing in the
+  reasoning call). This is the richer product: "the plumber is coming friday"
+  resolves to the real plumber item + its history. **Cost accepted for v1:** two
+  sequential local-model calls in the request path (see the cold-start / timeout
+  note in NEXT_SESSION — matters more now), and `focus()` is NOT deterministic
+  (`OllamaCaptureResolver` is a real LLM component in v1). This **supersedes** the
+  earlier "deterministic v1 focus / one call" lean.
+- **OQ-2 — `WorldView` window.** Built as `window_days=7` (past window, forward
+  open-ended), a parameter tunable later.
+- **OQ-3 — `link` output shape. RESOLVED: bare `ResolvedIds`.** `link` is LLM-side
+  (no session), so it returns ids, not records; `deep_fetch` (which has the
+  session) pulls the full records. Keeping them separate is what enables the
+  shallow-then-deep trade in OQ-1 — `link` sees only the shallow world, deep_fetch
+  materializes only the linked ids.
 - **OQ-4 — target attachment.** Type-based, ≤1 resolved entity per type for v1;
   multi-entity / `target_ref` chaining is v2.
+- **OQ-6 — deep-context size.** `deep_fetch` sends a work item's **full**
+  `work_item_updates` log in v1 (family scale → short logs; uncapped is fine).
+  Cap to last-N only if a log ever grows large enough to bloat the propose prompt.
 - **OQ-5 — action param schema. RESOLVED (see "Resolved: action param schema"
   below).** Typed params live **on `ActionSpec`** as `list[Param]` (option B):
   the engine carries them as plain data (not required-only, not a schema

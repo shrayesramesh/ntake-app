@@ -120,32 +120,34 @@ app/assistant/ollama/
 │                 #   the registered actions (names + params). No prompt/domain logic.
 ├── assistant.py  # OllamaAssistant[FocusedContext] (stage 2): build prompt+schema,
 │                 #   call client, parse -> [ProposedAction]
-├── resolver.py   # OllamaCaptureResolver (stage 1) — SEE OQ-1 FIRST. Late in this
-│                 #   session we leaned toward keeping stage-1 focus() DETERMINISTIC
-│                 #   for v1 (no stage-1 LLM; semantic text→target linking is v2),
-│                 #   which collapses the pipeline toward ONE LLM call (propose).
-│                 #   Decide OQ-1 before building this — it may be deferred to v2.
-├── prompt.py     # system + context prompt templates for both stages
+├── resolver.py   # OllamaCaptureResolver (stage 1) — the LINK call. Shallow
+│                 #   WorldView + note -> ResolvedIds; then deterministic deep_fetch
+│                 #   pulls the FULL records (work_item_updates history, etc.) for
+│                 #   those ids -> FocusedContext. (This IS an LLM component in v1.)
+├── prompt.py     # system + context prompt templates for both calls
 └── infra.py      # host mgmt: health/pull (install stays a documented human step)
 ```
 
-> **⚠ OQ-1 / pipeline shape — decide before writing Ollama code.** The stage
-> layout above (a separate LLM resolver) predates the LLD debate. Current lean:
-> **stage 1 (`focus()`) stays deterministic in v1** — `build_world_view` gathers
-> ambient state, `propose()` is the single LLM call reasoning over
-> world-view + tools-view + raw text. Whether the model emits target ids
-> (whitelisted against context) vs. code attaches them, and whether there's one
-> LLM call or two, is unresolved. Read `spec/LLD-assistant-pipeline.md` OQ-1..OQ-5
-> and settle it first; the sub-package layout may shrink (no `resolver.py` LLM in
-> v1).
+> **Pipeline shape — RESOLVED (OQ-1): two LLM calls.** See
+> `spec/LLD-assistant-pipeline.md`. v1 is
+> `build_world_view → link(LLM) → deep_fetch → propose(LLM)`:
+> **(1) link** = shallow world + note → the relevant `[w#]/[e#]` ids;
+> **deep_fetch** = pull full records (a work item's entire update history, etc.)
+> for just those ids; **(2) propose** = tools view + note + that deep/narrow
+> context → `[ProposedAction]`. Broad-but-shallow to find targets, then
+> narrow-but-deep to reason. This **supersedes** the earlier "deterministic v1 /
+> one call" lean — `focus()` IS an LLM component in v1, and there are two
+> sequential local-model calls in the request path (see the cold-start note).
 
 - **Config:** `NTAKE_ASSISTANT=ollama`, `NTAKE_ASSISTANT_MODEL` (default
   `llama3.1:8b`), `NTAKE_OLLAMA_URL` (default `http://localhost:11434`),
   `NTAKE_ASSISTANT_TIMEOUT` (currently 4.0 — set for the fake). Wire the `ollama`
   branch in both factory functions (currently both fall back to the fake).
-  **⚠ Cold start:** a local model's *first* call after idle takes ~10–30s to load
-  into VRAM; 4.0s would guarantee a cold-miss → graceful-degrade to `[]`. Give the
-  ollama path its own larger timeout, and/or `keep_alive` + a startup warm ping in
+  **⚠ Cold start + two calls:** the pipeline now makes **two** sequential
+  local-model calls per capture (link, then propose), so latency is ~2× a single
+  call — and a model's *first* call after idle takes ~10–30s to load into VRAM;
+  4.0s would guarantee a cold-miss → graceful-degrade to `[]`. Give the ollama
+  path its own larger timeout, and/or `keep_alive` + a startup warm ping in
   `infra.py`. Decide the value against real host measurement.
 - **Prompt:** system (role + available actions/params, "propose only from these;
   use no_action; dates in family tz") + context (now, tz, item log, calendar
@@ -153,10 +155,14 @@ app/assistant/ollama/
 - **Build order (each a sub-checkpoint, `make check` green, TDD vs. a stubbed
   httpx — no live model needed):** (1) the JSON `format` **schema generator** from
   the specs (`ActionSpec.params`/`exclusive_params` are already there — see the
-  resolved decision below); (2) `client.py` (`OllamaClient`); (3) `OllamaAssistant`
-  (assemble prompt from `build_world_view` + `build_tools_view` + raw text, call
-  client, parse → `[ProposedAction]`); (4) `OllamaCaptureResolver`; (5) `infra.py`
-  + a `manage ollama` health/pull subcommand.
+  resolved decision below); (2) `client.py` (`OllamaClient`) — the shared
+  localhost call both LLM calls use; (3) **propose (call 2)** `OllamaAssistant`:
+  prompt = `build_tools_view` + deep context + note, parse → `[ProposedAction]`
+  (test against a hand-built deep `FocusedContext` — no link needed yet);
+  (4) **link + deep_fetch (call 1)** `OllamaCaptureResolver`: `build_world_view` +
+  note → `ResolvedIds`, then deterministic `deep_fetch` → `FocusedContext`;
+  (5) `infra.py` + a `manage ollama` health/pull subcommand. Building propose
+  before link lets each LLM call be TDD'd in isolation against stubbed httpx.
 
 ### Resolved: action param schema (was OQ-5 → option B)
 
