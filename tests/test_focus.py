@@ -28,27 +28,17 @@ from app.assistant.context import (
 )
 from app.assistant.fake import FakeAssistant, FakeCaptureResolver
 from app.manage import seed_event
-from app.models import Family, Member
+from app.models import Family
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
-
-
-def _fam_member(session):
-    fam = Family(name="F", timezone="America/New_York")
-    session.add(fam)
-    session.commit()
-    m = Member(family_id=fam.id, display_name="A", role="adult", created_at=NOW)
-    session.add(m)
-    session.commit()
-    return fam, m
 
 
 def _req(text="hello") -> CaptureRequest:
     return CaptureRequest(text=text, timezone="America/New_York", now=NOW)
 
 
-def test_focus_returns_focused_context_passing_through_raw_fields(session):
-    fam, m = _fam_member(session)
+def test_focus_returns_focused_context_passing_through_raw_fields(session, fam_member):
+    fam, m = fam_member
     ctx = FakeCaptureResolver().focus(_req("call plumber"), session, m)
     assert isinstance(ctx, FocusedContext)
     assert ctx.text == "call plumber"
@@ -56,8 +46,8 @@ def test_focus_returns_focused_context_passing_through_raw_fields(session):
     assert ctx.now == NOW
 
 
-def test_focus_work_item_id_is_none_in_v1(session):
-    fam, m = _fam_member(session)
+def test_focus_work_item_id_is_none_in_v1(session, fam_member):
+    fam, m = fam_member
     ctx = FakeCaptureResolver().focus(
         _req("the plumber item, he's coming friday"), session, m
     )
@@ -65,8 +55,8 @@ def test_focus_work_item_id_is_none_in_v1(session):
     assert ctx.work_item_id is None
 
 
-def test_focus_populates_calendar_window_with_event_summaries(session):
-    fam, m = _fam_member(session)
+def test_focus_populates_calendar_window_with_event_summaries(session, fam_member):
+    fam, m = fam_member
     ev = seed_event(
         session,
         fam.id,
@@ -83,8 +73,8 @@ def test_focus_populates_calendar_window_with_event_summaries(session):
     assert summary.start is not None
 
 
-def test_focus_includes_all_day_events(session):
-    fam, m = _fam_member(session)
+def test_focus_includes_all_day_events(session, fam_member):
+    fam, m = fam_member
     seed_event(
         session, fam.id, title="Holiday", all_day=True, start_date=date(2026, 12, 25)
     )
@@ -95,8 +85,8 @@ def test_focus_includes_all_day_events(session):
     assert s.start is None
 
 
-def test_focus_scopes_calendar_window_to_the_members_family(session):
-    fam, m = _fam_member(session)
+def test_focus_scopes_calendar_window_to_the_members_family(session, fam_member):
+    fam, m = fam_member
     other = Family(name="Other", timezone="UTC")
     session.add(other)
     session.commit()
@@ -117,8 +107,8 @@ def test_focus_scopes_calendar_window_to_the_members_family(session):
     assert titles == ["Mine"]
 
 
-def test_focus_empty_calendar_is_empty_window(session):
-    fam, m = _fam_member(session)
+def test_focus_empty_calendar_is_empty_window(session, fam_member):
+    fam, m = fam_member
     ctx = FakeCaptureResolver().focus(_req(), session, m)
     assert ctx.calendar_window == []
 

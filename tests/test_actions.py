@@ -19,21 +19,6 @@ from app.models import Event, Family, Member, WorkItem, WorkItemUpdate
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
 
-def _fam_member_item(session):
-    fam = Family(name="F", timezone="America/New_York")
-    session.add(fam)
-    session.commit()
-    m = Member(family_id=fam.id, display_name="A", role="adult", created_at=NOW)
-    session.add(m)
-    session.commit()
-    wi = WorkItem(
-        family_id=fam.id, title="call plumber", created_at=NOW, updated_at=NOW
-    )
-    session.add(wi)
-    session.commit()
-    return fam, m, wi
-
-
 def test_registry_has_v1_actions():
     assert set(ACTIONS) == {
         "set_due_date",
@@ -148,8 +133,8 @@ def test_describe_tolerates_missing_params():
         assert isinstance(spec.describe({}), str)
 
 
-def test_set_due_date_sets_field_and_logs(session):
-    fam, m, wi = _fam_member_item(session)
+def test_set_due_date_sets_field_and_logs(session, fam_member_item):
+    fam, m, wi = fam_member_item
     due = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)
 
     apply_action(session, m, "set_due_date", wi.id, {"due_at": due.isoformat()})
@@ -164,8 +149,8 @@ def test_set_due_date_sets_field_and_logs(session):
     assert upd.author_id == m.id
 
 
-def test_complete_work_item_sets_status_and_completed_at(session):
-    fam, m, wi = _fam_member_item(session)
+def test_complete_work_item_sets_status_and_completed_at(session, fam_member_item):
+    fam, m, wi = fam_member_item
 
     apply_action(session, m, "complete_work_item", wi.id, {})
 
@@ -176,23 +161,23 @@ def test_complete_work_item_sets_status_and_completed_at(session):
     assert session.query(WorkItemUpdate).filter_by(source="assistant").count() == 1
 
 
-def test_start_work_item_sets_doing_and_logs(session):
-    fam, m, wi = _fam_member_item(session)
+def test_start_work_item_sets_doing_and_logs(session, fam_member_item):
+    fam, m, wi = fam_member_item
     apply_action(session, m, "start_work_item", wi.id, {})
     session.expire_all()
     assert session.get(WorkItem, wi.id).status == "doing"
     assert session.query(WorkItemUpdate).filter_by(source="assistant").count() == 1
 
 
-def test_move_to_on_deck_sets_status(session):
-    fam, m, wi = _fam_member_item(session)
+def test_move_to_on_deck_sets_status(session, fam_member_item):
+    fam, m, wi = fam_member_item
     apply_action(session, m, "move_to_on_deck", wi.id, {})
     session.expire_all()
     assert session.get(WorkItem, wi.id).status == "on_deck"
 
 
-def test_move_to_todo_sets_status(session):
-    fam, m, wi = _fam_member_item(session)
+def test_move_to_todo_sets_status(session, fam_member_item):
+    fam, m, wi = fam_member_item
     wi.status = "doing"
     session.commit()
     apply_action(session, m, "move_to_todo", wi.id, {})
@@ -200,8 +185,8 @@ def test_move_to_todo_sets_status(session):
     assert session.get(WorkItem, wi.id).status == "todo"
 
 
-def test_reopen_work_item_clears_completed_at(session):
-    fam, m, wi = _fam_member_item(session)
+def test_reopen_work_item_clears_completed_at(session, fam_member_item):
+    fam, m, wi = fam_member_item
     # first complete it, then reopen.
     apply_action(session, m, "complete_work_item", wi.id, {})
     apply_action(session, m, "reopen_work_item", wi.id, {})
@@ -211,8 +196,8 @@ def test_reopen_work_item_clears_completed_at(session):
     assert got.completed_at is None
 
 
-def test_create_event_inserts_and_links_source_update(session):
-    fam, m, wi = _fam_member_item(session)
+def test_create_event_inserts_and_links_source_update(session, fam_member_item):
+    fam, m, wi = fam_member_item
     start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)
     end = datetime(2026, 9, 5, 20, 0, tzinfo=UTC)
 
@@ -237,8 +222,8 @@ def test_create_event_inserts_and_links_source_update(session):
     assert ev.source_update_id == upd.id
 
 
-def test_create_work_item_inserts_new_item(session):
-    fam, m, wi = _fam_member_item(session)
+def test_create_work_item_inserts_new_item(session, fam_member_item):
+    fam, m, wi = fam_member_item
 
     # create_work_item ignores target_id; it makes a NEW item.
     apply_action(
@@ -258,8 +243,8 @@ def test_create_work_item_inserts_new_item(session):
     assert new.tags == ["errand"]
 
 
-def test_no_action_does_nothing(session):
-    fam, m, wi = _fam_member_item(session)
+def test_no_action_does_nothing(session, fam_member_item):
+    fam, m, wi = fam_member_item
 
     apply_action(session, m, "no_action", wi.id, {})
 
@@ -268,26 +253,26 @@ def test_no_action_does_nothing(session):
     assert session.query(Event).count() == 0
 
 
-def test_unknown_action_raises(session):
-    fam, m, wi = _fam_member_item(session)
+def test_unknown_action_raises(session, fam_member_item):
+    fam, m, wi = fam_member_item
     with pytest.raises(ActionError):
         apply_action(session, m, "frobnicate", wi.id, {})
 
 
-def test_missing_required_param_raises(session):
-    fam, m, wi = _fam_member_item(session)
+def test_missing_required_param_raises(session, fam_member_item):
+    fam, m, wi = fam_member_item
     with pytest.raises(ActionError):
         apply_action(session, m, "set_due_date", wi.id, {})  # no due_at
 
 
-def test_apply_to_missing_work_item_raises(session):
-    fam, m, wi = _fam_member_item(session)
+def test_apply_to_missing_work_item_raises(session, fam_member_item):
+    fam, m, wi = fam_member_item
     with pytest.raises(ActionError):
         apply_action(session, m, "complete_work_item", 9999, {})
 
 
-def test_invalid_datetime_param_raises(session):
-    fam, m, wi = _fam_member_item(session)
+def test_invalid_datetime_param_raises(session, fam_member_item):
+    fam, m, wi = fam_member_item
     with pytest.raises(ActionError):
         apply_action(session, m, "set_due_date", wi.id, {"due_at": "not-a-date"})
 
@@ -295,8 +280,8 @@ def test_invalid_datetime_param_raises(session):
 # --- Group B: assign / reschedule / archive / checklist -------------------
 
 
-def test_assign_work_item_sets_assignee_and_logs(session):
-    fam, m, wi = _fam_member_item(session)
+def test_assign_work_item_sets_assignee_and_logs(session, fam_member_item):
+    fam, m, wi = fam_member_item
     sam = Member(family_id=fam.id, display_name="Sam", role="child", created_at=NOW)
     session.add(sam)
     session.commit()
@@ -308,8 +293,8 @@ def test_assign_work_item_sets_assignee_and_logs(session):
     assert session.query(WorkItemUpdate).filter_by(source="assistant").count() == 1
 
 
-def test_assign_work_item_rejects_member_from_another_family(session):
-    fam, m, wi = _fam_member_item(session)
+def test_assign_work_item_rejects_member_from_another_family(session, fam_member_item):
+    fam, m, wi = fam_member_item
     other_fam = Family(name="Other", timezone="UTC")
     session.add(other_fam)
     session.commit()
@@ -325,14 +310,14 @@ def test_assign_work_item_rejects_member_from_another_family(session):
     assert session.get(WorkItem, wi.id).assigned_to is None  # not assigned
 
 
-def test_assign_work_item_rejects_unknown_member(session):
-    fam, m, wi = _fam_member_item(session)
+def test_assign_work_item_rejects_unknown_member(session, fam_member_item):
+    fam, m, wi = fam_member_item
     with pytest.raises(ActionError):
         apply_action(session, m, "assign_work_item", wi.id, {"member_id": 9999})
 
 
-def test_reschedule_event_updates_timing_only(session):
-    fam, m, wi = _fam_member_item(session)
+def test_reschedule_event_updates_timing_only(session, fam_member_item):
+    fam, m, wi = fam_member_item
     ev = Event(
         family_id=fam.id,
         title="Dentist",
@@ -362,26 +347,26 @@ def test_reschedule_event_updates_timing_only(session):
     assert session.query(WorkItemUpdate).count() == 0
 
 
-def test_archive_work_item_requires_done(session):
-    fam, m, wi = _fam_member_item(session)  # status defaults to "todo"
+def test_archive_work_item_requires_done(session, fam_member_item):
+    fam, m, wi = fam_member_item  # status defaults to "todo"
     with pytest.raises(ActionError):
         apply_action(session, m, "archive_work_item", wi.id, {})
     session.expire_all()
     assert session.get(WorkItem, wi.id).archived_at is None
 
 
-def test_archive_work_item_archives_a_done_item(session):
-    fam, m, wi = _fam_member_item(session)
+def test_archive_work_item_archives_a_done_item(session, fam_member_item):
+    fam, m, wi = fam_member_item
     apply_action(session, m, "complete_work_item", wi.id, {})
     apply_action(session, m, "archive_work_item", wi.id, {})
     session.expire_all()
     assert session.get(WorkItem, wi.id).archived_at is not None
 
 
-def test_add_checklist_items_inserts_rows(session):
+def test_add_checklist_items_inserts_rows(session, fam_member_item):
     from app.models import ChecklistItem
 
-    fam, m, wi = _fam_member_item(session)
+    fam, m, wi = fam_member_item
     apply_action(
         session, m, "add_checklist_items", wi.id, {"items": ["milk", "eggs", "bread"]}
     )
@@ -396,10 +381,10 @@ def test_add_checklist_items_inserts_rows(session):
     assert [r.position for r in rows] == [1, 2, 3]
 
 
-def test_add_checklist_items_appends_after_existing(session):
+def test_add_checklist_items_appends_after_existing(session, fam_member_item):
     from app.models import ChecklistItem
 
-    fam, m, wi = _fam_member_item(session)
+    fam, m, wi = fam_member_item
     session.add(ChecklistItem(work_item_id=wi.id, text="existing", position=1))
     session.commit()
     apply_action(session, m, "add_checklist_items", wi.id, {"items": ["new"]})
@@ -408,7 +393,7 @@ def test_add_checklist_items_appends_after_existing(session):
     assert new.position == 2  # appended after the existing max
 
 
-def test_add_checklist_items_requires_nonempty_list(session):
-    fam, m, wi = _fam_member_item(session)
+def test_add_checklist_items_requires_nonempty_list(session, fam_member_item):
+    fam, m, wi = fam_member_item
     with pytest.raises(ActionError):
         apply_action(session, m, "add_checklist_items", wi.id, {"items": []})

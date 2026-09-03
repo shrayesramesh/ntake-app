@@ -110,6 +110,92 @@ def auth_headers(session, monkeypatch):
 
 
 @pytest.fixture()
+def family_factory(session):
+    """Factory: ``make(name="Fam", tz="America/New_York") -> Family`` (committed).
+
+    Removes the copied 3-line family-seeding boilerplate scattered across tests.
+    """
+    from app.models import Family
+
+    def make(name: str = "Fam", tz: str = "America/New_York"):
+        fam = Family(name=name, timezone=tz)
+        session.add(fam)
+        session.commit()
+        return fam
+
+    return make
+
+
+@pytest.fixture()
+def member_factory(session):
+    """Factory: ``make(family_id, name="A", role="adult") -> Member`` (committed)."""
+    from datetime import UTC, datetime
+
+    from app.models import Member
+
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+
+    def make(family_id: int, *, name: str = "A", role: str = "adult", **kwargs):
+        m = Member(
+            family_id=family_id,
+            display_name=name,
+            role=role,
+            created_at=now,
+            **kwargs,
+        )
+        session.add(m)
+        session.commit()
+        return m
+
+    return make
+
+
+@pytest.fixture()
+def work_item_factory(session):
+    """Factory: ``make(family_id, title="call plumber", **kw) -> WorkItem``.
+
+    Committed; extra columns (status, assigned_to, archived_at, …) pass through.
+    """
+    from datetime import UTC, datetime
+
+    from app.models import WorkItem
+
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+
+    def make(family_id: int, *, title: str = "call plumber", **kwargs):
+        wi = WorkItem(
+            family_id=family_id,
+            title=title,
+            created_at=now,
+            updated_at=now,
+            **kwargs,
+        )
+        session.add(wi)
+        session.commit()
+        return wi
+
+    return make
+
+
+@pytest.fixture()
+def fam_member(family_factory, member_factory):
+    """A committed (family, member) pair — the common per-test seed. Replaces the
+    ``_fam_member`` helper copied across the assistant tests."""
+    fam = family_factory()
+    m = member_factory(fam.id)
+    return fam, m
+
+
+@pytest.fixture()
+def fam_member_item(fam_member, work_item_factory):
+    """A committed (family, member, work_item) triple. Replaces the copied
+    ``_fam_member_item`` helper."""
+    fam, m = fam_member
+    wi = work_item_factory(fam.id)
+    return fam, m, wi
+
+
+@pytest.fixture()
 def event_factory(session):
     """Factory to seed events into the test DB (thin wrapper over seed_event).
 

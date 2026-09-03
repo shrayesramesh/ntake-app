@@ -12,29 +12,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.assistant.actions import apply_action
-from app.models import Event, Family, Member, WorkItem, WorkItemUpdate
+from app.models import Event, WorkItem, WorkItemUpdate
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
-
-
-def _fam_member(session):
-    fam = Family(name="F", timezone="America/New_York")
-    session.add(fam)
-    session.commit()
-    m = Member(family_id=fam.id, display_name="A", role="adult", created_at=NOW)
-    session.add(m)
-    session.commit()
-    return fam, m
-
-
-def _fam_member_item(session):
-    fam, m = _fam_member(session)
-    wi = WorkItem(
-        family_id=fam.id, title="call plumber", created_at=NOW, updated_at=NOW
-    )
-    session.add(wi)
-    session.commit()
-    return fam, m, wi
 
 
 def _event_params():
@@ -50,8 +30,10 @@ def _event_params():
 # --- standalone event: no work item, no work-item update ------------------
 
 
-def test_create_event_standalone_creates_event_without_work_item_update(session):
-    fam, m = _fam_member(session)
+def test_create_event_standalone_creates_event_without_work_item_update(
+    session, fam_member
+):
+    fam, m = fam_member
 
     apply_action(
         session,
@@ -72,8 +54,8 @@ def test_create_event_standalone_creates_event_without_work_item_update(session)
     assert session.query(WorkItemUpdate).count() == 0
 
 
-def test_create_event_explicit_event_target_type_also_standalone(session):
-    fam, m = _fam_member(session)
+def test_create_event_explicit_event_target_type_also_standalone(session, fam_member):
+    fam, m = fam_member
 
     apply_action(
         session,
@@ -92,8 +74,8 @@ def test_create_event_explicit_event_target_type_also_standalone(session):
 # --- event FROM a work item: link + log -----------------------------------
 
 
-def test_create_event_from_work_item_links_and_logs(session):
-    fam, m, wi = _fam_member_item(session)
+def test_create_event_from_work_item_links_and_logs(session, fam_member_item):
+    fam, m, wi = fam_member_item
 
     apply_action(
         session,
@@ -117,8 +99,8 @@ def test_create_event_from_work_item_links_and_logs(session):
 # --- work-item actions still log (conditional rule unchanged for them) -----
 
 
-def test_set_due_date_still_logs_a_work_item_update(session):
-    fam, m, wi = _fam_member_item(session)
+def test_set_due_date_still_logs_a_work_item_update(session, fam_member_item):
+    fam, m, wi = fam_member_item
     due = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)
 
     apply_action(
@@ -134,8 +116,8 @@ def test_set_due_date_still_logs_a_work_item_update(session):
     assert session.query(WorkItemUpdate).filter_by(source="assistant").count() == 1
 
 
-def test_complete_work_item_still_logs(session):
-    fam, m, wi = _fam_member_item(session)
+def test_complete_work_item_still_logs(session, fam_member_item):
+    fam, m, wi = fam_member_item
 
     apply_action(
         session,
@@ -150,8 +132,8 @@ def test_complete_work_item_still_logs(session):
     assert session.query(WorkItemUpdate).filter_by(source="assistant").count() == 1
 
 
-def test_create_work_item_logs_on_the_new_item(session):
-    fam, m = _fam_member(session)
+def test_create_work_item_logs_on_the_new_item(session, fam_member):
+    fam, m = fam_member
 
     apply_action(
         session,
@@ -175,9 +157,11 @@ def test_create_work_item_logs_on_the_new_item(session):
 # --- target_type defaults (backwards compatible) --------------------------
 
 
-def test_apply_action_target_type_defaults_to_work_item_semantics(session):
+def test_apply_action_target_type_defaults_to_work_item_semantics(
+    session, fam_member_item
+):
     """Omitting target_type with a work-item target_id still logs (default path)."""
-    fam, m, wi = _fam_member_item(session)
+    fam, m, wi = fam_member_item
 
     apply_action(session, m, "complete_work_item", target_id=wi.id, params={})
 

@@ -17,19 +17,9 @@ from app.assistant.actions import ACTIONS, ActionError, apply_action
 from app.assistant.context import EventSummary, FocusedContext
 from app.assistant.fake import FakeAssistant
 from app.manage import seed_event
-from app.models import Event, Family, Member, WorkItemUpdate
+from app.models import Event, Family, WorkItemUpdate
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
-
-
-def _fam_member(session):
-    fam = Family(name="F", timezone="America/New_York")
-    session.add(fam)
-    session.commit()
-    m = Member(family_id=fam.id, display_name="A", role="adult", created_at=NOW)
-    session.add(m)
-    session.commit()
-    return fam, m
 
 
 # --- the deconflict_events action -----------------------------------------
@@ -41,8 +31,8 @@ def test_deconflict_registered_with_describe():
     assert isinstance(spec.describe({}), str) and spec.describe({})
 
 
-def test_deconflict_moves_timed_event_to_next_day(session):
-    fam, m = _fam_member(session)
+def test_deconflict_moves_timed_event_to_next_day(session, fam_member):
+    fam, m = fam_member
     start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)
     end = datetime(2026, 9, 5, 20, 0, tzinfo=UTC)
     ev = seed_event(session, fam.id, title="Later", start_at=start, end_at=end)
@@ -64,8 +54,8 @@ def test_deconflict_moves_timed_event_to_next_day(session):
     assert session.query(WorkItemUpdate).count() == 0
 
 
-def test_deconflict_moves_all_day_event_to_next_day(session):
-    fam, m = _fam_member(session)
+def test_deconflict_moves_all_day_event_to_next_day(session, fam_member):
+    fam, m = fam_member
     day = date(2026, 12, 25)
     ev = seed_event(session, fam.id, title="Holiday", all_day=True, start_date=day)
 
@@ -84,8 +74,8 @@ def test_deconflict_moves_all_day_event_to_next_day(session):
     assert moved.end_date == day + timedelta(days=1)
 
 
-def test_deconflict_missing_event_raises(session):
-    fam, m = _fam_member(session)
+def test_deconflict_missing_event_raises(session, fam_member):
+    fam, m = fam_member
     with pytest.raises(ActionError):
         apply_action(
             session,
