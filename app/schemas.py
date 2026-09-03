@@ -84,3 +84,27 @@ class WorkItemRead(BaseModel):
     archived_at: datetime | None = None
     updates: list[WorkItemUpdateRead] = []
     checklist: list[ChecklistItemRead] = []
+
+
+class CaptureCreate(BaseModel):
+    """Free-text capture payload. ``work_item_id`` targets an existing item;
+    omitted/None means create a new item from the text."""
+
+    text: str
+    work_item_id: int | None = None
+
+
+class ProposalRead(BaseModel):
+    """A proposed (unconfirmed) action returned to the author's device."""
+
+    name: str
+    params: dict = {}
+    summary: str
+    target_id: int | None = None
+
+
+class CaptureResponse(BaseModel):
+    """The saved item plus the assistant's transient proposals."""
+
+    item: WorkItemRead
+    proposals: list[ProposalRead] = []

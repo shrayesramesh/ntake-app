@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import urllib.parse
 from collections.abc import AsyncIterator, Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -28,14 +30,26 @@ from sse_starlette.sse import EventSourceResponse
 
 import app.db as db
 from app import __version__
+from app.assistant.base import CaptureContext
+from app.assistant.factory import get_assistant
 from app.auth import current_member, current_member_stream
 from app.config import config_path, load_config, seed_from_config
 from app.db import SessionLocal, get_session, init_schema, register_change_events
 from app.event_emitter import InProcessEmitter
-from app.models import ChecklistItem, Event, Member, WorkItem, WorkItemUpdate
+from app.models import (
+    ChecklistItem,
+    Event,
+    Family,
+    Member,
+    WorkItem,
+    WorkItemUpdate,
+)
 from app.schemas import (
+    CaptureCreate,
+    CaptureResponse,
     ChecklistItemRead,
     EventRead,
+    ProposalRead,
     WorkItemCreate,
     WorkItemRead,
     WorkItemUpdateCreate,
@@ -332,3 +346,76 @@ async def capture(
     )
     session.commit()  # publishes {work_items, id, create} via the seam -> SSE
     return render_board(_board_columns(session))
+
+
+# --- Capture with proposals (Phase 4, task 4) ----------------------------
+
+
+def _propose_bounded(ctx: CaptureContext) -> list[ProposalRead]:
+    """Call the configured assistant with a bounded timeout; degrade to [].
+
+    The assistant (esp. Ollama) runs synchronously and may block; we cap it at
+    NTAKE_ASSISTANT_TIMEOUT and treat any timeout/error as "no proposals" so a
+    capture never fails or hangs on the model.
+    """
+    timeout = float(os.environ.get("NTAKE_ASSISTANT_TIMEOUT", "4.0"))
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            actions = pool.submit(get_assistant().propose, ctx).result(timeout=timeout)
+    except Exception:  # noqa: BLE001 — graceful degrade on any failure/timeout
+        return []
+    return [
+        ProposalRead(
+            name=a.name, params=a.params, summary=a.summary, target_id=a.target_id
+        )
+        for a in actions
+    ]
+
+
+@app.post("/capture", response_model=CaptureResponse, status_code=201)
+def capture_with_proposals(
+    payload: CaptureCreate,
+    session: Session = Depends(get_session),
+    member: Member = Depends(current_member),
+) -> CaptureResponse:
+    """Save the raw human input FIRST, then return assistant proposals.
+
+    Propose-and-confirm: proposals are transient (not persisted) and returned only
+    to the caller (author's device). Nothing is applied here — the human confirms
+    via /work-items/{id}/actions (task 5). The raw save publishes via the seam.
+    """
+    now = datetime.now(UTC)
+    if payload.work_item_id is not None:
+        item = _load_work_item(session, payload.work_item_id)
+        # Existing-item capture: the raw text is a human note (source=human).
+        session.add(
+            WorkItemUpdate(
+                work_item_id=item.id,
+                author_id=member.id,
+                source="human",
+                body=payload.text,
+                created_at=now,
+            )
+        )
+        item.updated_at = now
+    else:
+        # New-item capture: the text becomes the item (source=human by nature).
+        item = WorkItem(
+            family_id=member.family_id,
+            title=payload.text,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(item)
+    session.commit()
+    session.refresh(item)
+
+    fam = session.get(Family, member.family_id)
+    ctx = CaptureContext(
+        text=payload.text,
+        work_item_id=item.id,
+        timezone=fam.timezone if fam else "UTC",
+        now=now,
+    )
+    proposals = _propose_bounded(ctx)
+    return CaptureResponse(item=_work_item_detail(session, item), proposals=proposals)
