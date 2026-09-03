@@ -200,7 +200,7 @@ SHELL_PAGE = """<!doctype html>
       })
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
         .then(data => { input.value = ''; renderProposals(data.proposals || []);
-                        reloadBoard(); })
+                        reloadBoard(); reloadCalendar(); })
         .catch(() => { document.getElementById('proposals').textContent =
                        'Capture failed (check your token).'; });
       return false;
@@ -237,7 +237,7 @@ SHELL_PAGE = """<!doctype html>
         body: JSON.stringify({ name: p.name, params: p.params, target_id: p.target_id })
       })
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
-        .then(() => { card.remove(); reloadBoard(); })
+        .then(() => { card.remove(); reloadBoard(); reloadCalendar(); })
         .catch(() => { card.querySelector('.summary').textContent += ' (failed)'; });
     }
 
