@@ -3,10 +3,16 @@
 > **For:** a family member setting up the calendar on their phone or the wall
 > tablet. One-time setup; after this you just tap the app icon.
 >
+> **Operator note:** the person running the home computer follows
+> [`HOST_SETUP_GUIDE.md`](HOST_SETUP_GUIDE.md) first. They give you (1) the
+> calendar's web address and (2) a one-time **device token** to paste in — you
+> need both for the steps below.
+>
 > **Status: TEMPLATE / draft.** Some details below can't be finalized until the
-> app is built and running (the real URL, whether there's an in-app sign-in
-> screen, exact per-phone menu wording). Blanks are marked `<FILL IN>`. Finalize
-> before sharing with the family.
+> app is built and running (the real URL, the exact token-entry screen, and
+> whether "add to home screen" opens full-screen — the PWA install is **not yet
+> tested**). Blanks are marked `<FILL IN>`. Finalize before sharing with the
+> family.
 
 ---
 
@@ -55,10 +61,14 @@ per-use step — install once, leave it on.
       **`https://<FILL IN: e.g. calendar-host.your-tailnet.ts.net>`**
       > *Builder note:* this is the `tailscale serve` URL from
       > `shovel-ready/tasks_tailscale_host_serve.md`. Paste the real one here.
-- [ ] `<FILL IN: sign-in / enrollment step, if any — e.g. "tap your name" or
-      "enter the setup code I give you">`
-      > *Builder note:* this depends on the auth model (per-device token /
-      > enrollment, DESIGN §1.4). Fill in the real user-facing step once built.
+- [ ] Enter the **device token** the setup owner gave you when the calendar asks
+      for it (a one-time code that identifies this device). `<FILL IN: exact
+      on-screen wording once the token-entry screen is built>`
+      > *Builder note:* per-device tokens + auth are built (Phase 2); tokens are
+      > minted with `python -m app.manage gen-token`. The user-facing *entry
+      > screen* (where the token is pasted) is not built yet — fill in the real
+      > wording once it exists. Each person/device gets its own token; the wall
+      > display gets a low-privilege one.
 - [ ] Add it to your home screen:
       - **iPhone (Safari):** tap the **Share** button → **Add to Home Screen** →
         **Add**.

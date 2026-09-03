@@ -37,13 +37,22 @@ Buildable, tested skeleton; `make check` green.
 
 **Exit:** an event added on one device renders live on another over Tailscale.
 
-### Phase 2 — identity, setup & enrollment (ACCESS)
+### Phase 2 — identity, setup & enrollment (ACCESS) ✅ (built)
 - `members`, `device_tokens` tables; per-device credentialed token (hashed);
   auth on every request; Tailscale = perimeter.
-- First-admin bootstrap; admin enrolls/revokes devices; display = low-priv token.
+- ~~First-admin bootstrap; admin enrolls/revokes devices~~ → **DIVERGENCE (v1):**
+  no in-app admin UI or bootstrap flow. Identity is **config-seeded** — an
+  out-of-repo `family.toml` (default `~/.config/ntake/family.toml`, env
+  `NTAKE_CONFIG`) defines household + members and is seeded into the DB on
+  startup (keeps the members table populated for the Phase 3 `author` FK). Device
+  tokens are minted by a CLI (`python -m app.manage gen-token`), which stores only
+  the hash and prints the plaintext once; `revoke`/`list-tokens` manage them. The
+  display gets a low-priv (`child`) token. Chosen for simplicity given the
+  single-household trust model; an admin UI/bootstrap remains a possible future.
 - **Adds `families.timezone` usage**, role gating (adult vs. non-adult).
 
-**Exit:** no request succeeds without a valid token; admin can enroll/revoke.
+**Exit:** no request succeeds without a valid token ✅; devices enrolled/revoked
+via config + CLI ✅.
 
 ### Phase 3 — work items + update log + board (the core product)
 - `work_items`, `work_item_updates` (with `source: human|assistant`, `author →
@@ -100,7 +109,7 @@ view works; failures are visible.
 |---|---|
 | Alembic migration wiring | 1b (finish) |
 | SSE event granularity + reconnect replay | 1e / 5 |
-| Token delivery mechanism (QR / link / paste) | 2 |
+| Token delivery mechanism (QR / link / paste) | 2 → **resolved:** CLI prints plaintext once; operator delivers (paste/link/QR) |
 | Board labels / calendar default view / card face | 3 |
 | Assistant model + runtime; prompt contract; latency validation | 4 |
 | Labor-view output shape (summary, not scores) | 5 |

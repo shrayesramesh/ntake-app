@@ -61,13 +61,22 @@ Two independent layers:
    attribution), not gatekeeping — but it is a real secret so one member can't
    impersonate another.
 
-- **Enrollment (admin-only, no self-enrollment):** admin creates a member →
-  backend mints a token, stores `hash(token)` → token delivered to the device
-  (QR / one-time tailnet link / copy-paste).
-- **Display** is a low-privilege enrolled identity (same mechanism). Re-enroll on
-  reset/replace = revoke old + issue new.
-- **Bootstrap:** a defined first-run flow creates the household + first admin
-  before any data exists.
+- **Enrollment (v1: config + CLI, no admin UI).** Members are defined in an
+  out-of-repo config (`family.toml`; default `~/.config/ntake/family.toml`, env
+  `NTAKE_CONFIG`) and seeded into the DB on startup (idempotent upsert). Device
+  tokens are minted by an operator CLI — `python -m app.manage gen-token
+  "<member>" --label "<device>"` — which generates a random token, stores only
+  `hash(token)` (HMAC-SHA256 over `NTAKE_TOKEN_SECRET`), and prints the plaintext
+  **once** for delivery to the device (QR / tailnet link / copy-paste, operator's
+  choice). `list-tokens` / `revoke <id>` manage them. *(This replaces the
+  originally-designed in-app admin enrollment + first-admin bootstrap flow;
+  chosen for simplicity given the single-household trust model. An admin UI /
+  bootstrap remains a possible future addition. See PLAN Phase 2.)*
+- **Display** is a low-privilege (`child`-role) member with its own token (same
+  CLI). Re-enroll on reset/replace = `revoke` old + `gen-token` new.
+- **Config holds no secrets.** The hand-edited `family.toml` carries household +
+  members only; token hashes live in the DB, plaintext is never persisted. The
+  real config + `NTAKE_TOKEN_SECRET` stay off the (public) repo.
 
 ---
 
