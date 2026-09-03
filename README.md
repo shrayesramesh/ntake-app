@@ -22,13 +22,20 @@ household/emotional labor **visible for recognition and fairness**.
 | `app/`, `tests/` | The application code (FastAPI + SQLite) and its tests. |
 | `Makefile`, `setup.sh`, `requirements.txt`, `pyproject.toml` | Build/run/lint tooling. |
 | `SKILL.md` | How to work in this repo (the `make check` gate, conventions). |
+| `HOST_SETUP_GUIDE.md` | Operator setup (config, device tokens, Tailscale, run). |
 | `USER_SETUP_GUIDE.md` | Family-facing device setup (install Tailscale, add PWA). |
 
 ## Current status
 
-Events vertical slice is built and passing (`make check` → tests green): FastAPI
-app, `/health` + `/events`, minimal Family/Event models, SQLite + SSE tooling.
-Work-item, assistant, and display phases are next — see `spec/PLAN.md`.
+Phases 0–3 and the **fake-first Phase 4** are built and passing (`make check` →
+257 tests green, ≥95% cov): FastAPI app; `/health`, `/events`, the work-item +
+board read/append paths, `/capture` (propose-only) and `/actions/confirm`;
+config-seeded identity + token CLI; change-event seam → SSE live sync; and the
+assistant as a reusable engine (`app/routing/`) + ntake plugin (`app/assistant/`)
+with two swappable seams (`CaptureResolver`, `AssistantClient`), a `fake/`
+backend, a 13-action toolset, and the two prompt views (`build_world_view`,
+`build_tools_view`). **Next:** Phase-4 **task 7** — the live Ollama backend
+(host-only) — then Phase 5. See `spec/PLAN.md` and `spec/NEXT_SESSION.md`.
 
 ## Key shape (details in `spec/`)
 

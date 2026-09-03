@@ -7,7 +7,7 @@
 
 ## Current state (already built & passing)
 
-Phases 0–3 and the fake-first Phase 4 are built and green (`make check` → 208
+Phases 0–3 and the fake-first Phase 4 are built and green (`make check` → 257
 tests pass, ≥95% cov). What exists:
 - FastAPI app; `GET /health`, `GET /events`, the work-item/board read + append
   paths, `/capture` (propose-only) and `/actions/confirm`.
@@ -102,10 +102,14 @@ calendar mutations only on confirm.
 > the `CaptureResolver` seam (`base.py`) with `get_capture_resolver()`; stage 2 is
 > `AssistantClient` with `get_assistant()`. The two backends are **parallel
 > packages** — `app/assistant/fake/` (`FakeCaptureResolver` + `FakeAssistant`,
-> built) and `app/assistant/ollama/` (task 7, not yet built). v1 action set:
-> `set_due_date`, `create_event` (standalone or work-item-linked),
-> `complete_work_item`, `create_work_item`, `deconflict_events` (calendar-context
-> placeholder), `no_action`. Capture is propose-only and always new (`work_item_id`
+> built) and `app/assistant/ollama/` (task 7, not yet built). The toolset is now
+> **13 actions**: `set_due_date`, `complete_work_item`, `start_work_item`,
+> `move_to_on_deck`, `move_to_todo`, `reopen_work_item`, `assign_work_item`
+> (whitelist-validated member), `archive_work_item` (done-only), `add_checklist_items`,
+> `create_event`, `reschedule_event` (modify existing), `create_work_item`,
+> `no_action`, `deconflict_events`. Both prompt views are built
+> (`build_world_view`, `build_tools_view`). Capture is propose-only and always new
+> (`work_item_id`
 > stays `None`); proposals carry a registry-derived `action_summary` + the model's
 > `llm_rationale`. **Remaining (task 7):** the **`OllamaCaptureResolver` (stage 1)
 > + `OllamaAssistant` (stage 2)** — host-only live model. The real stage-1

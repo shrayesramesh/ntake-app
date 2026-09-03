@@ -59,13 +59,60 @@ Typical loop while coding: write test → write code → `make format` → `make
   per `research/04-data-layer.md`. Pydantic models are separate DTOs at the API
   edge (`app/schemas.py`) — do not merge them into the ORM classes.
 - **Timestamps are UTC**; `families.timezone` is required. Use `datetime.UTC`
-  (not the older `timezone.utc`).
+  (not the older `timezone.utc`). **Gotcha:** SQLite/SQLAlchemy returns
+  **tz-naive** datetimes even when you stored tz-aware ones — they represent UTC.
+  When comparing or formatting a value read back from the DB, attach UTC first
+  (`dt.replace(tzinfo=UTC)`) / compare against a naive-UTC bound. See
+  `app/assistant/world.py`.
 - **App binds to 127.0.0.1 only.** A Tailscale reverse proxy fronts it in
   production — that is a human-run concern, not the agent's.
 - **Formatting** is Black-compatible via ruff; let `make format` handle it, don't
   hand-format.
 - The one cosmetic `StarletteDeprecationWarning` (httpx/httpx2) from pytest is
   **expected and harmless** — do NOT install `httpx2` to silence it.
+
+## Design conventions (learned in this codebase)
+
+These are the judgment calls this codebase has settled on. Follow them unless
+there's a concrete reason not to; deviating is fine but call it out.
+
+- **Prefer dumb, explicit data over clever machinery.** When something needs
+  declaring (e.g. an action's params), favor a plain, verbose dataclass list over
+  stringly-typed conventions, decorators, or signature introspection. "Lightest
+  *engine*, verbose *authoring*" beats magic that's lighter to write but heavier
+  to reason about. (See `ActionSpec.params: list[Param]`.)
+- **Don't add speculative structure; earn a seam with a test.** Cut unused
+  facades and abstractions (YAGNI). If you want to keep an internal helper/type as
+  a "seam," write a test that uses it directly — that test is what justifies its
+  existence. (We removed the `app/routing/__init__` re-export facade because it
+  wrapped a single module; we kept the world-view row dataclasses only once a
+  direct `_render` test used them.)
+- **Cohesion: data renders/validates itself.** Put rendering next to the fields it
+  renders and validation next to the contract it checks — as methods/properties on
+  the type, not free functions elsewhere. (`ActionSpec.prompt_line` renders the
+  action; `ActionSpec.execute` validates-then-applies; the registry just resolves
+  name→spec.)
+- **Snapshot the exact text an LLM will see.** For prompt-facing renderers, assert
+  the *entire* output string in a test (a visible, reviewable snapshot) so drift is
+  caught and the prompt context is inspectable in-repo. (`test_world_view`,
+  `test_tools_view`.)
+- **Keep the engine domain-agnostic.** `app/routing/` (the propose/route/confirm
+  engine) must import nothing app-specific — no `app.models`, `sqlalchemy`, or
+  `fastapi` (enforced by a boundary test). App-coupled work (DB, ORM) lives in
+  `app/assistant/`. Vocabulary marks the boundary: **"actions" are what we execute
+  (internal); "tools" are how they're presented to the LLM.**
+- **Config-selected, swappable backends behind one switch.** The assistant has two
+  seams (`CaptureResolver`, `AssistantClient`) chosen by `NTAKE_ASSISTANT` via
+  `app/assistant/factory.py`; backends are parallel packages (`fake/`, later
+  `ollama/`). Stateless singleton strategies — request-scoped state (the DB
+  `Session`) flows in as a method arg, never stored on the strategy.
+- **Test fixtures for seeding, not copied helpers.** Use the `conftest.py`
+  factories (`family_factory`/`member_factory`/`work_item_factory`/`event_factory`)
+  and composites (`fam_member`, `fam_member_item`, `populated_family`) rather than
+  re-defining local seed helpers per file.
+- **Keep the docs in sync as part of the change.** Update `spec/` (and this file)
+  in the same session as the code — stale status/action-lists/test-counts are a
+  recurring drift source.
 
 ## Out of scope for the agent
 

@@ -388,9 +388,13 @@ FocusedContext {text, tz, now, work_item_id, item_log,
   (`ContextT` bound to `ActionContext`, PEP 695 generics): the engine never
   inspects it; each plugin binds its own (`ActionRegistry[NtakeActionContext]`,
   `AssistantClient[FocusedContext]`). No `Any`.
-- **Plugin — `app/assistant/`**: registers ntake's actions (`set_due_date`,
-  `create_event`, `complete_work_item`, `create_work_item`, `deconflict_events`,
-  `no_action`) into an engine `ActionRegistry`. Each handler receives the opaque
+- **Plugin — `app/assistant/`**: registers ntake's actions into an engine
+  `ActionRegistry` — a **13-action** v1 set spanning create/modify/status/assign/
+  archive/checklist across work-item, event, and no-target actions (e.g.
+  `set_due_date`, `create_event`, `complete_work_item`, the status-lifecycle verbs,
+  `assign_work_item`, `reschedule_event`, `archive_work_item`, `add_checklist_items`,
+  `deconflict_events`, `no_action`; see `spec/ASSISTANT_ACTIONS.md` for the full
+  registry + scope tiers). Each handler receives the opaque
   `NtakeActionContext(session, member, target_id, target_type)` and does the ORM
   mutation plus — only when it targets a work item — the `source=assistant`
   update append (WORKITEM-3; conditional per the generalized target). The

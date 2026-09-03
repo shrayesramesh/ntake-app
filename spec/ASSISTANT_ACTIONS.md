@@ -1,8 +1,14 @@
 # Assistant Actions — the LLM capability registry
 
-> **Status:** vocabulary drafted; **v1 cut is LOCKED** (see "v1 cut — LOCKED"
-> below): `set_due_date`, `create_event`, `complete_work_item`,
-> `create_work_item`, `deconflict_events`, `no_action`.
+> **Status:** BUILT. The v1 toolset was seeded at 6 actions then **expanded to 13**
+> for richer LLM context (status lifecycle, assignment, reschedule, archive,
+> checklist). Current v1 set: `set_due_date`, `complete_work_item`,
+> `start_work_item`, `move_to_on_deck`, `move_to_todo`, `reopen_work_item`,
+> `assign_work_item`, `archive_work_item`, `add_checklist_items`, `create_event`,
+> `reschedule_event`, `create_work_item`, `no_action`, `deconflict_events`. Each
+> row's scope column below is the source of truth for what's built (**v1**) vs.
+> backlog (v2 / deferred). This file remains the registry + scope reference; the
+> live contract lives in `app/assistant/actions.py` (`ActionSpec.params`).
 >
 > **Purpose.** The assistant (Phase 4) is a **planner over a fixed set of
 > actions**. Its entire output is zero or more `{name, params}` objects drawn
@@ -66,12 +72,12 @@ no cleaner verb.
 |---|---|---|---|---|
 | `set_due_date` | `work_item_id`, `due_at: datetime (UTC; resolved from relative text via families.timezone)` | sets `work_items.due_at`; item renders on the calendar | WORKITEM-8 | **v1** |
 | `clear_due_date` | `work_item_id` | `due_at = NULL` (off the calendar) | WORKITEM-8 (inverse) | v2 |
-| `start_work_item` | `work_item_id` | status → `doing` | WORKITEM-4 ("starting on it") | v2 |
-| `move_to_on_deck` | `work_item_id` | status → `on_deck` | WORKITEM-4 | v2 |
-| `move_to_todo` | `work_item_id` | status → `todo` | WORKITEM-4 | v2 |
+| `start_work_item` | `work_item_id` | status → `doing` | WORKITEM-4 ("starting on it") | **v1** |
+| `move_to_on_deck` | `work_item_id` | status → `on_deck` | WORKITEM-4 | **v1** |
+| `move_to_todo` | `work_item_id` | status → `todo` | WORKITEM-4 | **v1** |
 | `complete_work_item` | `work_item_id` | status → `done` **and** sets `completed_at` (composite — two writes) | WORKITEM-4; `completed_at` column | **v1** |
-| `reopen_work_item` | `work_item_id` | status → `todo` (or prior), clears `completed_at` | WORKITEM-4 (inverse) | v2 |
-| `assign_work_item` | `work_item_id`, `member_id` | sets `assigned_to` | WORKITEM-7 | v2 |
+| `reopen_work_item` | `work_item_id` | status → `todo` (or prior), clears `completed_at` | WORKITEM-4 (inverse) | **v1** |
+| `assign_work_item` | `work_item_id`, `member_id` | sets `assigned_to` | WORKITEM-7 | **v1** |
 | `unassign_work_item` | `work_item_id` | `assigned_to = NULL` | WORKITEM-7 (inverse) | deferred |
 | `tag_work_item` | `work_item_id`, `tags: [str]` | appends `work_items.tags` (shared vocab) | WORKITEM-9 / EVENT-6 | v2 |
 | `untag_work_item` | `work_item_id`, `tags: [str]` | removes from `work_items.tags` | WORKITEM-9 (inverse) | deferred |
@@ -109,7 +115,7 @@ no cleaner verb.
 
 | key | params | applies to | grounds | scope |
 |---|---|---|---|---|
-| `add_checklist_items` | `work_item_id`, `items: [str]` | inserts `checklist_items` rows | WORKITEM-6 ("add milk and eggs") | v2 |
+| `add_checklist_items` | `work_item_id`, `items: [str]` | inserts `checklist_items` rows | WORKITEM-6 ("add milk and eggs") | **v1** |
 | `check_off_items` | `work_item_id`, `items: [str] \| item_ids: [int]` | sets `checked = true` | WORKITEM-6 ("we got the milk") | v2 |
 | `uncheck_items` | `work_item_id`, `items \| item_ids` | sets `checked = false` | WORKITEM-6 (inverse) | deferred |
 | `remove_checklist_items` | `work_item_id`, `items \| item_ids` | deletes `checklist_items` rows | WORKITEM-6 ("take bread off") | deferred |
@@ -122,7 +128,7 @@ no cleaner verb.
 |---|---|---|---|---|
 | `create_event` | `title`, one of `{start_at,end_at}` (timed UTC) OR `{start_date,end_date}` (all-day); `description?`, `location?`, `tags?: [str]`, `participants?: [{member_id?, name}]`; links `source_update_id` | inserts `events` row | ASSIST-3; EVENT-1/2/3/5/6/7 | **v1** |
 | `deconflict_events` | `event_id` (target; the later-created of a same-start pair) | shifts the target event's timing pair (`start_at/end_at` or `start_date/end_date`) by +1 day; event-only (appends NO work-item update) | EVENT-1; calendar-context placeholder proving stage-1 `calendar_window` → action → apply (NOT smart scheduling) | **v1** |
-| `reschedule_event` | `event_id`, new `{start_at,end_at}` or `{start_date,end_date}` | updates only the timing fields | EVENT-1 ("move the dentist to Thursday") | v2 |
+| `reschedule_event` | `event_id`, new `{start_at,end_at}` or `{start_date,end_date}` | updates only the timing fields | EVENT-1 ("move the dentist to Thursday") | **v1** |
 | `rename_event` | `event_id`, `title` | sets event `title` | EVENT-1 | deferred |
 | `set_event_location` | `event_id`, `location` | sets `location` | EVENT-3 | deferred |
 | `add_event_participants` | `event_id`, `participants: [{member_id?, name}]` | appends `participants` | EVENT-5 | deferred |
@@ -138,7 +144,7 @@ no cleaner verb.
 
 | key | params | applies to | grounds | scope |
 |---|---|---|---|---|
-| `archive_work_item` | `work_item_id` | sets `archived_at` (invariant: only `done` may be archived) | GROOM-2/4 | v2 (needs GROOM) |
+| `archive_work_item` | `work_item_id` | sets `archived_at` (invariant: only `done` may be archived) | GROOM-2/4 | **v1** (assistant action; board UI is Phase 5) |
 | `unarchive_work_item` | `work_item_id` | clears `archived_at` | GROOM-3 | deferred |
 | `archive_all_done` | *(none)* | archives every `done` item | GROOM-3 | deferred |
 
@@ -177,8 +183,14 @@ Excluded write actions (would violate a design stance):
 
 ## v1 cut — LOCKED
 
-The v1 action vocabulary. Everything else in the registry is a pre-shaped slot
-for v2+/deferred; add later by registering the entry (no rework of the flow).
+## v1 cut — the built toolset (seeded at 6, expanded to 13)
+
+The v1 was **seeded** with the 6 below (the minimal architecture-proving set),
+then **expanded to 13** once the flow was solid, to give the LLM richer context
+to reason over. Everything still-unbuilt in the registry is a pre-shaped slot
+(add later by registering the entry — no rework of the flow).
+
+**Seed 6 (the original locked cut):**
 
 1. **`set_due_date`** — flagship assistant field (WORKITEM-8); first real use of
    `families.timezone` for relative-date resolution.
@@ -192,13 +204,28 @@ for v2+/deferred; add later by registering the entry (no rework of the flow).
    by +1 day.
 6. **`no_action`** — reliability primitive so a small model can say "nothing."
 
+**Expansion +7 (richer context for prompt engineering):**
+
+7. **`start_work_item` / `move_to_on_deck` / `move_to_todo` / `reopen_work_item`**
+   — the rest of the status lifecycle, so the model reasons over the whole 4-state
+   board, not just todo/done.
+8. **`assign_work_item`** — first **whitelist-validated context id** (`member_id`
+   must be a real family member, else ActionError); makes members-in-context
+   actionable.
+9. **`reschedule_event`** — first **modify-existing** action (non-null event
+   target); exercises create-vs-modify disambiguation.
+10. **`archive_work_item`** — done-only invariant (ActionError otherwise). The
+    assistant action is built; the board's manual grooming UI is Phase 5.
+11. **`add_checklist_items`** — the easy grocery-list slice (`items: [str]`);
+    check/uncheck/remove deferred (they need by-name/by-id addressing).
+
 **v1 boundaries (explicit):**
-- Capture targets an **explicit work item** for item-scoped actions (`set_due_date`,
-  `complete_work_item`) — assistant routing of free text to the right existing
-  item is v2 (OQ-A2). `create_work_item` covers the new-item branch.
-- All five actions are **propose-and-confirm** (ASSIST-2); a confirmed action
+- Capture targets an **explicit work item** for item-scoped actions — assistant
+  routing of free text to the right existing item is v2 (OQ-A2).
+  `create_work_item` covers the new-item branch.
+- All actions are **propose-and-confirm** (ASSIST-2); a confirmed action
   also appends a `source=assistant` update **when it targets a work item**
-  (conditional rule, task 12 — a standalone event append nothing).
+  (conditional rule, task 12 — a standalone event appends nothing).
 - Lightweight param checks at apply time (the registry entry lists expected
   keys); invalid/unknown actions are dropped, the raw human input is still saved
   (graceful degradation, OQ-A3).

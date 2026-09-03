@@ -1,10 +1,12 @@
 # Next session — Ollama (task 7), the last Phase-4 item
 
 > Handoff for resuming Phase 4. The **fake-first assistant is complete** and both
-> capture stages now sit behind swappable, config-selected seams. `make check` is
-> green (208 tests, ≥95% cov). The one remaining Phase-4 build is the **live local
-> model (Ollama)**, host-only. Read DESIGN §4.1 + §4.1a first — that's the source
-> of truth for the assistant architecture.
+> capture stages sit behind swappable, config-selected seams. Both **prompt views
+> are built** (`build_world_view`, `build_tools_view`) and the toolset is a rich
+> **13 actions**. `make check` is green (257 tests, ≥95% cov). The one remaining
+> Phase-4 build is the **live local model (Ollama)**, host-only. Read DESIGN §4.1
+> + §4.1a and `spec/LLD-assistant-pipeline.md` first — those are the source of
+> truth for the assistant architecture.
 
 ## What's built (all committed on `main`)
 
@@ -16,12 +18,26 @@
 - **Backends are parallel packages.** `app/assistant/fake/` holds
   `FakeCaptureResolver` (`resolver.py`) + `FakeAssistant` (`assistant.py`);
   `app/assistant/ollama/` (task 7) will mirror it. Swap = config flip.
-- **Reusable engine** (`app/routing/engine.py`): `ActionRegistry`/`ActionSpec`,
-  `ProposedAction`, `AssistantClient`, `propose_bounded`, generic `ActionContext`
-  (PEP 695) — imports nothing app-specific (boundary test).
+- **Reusable engine** (`app/routing/engine.py`): `ActionRegistry` (built from a
+  flat list of specs — no imperative registration), `ActionSpec` (typed
+  `params: list[Param]`, `exclusive_params`, derived `required`, `prompt_line`,
+  and `execute()` which owns validate+apply), `ProposedAction`, `AssistantClient`,
+  `propose_bounded`, generic `ActionContext` (PEP 695) — imports nothing
+  app-specific (boundary test). No package facade: import from
+  `app.routing.engine` directly.
 - **Plugin** (`app/assistant/actions.py`): ntake handlers via `NtakeActionContext`.
-  v1 actions: `set_due_date`, `create_event` (standalone OR work-item-linked),
-  `complete_work_item`, `create_work_item`, `deconflict_events`, `no_action`.
+  The toolset is now **13 actions**: `set_due_date`, `complete_work_item`,
+  `start_work_item`, `move_to_on_deck`, `move_to_todo`, `reopen_work_item`,
+  `assign_work_item` (whitelist-validated `member_id`), `archive_work_item`
+  (done-only invariant), `add_checklist_items`, `create_event`,
+  `reschedule_event` (modify-existing event), `create_work_item`, `no_action`,
+  `deconflict_events`.
+- **The two prompt views (built + full-string snapshot tested):**
+  `build_world_view(session, family_id, now, tz)` (`app/assistant/world.py`) —
+  "state of the world" (members, non-archived items, windowed events, ids inline,
+  family-tz times); and `build_tools_view(registry)` (`app/assistant/tools.py`) —
+  the LLM tool menu, one `spec.prompt_line` per action. Vocabulary: actions =
+  execute (internal), tools = present-to-LLM.
 - **Capture** is propose-only and always new (`work_item_id=None` in v1). Each
   proposal carries a registry-derived `action_summary` (ground truth) +
   `llm_rationale` (the model's account — the fake passes the focused context
@@ -90,18 +106,23 @@ app/assistant/ollama/
   use no_action; dates in family tz") + context (now, tz, item log, calendar
   window) + raw text. Non-thinking model → no `<think>` stripping.
 - **Build order (each a sub-checkpoint, `make check` green, TDD vs. a stubbed
-  httpx — no live model needed):** (1) `client.py` + schema-from-registry;
-  (2) `OllamaAssistant`; (3) `OllamaCaptureResolver`; (4) `infra.py` + a
-  `manage ollama` health/pull subcommand.
+  httpx — no live model needed):** (1) the JSON `format` **schema generator** from
+  the specs (`ActionSpec.params`/`exclusive_params` are already there — see the
+  resolved decision below); (2) `client.py` (`OllamaClient`); (3) `OllamaAssistant`
+  (assemble prompt from `build_world_view` + `build_tools_view` + raw text, call
+  client, parse → `[ProposedAction]`); (4) `OllamaCaptureResolver`; (5) `infra.py`
+  + a `manage ollama` health/pull subcommand.
 
-### Open decision to make at the start of task 7
+### Resolved: action param schema (was OQ-5 → option B)
 
-- **JSON-schema richness.** The registry records only *required* params, but
-  `create_event` has optional ones (`start_at`, `end_at`, `start_date`, …). Pick:
-  (1) required-only schema from the registry (smallest, registry-truth — leaning
-  this for checkpoint 1), (2) extend `ActionSpec` to carry full params (faithful
-  to DESIGN §3 but a cross-cutting engine change), or (3) a hand-authored param
-  catalog in `prompt.py` (drift risk). Decide once real model output can be eyeballed.
+The param contract lives **on `ActionSpec`** as `list[Param]`
+(`Param(name, datatype, required)`) + `exclusive_params` (mutually-exclusive
+groups, e.g. create_event's timed-vs-all-day). `required` derives from `params`;
+`prompt_line` renders each action for the tool menu; the JSON schema generator
+(step 1 above) reads the same specs. Output shape is the uniform option-A
+`{actions: [{name, params}]}`, with params validated against each spec **after**
+emission (graceful-degrade). See `spec/LLD-assistant-pipeline.md` for the full
+functional design + open questions (incl. OQ-1 pipeline shape / the 2-call goal).
 
 ## Polish / gaps (lower priority)
 
@@ -111,7 +132,9 @@ app/assistant/ollama/
   (3) SSE-triggered calendar refresh.
 - **Double-confirm semantics:** proposals aren't persisted, so confirming twice
   re-applies (deconflict → +2 days). Accepted for v1; document if it surfaces.
-- **GROOM actions** (`archive_work_item`, …) — v2; board is read-only today.
+- **GROOM board UI** — the board is read-only today (no archive/unarchive UI).
+  Note the *assistant* `archive_work_item` action IS built (done-only invariant);
+  it's the board's manual grooming UI that's still Phase-5.
 - **`item_log`** is `[]` until a target is resolved (arrives with OllamaCaptureResolver).
 - **Alembic** migration wiring still deferred (tests/app use `create_all`).
 
