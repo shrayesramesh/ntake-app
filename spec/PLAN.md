@@ -7,13 +7,24 @@
 
 ## Current state (already built & passing)
 
-Events vertical slice + tooling exist and are green (`make check` → 5 tests
-pass):
-- FastAPI app, `GET /health`, `GET /events`
-- SQLAlchemy 2.0 + SQLite; minimal `Family` + `Event` models (v2-shrunk: no
-  uid/status/sequence/recurrence; all-day-as-date; nullable `source_update_id`)
-- Pydantic `EventRead` DTO; isolated in-memory-DB test fixtures
-- Makefile, setup.sh, pinned requirements, ruff + mypy config
+Phases 0–3 and the fake-first Phase 4 are built and green (`make check` → 208
+tests pass, ≥95% cov). What exists:
+- FastAPI app; `GET /health`, `GET /events`, the work-item/board read + append
+  paths, `/capture` (propose-only) and `/actions/confirm`.
+- SQLAlchemy 2.0 + SQLite: `Family`, `Event`, `Member`, `device_tokens`,
+  `work_items`, `work_item_updates`, `checklist_items`. Pydantic DTOs at the edge.
+- Change-event seam → in-process emitter → SSE endpoint (live sync), with a
+  real-socket integration test.
+- Config-seeded identity (`family.toml`) + token CLI (`python -m app.manage`);
+  auth on every request.
+- The assistant: reusable engine (`app/routing/`) + ntake plugin
+  (`app/assistant/`) with the two swappable seams (`CaptureResolver`,
+  `AssistantClient`) and the `fake/` backend. Skinny calendar render + SSE.
+- Makefile, setup.sh, pinned requirements, ruff + mypy config.
+
+**Not yet built:** Phase-4 **task 7** (the live Ollama backend — see the Phase 4
+status note below) and all of Phase 5. Alembic migration wiring is still deferred
+(tests/app use `create_all`).
 
 ## Phasing
 
@@ -86,15 +97,20 @@ calendar mutations only on confirm.
 > **Status:** the fake-first v1 is built as a **two-stage `focus()` → `propose()`
 > pipeline over a reusable engine** — see DESIGN §4.1a. `app/routing/` is the
 > domain-agnostic engine (registry/dispatch/`propose_bounded`, generic
-> `ActionContext`); `app/assistant/` is the ntake plugin (handlers, `describe`,
-> `FakeAssistant`, `focus()`). v1 action set: `set_due_date`, `create_event`
-> (standalone or work-item-linked), `complete_work_item`, `create_work_item`,
-> `deconflict_events` (calendar-context placeholder), `no_action`. Capture is
-> propose-only and always new (no `work_item_id`); proposals carry a
-> registry-derived `action_summary` + the model's `llm_rationale`. **Remaining:**
-> the **OllamaAssistant + OllamaResolver** (host-only live model, task 7) — the
-> real stage-1 text→target resolution and stage-2 reasoning slot into the seams
-> above with no architecture change.
+> `ActionContext`); `app/assistant/` is the ntake plugin. **Both stages sit behind
+> config-selected, swappable seams** (one `NTAKE_ASSISTANT` switch): stage 1 is
+> the `CaptureResolver` seam (`base.py`) with `get_capture_resolver()`; stage 2 is
+> `AssistantClient` with `get_assistant()`. The two backends are **parallel
+> packages** — `app/assistant/fake/` (`FakeCaptureResolver` + `FakeAssistant`,
+> built) and `app/assistant/ollama/` (task 7, not yet built). v1 action set:
+> `set_due_date`, `create_event` (standalone or work-item-linked),
+> `complete_work_item`, `create_work_item`, `deconflict_events` (calendar-context
+> placeholder), `no_action`. Capture is propose-only and always new (`work_item_id`
+> stays `None`); proposals carry a registry-derived `action_summary` + the model's
+> `llm_rationale`. **Remaining (task 7):** the **`OllamaCaptureResolver` (stage 1)
+> + `OllamaAssistant` (stage 2)** — host-only live model. The real stage-1
+> text→target resolution and stage-2 reasoning drop into the seams above with no
+> architecture change.
 
 ### Phase 5 — labor view, grooming assist, hardening
 - **Labor view** (on demand): assistant reads the raw update log by author over

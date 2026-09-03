@@ -2,7 +2,7 @@
 
 > **Status:** vocabulary drafted; **v1 cut is LOCKED** (see "v1 cut — LOCKED"
 > below): `set_due_date`, `create_event`, `complete_work_item`,
-> `create_work_item`, `no_action`.
+> `create_work_item`, `deconflict_events`, `no_action`.
 >
 > **Purpose.** The assistant (Phase 4) is a **planner over a fixed set of
 > actions**. Its entire output is zero or more `{name, params}` objects drawn
@@ -121,6 +121,7 @@ no cleaner verb.
 | key | params | applies to | grounds | scope |
 |---|---|---|---|---|
 | `create_event` | `title`, one of `{start_at,end_at}` (timed UTC) OR `{start_date,end_date}` (all-day); `description?`, `location?`, `tags?: [str]`, `participants?: [{member_id?, name}]`; links `source_update_id` | inserts `events` row | ASSIST-3; EVENT-1/2/3/5/6/7 | **v1** |
+| `deconflict_events` | `event_id` (target; the later-created of a same-start pair) | shifts the target event's timing pair (`start_at/end_at` or `start_date/end_date`) by +1 day; event-only (appends NO work-item update) | EVENT-1; calendar-context placeholder proving stage-1 `calendar_window` → action → apply (NOT smart scheduling) | **v1** |
 | `reschedule_event` | `event_id`, new `{start_at,end_at}` or `{start_date,end_date}` | updates only the timing fields | EVENT-1 ("move the dentist to Thursday") | v2 |
 | `rename_event` | `event_id`, `title` | sets event `title` | EVENT-1 | deferred |
 | `set_event_location` | `event_id`, `location` | sets `location` | EVENT-3 | deferred |
@@ -185,7 +186,11 @@ for v2+/deferred; add later by registering the entry (no rework of the flow).
 3. **`complete_work_item`** — the most common lifecycle verb; composite
    (status=done + completed_at), showing why verbose verbs beat bare `set_status`.
 4. **`create_work_item`** — the "this is a new thing" capture branch (WORKITEM-1).
-5. **`no_action`** — reliability primitive so a small model can say "nothing."
+5. **`deconflict_events`** — calendar-context placeholder (event-only): proves the
+   stage-1 `calendar_window` flows into an executable, event-targeting action and
+   applies. Not smart scheduling — it moves the later-created of a same-start pair
+   by +1 day.
+6. **`no_action`** — reliability primitive so a small model can say "nothing."
 
 **v1 boundaries (explicit):**
 - Capture targets an **explicit work item** for item-scoped actions (`set_due_date`,

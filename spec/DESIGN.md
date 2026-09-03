@@ -213,8 +213,9 @@ Capture is split into **two stages**, each with its own swappable client
 ```
 CaptureRequest {text, timezone, now}          ← raw input from the endpoint
         │
-        ▼  [ STAGE 1 — focus() ]  app-coupled: DB lookups, entity resolution,
-        │                         parameter grounding. (app/assistant/capture.py)
+        ▼  [ STAGE 1 — CaptureResolver.focus() ]  app-coupled: DB lookups, entity
+        │                         resolution, param grounding. Seam in base.py;
+        │                         v1 impl FakeCaptureResolver in fake/resolver.py.
 FocusedContext {text, timezone, now,
                 work_item_id,                  ← the resolved target (None in v1)
                 item_log: [str],               ← the target item's recent updates
@@ -226,28 +227,33 @@ FocusedContext {text, timezone, now,
                        params (stage 1 already resolved them)
 ```
 
-- **Stage 1 = `focus()`** turns raw text into the *focused world* the action will
-  operate on: it queries the DB and resolves the relevant **entities (with real
-  ids)** and grounds temporal params (e.g. "friday 3pm" → a concrete UTC
-  datetime). This is why `calendar_window` is a typed `EventSummary` list carrying
-  **ids**, not prose — stage 2 needs real ids to emit an *executable* action
-  (`deconflict_events` targeting `event_id=8`). `focus()` is app-coupled (takes a
-  `Session`) and lives in `app/assistant/capture.py`.
+- **Stage 1 = `CaptureResolver.focus()`** turns raw text into the *focused world*
+  the action will operate on: it queries the DB and resolves the relevant
+  **entities (with real ids)** and grounds temporal params (e.g. "friday 3pm" → a
+  concrete UTC datetime). This is why `calendar_window` is a typed `EventSummary`
+  list carrying **ids**, not prose — stage 2 needs real ids to emit an *executable*
+  action (`deconflict_events` targeting `event_id=8`). `CaptureResolver` is
+  app-coupled (its `focus()` takes a `Session`); the abstract seam lives in
+  `app/assistant/base.py` and the v1 `FakeCaptureResolver` in
+  `app/assistant/fake/resolver.py`.
 - **Stage 2 = `propose()`** reasons over the `FocusedContext` and emits
   `ProposedAction`s. It is **engine-clean** (no `Session`/ORM/app imports) — the
   reusable piece. Because stage 1 resolved the entities/params, every proposal
   fully defines its operation and is confirmable as-is.
 - **v1 scope:** stage-1 resolution is **deterministic**, not yet an LLM call —
-  `focus()` populates `calendar_window` from events but does **not** resolve a
-  target work item from free text, so `work_item_id` is always `None` and every
-  capture is a *new* capture. The second **LLM** call (stage 1 as a query-planner
-  that reads the text to decide what to fetch / which item to target) is a v2 /
-  task-7 upgrade that slots into `focus()` with no change to stage 2. Until then
-  the existing-item note-append path (below) is dormant.
-- Both stages sit behind fakes for TDD: a `FakeAssistant` (stage 2) reasons over a
-  hand-built `FocusedContext` with zero DB, and a deterministic `focus()` (a
-  "fake resolver") produces focused contexts from seeded rows. Promoted to a
-  `Resolver` interface + config only when the Ollama implementation lands (task 7).
+  `FakeCaptureResolver` populates `calendar_window` from events but does **not**
+  resolve a target work item from free text, so `work_item_id` is always `None`
+  and every capture is a *new* capture. The second **LLM** call (stage 1 as a
+  query-planner that reads the text to decide what to fetch / which item to
+  target) is the `OllamaCaptureResolver` (task 7) that slots into the same
+  `CaptureResolver` seam with no change to stage 2. Until then the existing-item
+  note-append path (below) is dormant.
+- Both stages sit behind config-selected seams for TDD: a `FakeAssistant`
+  (stage 2) reasons over a hand-built `FocusedContext` with zero DB, and the
+  `FakeCaptureResolver` (stage 1) produces focused contexts from seeded rows.
+  Both are chosen by `NTAKE_ASSISTANT` via `app/assistant/factory.py`
+  (`get_assistant()` / `get_capture_resolver()`); the Ollama implementations
+  (task 7) drop into the same seams behind the same switch.
 
 The rest of this section describes the confirm half of the loop.
 
@@ -338,8 +344,8 @@ ntake-specific actions.
 
 ```
 CaptureRequest {text, timezone, now}
-      │  [ STAGE 1 — focus() ]  app-coupled: DB lookups, entity resolution,
-      ▼                         param grounding.  (app/assistant/capture.py)
+      │  [ STAGE 1 — CaptureResolver.focus() ]  app-coupled: DB lookups, entity
+      ▼             resolution, param grounding.  (seam: base.py; v1: fake/resolver.py)
 FocusedContext {text, tz, now, work_item_id, item_log,
                 calendar_window: [EventSummary]}   ← resolved entities, WITH ids
       │  [ STAGE 2 — AssistantClient.propose() ]  engine-clean: no Session/ORM
@@ -347,20 +353,30 @@ FocusedContext {text, tz, now, work_item_id, item_log,
 [ ProposedAction, … ]  executable by construction (real ids + grounded params)
 ```
 
-- **Stage 1 `focus()`** turns raw text into the *focused world* the action will
-  operate on — resolving relevant entities *with real ids* and grounding params.
-  App-coupled (takes a `Session`). `calendar_window` is a typed `EventSummary`
-  list carrying ids precisely because stage 2 needs a real id to emit an
-  executable action (e.g. `deconflict_events` targeting `event_id=8`). **v1:**
-  resolution is deterministic — no target resolved from text, so `work_item_id`
-  is always `None` (every capture is new). The second **LLM** call (stage 1 as a
-  query-planner reading the text to decide what to fetch / which item to target)
-  is a v2/task-7 upgrade behind the same seam.
+- **Stage 1 `CaptureResolver.focus()`** turns raw text into the *focused world*
+  the action will operate on — resolving relevant entities *with real ids* and
+  grounding params. App-coupled (`focus()` takes a `Session`). `calendar_window`
+  is a typed `EventSummary` list carrying ids precisely because stage 2 needs a
+  real id to emit an executable action (e.g. `deconflict_events` targeting
+  `event_id=8`). **v1:** resolution is deterministic (`FakeCaptureResolver`) — no
+  target resolved from text, so `work_item_id` is always `None` (every capture is
+  new). The second **LLM** call (stage 1 as a query-planner reading the text to
+  decide what to fetch / which item to target) is the `OllamaCaptureResolver`
+  (task 7) behind the same seam.
 - **Stage 2 `propose()`** reasons over the `FocusedContext` and emits
   `ProposedAction`s. Engine-clean; the reusable piece.
 
-**The reusable engine (`app/routing/`) vs. the ntake plugin (`app/assistant/`).**
+**The two swappable seams + the reusable engine.**
 
+- **Contracts — `app/assistant/base.py`**: the two seams a backend implements —
+  `CaptureResolver` (stage 1) and the re-exported `AssistantClient` (stage 2) —
+  plus the shared value types. `app/assistant/factory.py` selects a backend per
+  the `NTAKE_ASSISTANT` switch: `get_capture_resolver()` (stage 1) and
+  `get_assistant()` (stage 2), one switch driving both.
+- **Backends (parallel packages):** `app/assistant/fake/` (`FakeCaptureResolver`
+  + `FakeAssistant` — dev/tests, deterministic) and `app/assistant/ollama/`
+  (`OllamaCaptureResolver` + `OllamaAssistant` — host, task 7). They are mirror
+  images swapped by config.
 - **Engine — `app/routing/engine.py`** (imports NOTHING app-specific: no
   `app.models`, no `sqlalchemy`, no `fastapi`; enforced by a boundary test):
   `ProposedAction`, `AssistantClient`/`NullAssistant` (the propose contract);
@@ -378,7 +394,8 @@ FocusedContext {text, tz, now, work_item_id, item_log,
   `NtakeActionContext(session, member, target_id, target_type)` and does the ORM
   mutation plus — only when it targets a work item — the `source=assistant`
   update append (WORKITEM-3; conditional per the generalized target). The
-  `FakeAssistant`, the per-action `describe` text, and `focus()` live here.
+  `FakeAssistant`, the per-action `describe` text, and the `CaptureResolver`
+  implementations live here.
 
 **Why the split:** the propose-confirm pattern is generic and reusable; the split
 keeps the engine extractable into its own package by a directory move (only if a

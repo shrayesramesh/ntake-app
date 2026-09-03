@@ -19,9 +19,12 @@ setup like Tailscale/hardware/stack).
 ## The code (already exists, at repo root — not in this folder)
 
 `app/`, `tests/`, `Makefile`, `setup.sh`, `requirements.txt`, `pyproject.toml`.
-Current state: the **events vertical slice** is built and passing (health +
-`GET /events`, minimal Family/Event models, SSE/DB tooling). Work-item and
-assistant phases are not built yet (see PLAN.md).
+Current state: phases 0–3 and the **fake-first Phase 4** are built and green
+(`make check` → 208 tests pass). Events + work-item/board + live SSE +
+config-seeded identity are in; the assistant runs as a two-stage pipeline
+(`CaptureResolver` → `AssistantClient`) over a reusable engine, with a `fake/`
+backend. **Not built yet:** Phase-4 **task 7** (the live Ollama backend) and
+Phase 5 (see PLAN.md).
 
 ## How to work
 
