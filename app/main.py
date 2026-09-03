@@ -25,6 +25,7 @@ from sse_starlette.sse import EventSourceResponse
 
 import app.db as db
 from app import __version__
+from app.config import config_path, load_config, seed_from_config
 from app.db import SessionLocal, get_session, init_schema, register_change_events
 from app.event_emitter import InProcessEmitter
 from app.models import Event
@@ -33,13 +34,24 @@ from app.schemas import EventRead
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """On startup, ensure the DB schema exists.
+    """On startup: ensure the schema exists, then seed identity from config.
 
-    A real server run needs its tables (tests build their own DBs, so this was
-    invisible until the LAN smoke 500'd on ``no such table: events``). Reads
-    ``db.engine`` at runtime so a rebound engine (tests) is honored.
+    Schema init is unconditional (a real server needs its tables — the LAN smoke
+    500'd on ``no such table`` before this existed). Config seeding is conditional
+    on the file existing, so tests that boot the app without ``NTAKE_CONFIG`` set
+    don't fail; a real deployment points ``NTAKE_CONFIG`` at its out-of-repo file.
+    Reads ``db.engine`` at runtime so a rebound engine (tests) is honored.
     """
     init_schema(db.engine)
+
+    path = config_path()
+    if path.exists():
+        session = db.SessionLocal()
+        try:
+            seed_from_config(session, load_config(path))
+        finally:
+            session.close()
+
     yield
 
 

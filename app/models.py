@@ -1,9 +1,10 @@
 """ORM models (SQLAlchemy 2.0, declarative, typed `Mapped[...]`).
 
 Minimal schema per research/04-data-layer.md (simplified 2026-08-30). Timestamps
-stored UTC (NFR-TIME); `families.timezone` required day-one. This module defines
-Family and Event (checkpoint 1b); todo-side tables (Todo, TodoUpdate,
-ChecklistItem, Member, DeviceToken) are added in later checkpoints.
+stored UTC (NFR-TIME); `families.timezone` required day-one. Defines Family and
+Event (checkpoint 1b) and the identity tables Member and DeviceToken (Phase 2,
+ACCESS). Work-item tables (WorkItem, WorkItemUpdate, ChecklistItem) come in
+Phase 3.
 
 Events are intentionally small: no iCalendar-mirroring columns (uid/sequence/
 status), no recurrence. `.ics` import/export is a deferred capability whose
@@ -29,6 +30,40 @@ class Family(Base):
     # Required day-one: needed to resolve relative capture like "Tuesday 3pm"
     # (F-CAP-04) and to render all-day events correctly. e.g. "America/New_York".
     timezone: Mapped[str]
+
+
+class Member(Base):
+    """A family member (ACCESS / DESIGN §3). Role gates adult-vs-child (SAFE-2).
+
+    Seeded from the out-of-repo config on startup (Phase 2). ``phone_number`` is
+    contact-only, never used for auth.
+    """
+
+    __tablename__ = "members"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    family_id: Mapped[int] = mapped_column(ForeignKey("families.id"))
+    display_name: Mapped[str]
+    role: Mapped[str]  # "adult" | "child" (app-level enum; kept as text)
+    phone_number: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime]
+
+
+class DeviceToken(Base):
+    """A per-device credential (DESIGN §2). Stores only the token *hash*.
+
+    ``revoked_at`` NULL = active; set to revoke. Minted by the manage CLI, which
+    prints the plaintext once and persists the hash here.
+    """
+
+    __tablename__ = "device_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
+    token_hash: Mapped[str] = mapped_column(unique=True)
+    label: Mapped[str]
+    created_at: Mapped[datetime]
+    revoked_at: Mapped[datetime | None] = mapped_column(default=None)
 
 
 class Event(Base):

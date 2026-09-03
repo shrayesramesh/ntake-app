@@ -54,10 +54,15 @@ typecheck: ## Static type check (mypy)
 	@test -x $(MYPY) || { echo "No venv found — run 'make setup' first."; exit 1; }
 	$(MYPY) app
 
-check: ## Everything gate: lint + typecheck + tests (run before finishing a task)
+coverage: ## Run tests with coverage report (terminal, shows missing lines)
+	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
+	$(PYTEST) -W ignore --cov=app --cov-report=term-missing
+
+check: ## Everything gate: lint + typecheck + coverage-enforced tests
 	@$(MAKE) lint
 	@$(MAKE) typecheck
-	@$(MAKE) test
+	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
+	$(PYTEST) -W ignore --cov=app --cov-report=term-missing --cov-fail-under=95
 	@echo "check: all passed."
 
 freeze: ## Print exact installed versions (for updating requirements.txt)

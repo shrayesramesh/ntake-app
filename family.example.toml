@@ -1,0 +1,31 @@
+# Example family config — COPY, DON'T EDIT THIS FILE.
+#
+# The REAL config holds household PII (names, roles), so it must live OUTSIDE
+# this (public) repo. Copy this to your out-of-repo location and point the app
+# at it:
+#
+#   mkdir -p ~/.config/ntake
+#   cp family.example.toml ~/.config/ntake/family.toml
+#   export NTAKE_CONFIG=~/.config/ntake/family.toml   # default path if unset
+#
+# The app seeds these members into the DB on startup. Device tokens are NOT in
+# this file — they are minted by the manage CLI (stored as hashes in the DB).
+#
+# role must be "adult" or "child" ("child" = low-privilege, e.g. the wall
+# display). timezone is an IANA name and is required.
+
+[family]
+name = "Example Household"
+timezone = "America/New_York"
+
+[[members]]
+display_name = "Adult One"
+role = "adult"
+
+[[members]]
+display_name = "Adult Two"
+role = "adult"
+
+[[members]]
+display_name = "Wall Display"
+role = "child"

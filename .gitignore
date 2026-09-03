@@ -12,6 +12,9 @@ dist/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # --- Runtime data (created by the app; not source) ---
 calendar.db
@@ -24,6 +27,14 @@ agent_handoff/
 # --- Environment / secrets (don't commit) ---
 .env
 .env.*
+
+# --- Family config: real household data (PII); lives out-of-repo in prod.
+# Only family.example.toml (placeholders) is committed. Ignore any real config
+# that lands in the working tree as a second layer of protection. ---
+family.toml
+*.local.toml
+family.*.toml
+!family.example.toml
 
 # --- Editor / OS noise ---
 .DS_Store
