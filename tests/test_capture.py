@@ -76,6 +76,38 @@ def test_capture_returns_no_action_proposal_for_bland_text(client, auth_headers)
     assert [p["name"] for p in body["proposals"]] == ["no_action"]
 
 
+def test_capture_proposals_carry_two_summaries(client, auth_headers):
+    """Each proposal has a registry-derived action_summary (ground truth) AND an
+    llm_rationale (model narration) — the task-8 split."""
+    body = client.post(
+        "/capture", json={"text": "call plumber friday"}, headers=auth_headers
+    ).json()
+    due = next(p for p in body["proposals"] if p["name"] == "set_due_date")
+    # action_summary is derived from the registry describe(params): mentions the
+    # due date from params, regardless of what the model narrated.
+    assert "due" in due["action_summary"].lower()
+    assert due["params"]["due_at"] in due["action_summary"]
+    # llm_rationale is present (the fake sets a canned narration) and distinct.
+    assert due["llm_rationale"]
+    assert due["action_summary"] != due["llm_rationale"]
+    # The removed single 'summary' field is gone.
+    assert "summary" not in due
+
+
+def test_capture_action_summary_is_registry_truth_not_model(client, auth_headers):
+    """action_summary comes from the registry, so it stays correct even though the
+    fake's rationale is generic."""
+    body = client.post(
+        "/capture",
+        json={"text": "dentist appointment thursday"},
+        headers=auth_headers,
+    ).json()
+    ev = next(p for p in body["proposals"] if p["name"] == "create_event")
+    # Registry describe puts the event title in the action_summary.
+    assert "event" in ev["action_summary"].lower()
+    assert ev["params"]["title"] in ev["action_summary"]
+
+
 def test_capture_existing_item_appends_human_note(client, session, auth_headers):
     """Capture targeting an existing item appends a source=human note to it."""
     from app.models import WorkItemUpdate

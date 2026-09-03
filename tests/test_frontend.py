@@ -28,6 +28,8 @@ def test_index_serves_shell_without_auth(client):
     assert "proposals" in body  # inline proposal cards render here
     assert "/capture" in body  # capture posts to the JSON capture endpoint
     assert "/actions/confirm" in body  # Confirm posts the action
+    assert "action_summary" in body  # card shows the registry-derived truth
+    assert "llm_rationale" in body  # ...and the model's narration as secondary
     assert "localStorage" in body
 
 

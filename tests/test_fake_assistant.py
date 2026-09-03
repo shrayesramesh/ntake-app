@@ -70,6 +70,15 @@ def test_propose_does_not_touch_the_db(session):
     assert session.query(WorkItemUpdate).count() == before_updates
 
 
-def test_proposals_have_human_summaries():
+def test_proposals_carry_llm_rationale():
+    # The assistant supplies its OWN narration (llm_rationale), not the ground-
+    # truth action_summary (that's derived server-side from the registry).
     for p in FakeAssistant().propose(_ctx("plumber friday")):
-        assert p.summary and isinstance(p.summary, str)
+        assert isinstance(p.llm_rationale, str)
+    # A matched proposal has a non-empty rationale.
+    due = next(
+        p
+        for p in FakeAssistant().propose(_ctx("plumber friday"))
+        if p.name == "set_due_date"
+    )
+    assert due.llm_rationale

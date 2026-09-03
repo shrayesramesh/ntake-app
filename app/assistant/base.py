@@ -31,16 +31,23 @@ class CaptureContext:
 
 @dataclass
 class ProposedAction:
-    """A single proposed, unconfirmed action rendered as an inline card.
+    """A single proposed, unconfirmed action — exactly what the assistant returns.
 
-    ``name`` is a key in the action registry; ``params`` a plain dict; ``summary``
-    the human-facing card text; ``target_id`` the work item it applies to (echoed
-    back on Confirm so the server needn't re-derive it).
+    ``name`` is a key in the action registry; ``params`` a plain dict;
+    ``target_id`` the work item it applies to (echoed back on Confirm so the
+    server needn't re-derive it). ``llm_rationale`` is the model's OWN narration —
+    why it proposed this. It may be wrong, and is canned/empty for the fake.
+
+    Note there is deliberately NO ``action_summary`` here: what the action WILL do
+    is derived server-side from the registry (``describe(params)``), NOT carried by
+    the model. The assistant supplies intent (name + params) and its rationale;
+    the ground-truth summary is the engine's, so a fallible model can't misstate
+    what the human is confirming.
     """
 
     name: str
     params: dict
-    summary: str
+    llm_rationale: str = ""
     target_id: int | None = None
 
 

@@ -44,6 +44,73 @@ def test_registry_has_v1_actions():
     }
 
 
+def test_every_action_has_a_describe():
+    # describe(params) -> the deterministic, registry-derived action_summary
+    # (ground truth: what the action WILL do), separate from any LLM narration.
+    for name, spec in ACTIONS.items():
+        assert callable(spec.describe), name
+
+
+def test_describe_set_due_date_uses_param():
+    text = ACTIONS["set_due_date"].describe({"due_at": "2026-09-05T19:00:00+00:00"})
+    assert "2026-09-05" in text
+    assert "due" in text.lower()
+
+
+def test_describe_create_event_uses_title():
+    text = ACTIONS["create_event"].describe(
+        {"title": "Plumber visit", "start_at": "2026-09-05T19:00:00+00:00"}
+    )
+    assert "Plumber visit" in text
+    assert "event" in text.lower()
+
+
+def test_describe_complete_work_item():
+    text = ACTIONS["complete_work_item"].describe({})
+    assert "done" in text.lower() or "complete" in text.lower()
+
+
+def test_describe_create_work_item_uses_title():
+    text = ACTIONS["create_work_item"].describe({"title": "buy stamps"})
+    assert "buy stamps" in text
+
+
+def test_describe_no_action():
+    text = ACTIONS["no_action"].describe({})
+    assert isinstance(text, str) and text
+
+
+def test_describe_is_deterministic():
+    params = {"due_at": "2026-09-05T19:00:00+00:00"}
+    a = ACTIONS["set_due_date"].describe(params)
+    b = ACTIONS["set_due_date"].describe(params)
+    assert a == b
+
+
+def test_describe_create_event_title_only():
+    # Title but no timing yet: still a meaningful, deterministic summary with no
+    # dangling "at <when>" clause.
+    text = ACTIONS["create_event"].describe({"title": "Plumber visit"})
+    assert "Plumber visit" in text
+    assert " at " not in text
+
+
+def test_describe_action_seam_resolves_and_falls_back():
+    from app.assistant.actions import describe_action
+
+    # Known action -> the registry-derived summary.
+    assert "buy stamps" in describe_action("create_work_item", {"title": "buy stamps"})
+    # Unknown action -> the name itself (display-only; never raises).
+    assert describe_action("frobnicate", {}) == "frobnicate"
+
+
+def test_describe_tolerates_missing_params():
+    # describe runs on unconfirmed proposals; it must not raise on absent keys
+    # (validation happens at apply time, not describe time).
+    for spec in ACTIONS.values():
+        assert isinstance(spec.describe({}), str)
+
+
 def test_set_due_date_sets_field_and_logs(session):
     fam, m, wi = _fam_member_item(session)
     due = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)

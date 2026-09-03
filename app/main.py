@@ -29,7 +29,7 @@ from sse_starlette.sse import EventSourceResponse
 
 import app.db as db
 from app import __version__
-from app.assistant.actions import ActionError, apply_action
+from app.assistant.actions import ActionError, apply_action, describe_action
 from app.assistant.base import CaptureContext
 from app.assistant.factory import get_assistant
 from app.auth import current_member, current_member_stream
@@ -359,7 +359,12 @@ def _propose_bounded(
         ProposalRead(
             name=a.name,
             params=a.params,
-            summary=a.summary,
+            # Ground truth: what the action WILL do, derived from the registry
+            # (NOT from the model). describe_action is the seam that becomes
+            # registry.describe(...) when the engine is extracted.
+            action_summary=describe_action(a.name, a.params),
+            # The model's own narration — passed through, may be wrong/empty.
+            llm_rationale=a.llm_rationale,
             target_id=a.target_id,
             target_label=target_label,
         )

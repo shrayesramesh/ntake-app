@@ -53,7 +53,7 @@ class FakeAssistant(AssistantClient):
                 ProposedAction(
                     name="set_due_date",
                     params={"due_at": due},
-                    summary=f"Set due date to {due}",
+                    llm_rationale="Detected a weekday in the text.",
                     target_id=tid,
                 )
             )
@@ -63,7 +63,7 @@ class FakeAssistant(AssistantClient):
                     ProposedAction(
                         name="create_event",
                         params={"title": ctx.text, "start_at": due, "end_at": end},
-                        summary=f"Add event: {ctx.text}",
+                        llm_rationale="Looks like a scheduled event.",
                         target_id=tid,
                     )
                 )
@@ -73,13 +73,15 @@ class FakeAssistant(AssistantClient):
                 ProposedAction(
                     name="complete_work_item",
                     params={},
-                    summary="Mark done",
+                    llm_rationale="Text mentions completion.",
                     target_id=tid,
                 )
             )
 
         if not proposals:
             proposals.append(
-                ProposedAction(name="no_action", params={}, summary="No suggestion")
+                ProposedAction(
+                    name="no_action", params={}, llm_rationale="Nothing to suggest."
+                )
             )
         return proposals

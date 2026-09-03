@@ -95,11 +95,18 @@ class CaptureCreate(BaseModel):
 
 
 class ProposalRead(BaseModel):
-    """A proposed (unconfirmed) action returned to the author's device."""
+    """A proposed (unconfirmed) action returned to the author's device.
+
+    Two distinct texts (task 8): ``action_summary`` is deterministic and
+    registry-derived (what the action WILL do, from params) — ground truth shown
+    prominently; ``llm_rationale`` is the model's own narration (why it proposed
+    this) — may be wrong/empty, shown as secondary context.
+    """
 
     name: str
     params: dict = {}
-    summary: str
+    action_summary: str
+    llm_rationale: str = ""
     target_id: int | None = None
     target_label: str | None = None  # the target item's title, for card context
 

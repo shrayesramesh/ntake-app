@@ -35,6 +35,10 @@ class ActionError(Exception):
 # Handler signature: (session, member, target_id, params) -> human summary str.
 Handler = Callable[[Session, Member, int | None, dict], str]
 
+# describe signature: (params) -> deterministic action_summary str. A pure fn of
+# params only (no app types) so it is engine-extractable.
+DescribeFn = Callable[[dict], str]
+
 
 @dataclass(frozen=True)
 class ActionSpec:
@@ -42,6 +46,12 @@ class ActionSpec:
     needs_target: bool = True  # operates on an existing work item?
     logs: bool = True  # appends a source=assistant update on apply?
     apply: Handler = None  # type: ignore[assignment]
+    # describe(params) -> the deterministic, registry-derived ``action_summary``:
+    # what the action WILL do, built from params. This is ground truth, distinct
+    # from any LLM narration (``llm_rationale``). Pure fn of params — no Session,
+    # no ORM, no app types — so it moves cleanly into the reusable engine later.
+    # Must tolerate missing/partial params (it runs on unconfirmed proposals).
+    describe: DescribeFn = None  # type: ignore[assignment]
 
 
 def _require(params: dict, keys: list[str]) -> None:
@@ -154,15 +164,81 @@ def _apply_no_action(session, member, target_id, params) -> str:
     return "No action"
 
 
+# --- describe fns: params -> deterministic action_summary -----------------
+# Pure functions of params (ground truth for the card). They run on UNCONFIRMED
+# proposals, so they must tolerate missing/partial params and never raise.
+
+
+def _describe_set_due_date(params: dict) -> str:
+    due = params.get("due_at")
+    return f"Set due date to {due}" if due else "Set a due date"
+
+
+def _describe_complete(params: dict) -> str:
+    return "Mark the work item done"
+
+
+def _describe_create_event(params: dict) -> str:
+    title = params.get("title")
+    when = params.get("start_at") or params.get("start_date")
+    if title and when:
+        return f"Create event “{title}” at {when}"
+    if title:
+        return f"Create event “{title}”"
+    return "Create a calendar event"
+
+
+def _describe_create_work_item(params: dict) -> str:
+    title = params.get("title")
+    return f"Create work item “{title}”" if title else "Create a work item"
+
+
+def _describe_no_action(params: dict) -> str:
+    return "No action"
+
+
 ACTIONS: dict[str, ActionSpec] = {
-    "set_due_date": ActionSpec(required=["due_at"], apply=_apply_set_due_date),
-    "complete_work_item": ActionSpec(apply=_apply_complete),
-    "create_event": ActionSpec(required=["title"], apply=_apply_create_event),
-    "create_work_item": ActionSpec(
-        required=["title"], needs_target=False, apply=_apply_create_work_item
+    "set_due_date": ActionSpec(
+        required=["due_at"],
+        apply=_apply_set_due_date,
+        describe=_describe_set_due_date,
     ),
-    "no_action": ActionSpec(needs_target=False, logs=False, apply=_apply_no_action),
+    "complete_work_item": ActionSpec(
+        apply=_apply_complete, describe=_describe_complete
+    ),
+    "create_event": ActionSpec(
+        required=["title"],
+        apply=_apply_create_event,
+        describe=_describe_create_event,
+    ),
+    "create_work_item": ActionSpec(
+        required=["title"],
+        needs_target=False,
+        apply=_apply_create_work_item,
+        describe=_describe_create_work_item,
+    ),
+    "no_action": ActionSpec(
+        needs_target=False,
+        logs=False,
+        apply=_apply_no_action,
+        describe=_describe_no_action,
+    ),
 }
+
+
+def describe_action(name: str, params: dict) -> str:
+    """Registry seam: the deterministic action_summary for ``name`` + ``params``.
+
+    Looks up the spec and calls its ``describe``. Callers (the capture endpoint)
+    use this rather than reaching into ``ACTIONS`` so the lookup is decoupled —
+    when the registry is extracted into the reusable engine this becomes
+    ``registry.describe(name, params)`` with a one-line repoint. Unknown names
+    fall back to the name itself (never raises; describe is display-only).
+    """
+    spec = ACTIONS.get(name)
+    if spec is None or spec.describe is None:
+        return name
+    return spec.describe(params)
 
 
 def apply_action(

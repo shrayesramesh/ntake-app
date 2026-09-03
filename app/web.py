@@ -144,7 +144,10 @@ SHELL_PAGE = """<!doctype html>
     .proposal { display: flex; align-items: center; gap: .5rem; background: #eff6ff;
                 border: 1px solid #bfdbfe; border-radius: 6px; padding: .4rem .6rem;
                 margin-bottom: .4rem; }
-    .proposal .summary { flex: 1; font-size: .9rem; }
+    .proposal .proposal-body { flex: 1; }
+    .proposal .action-summary { font-size: .9rem; font-weight: 600; }
+    .proposal .rationale { font-size: .78rem; color: #6b7280; font-style: italic;
+                           margin-top: .15rem; }
     .proposal button { font-size: .8rem; padding: .2rem .6rem; }
     .proposal .confirm { background: #2563eb; color: #fff; border: none;
                          border-radius: 4px; }
@@ -212,13 +215,23 @@ SHELL_PAGE = """<!doctype html>
       proposals.filter(p => p.name !== 'no_action').forEach(p => {
         const card = document.createElement('div');
         card.className = 'proposal';
-        const s = document.createElement('span');
-        s.className = 'summary';
-        // Show which work item this action targets, so the human has context.
-        s.textContent = p.target_label
-          ? p.summary + ' — ' + p.target_label
-          : p.summary;
-        card.appendChild(s);
+        const body = document.createElement('div');
+        body.className = 'proposal-body';
+        // Ground truth — what WILL happen (registry-derived). Prominent.
+        const action = document.createElement('div');
+        action.className = 'action-summary';
+        action.textContent = p.target_label
+          ? p.action_summary + ' — ' + p.target_label
+          : p.action_summary;
+        body.appendChild(action);
+        // The model's narration — why it proposed this. Secondary; only if set.
+        if (p.llm_rationale) {
+          const why = document.createElement('div');
+          why.className = 'rationale';
+          why.textContent = p.llm_rationale;
+          body.appendChild(why);
+        }
+        card.appendChild(body);
         const confirm = document.createElement('button');
         confirm.className = 'confirm'; confirm.textContent = 'Confirm';
         confirm.onclick = () => confirmProposal(p, card);
@@ -238,7 +251,8 @@ SHELL_PAGE = """<!doctype html>
       })
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
         .then(() => { card.remove(); reloadBoard(); reloadCalendar(); })
-        .catch(() => { card.querySelector('.summary').textContent += ' (failed)'; });
+        .catch(() => { card.querySelector('.action-summary').textContent +=
+                       ' (failed)'; });
     }
 
     function reloadBoard() {
