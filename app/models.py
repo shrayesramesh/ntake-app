@@ -21,6 +21,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
+# The fixed work-item status codes, in board order (WORKITEM-4 / GROOM). Single
+# source of truth: the board projection (main), the fragment column order, and
+# the UI labels (web) all derive from this — no drift. Display labels are a
+# UI-layer concern (see app/web.py), keyed off these codes.
+WORK_ITEM_STATUSES: tuple[str, ...] = ("todo", "on_deck", "doing", "done")
+
 
 class Family(Base):
     __tablename__ = "families"

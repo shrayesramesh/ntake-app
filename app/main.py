@@ -37,6 +37,7 @@ from app.config import config_path, load_config, seed_from_config
 from app.db import SessionLocal, get_session, init_schema, register_change_events
 from app.event_emitter import InProcessEmitter
 from app.models import (
+    WORK_ITEM_STATUSES,
     ChecklistItem,
     Event,
     Family,
@@ -44,7 +45,7 @@ from app.models import (
     WorkItem,
     WorkItemUpdate,
 )
-from app.routing import propose_bounded
+from app.routing import ProposedAction, propose_bounded
 from app.schemas import (
     CaptureCreate,
     CaptureResponse,
@@ -111,9 +112,9 @@ def list_events(
     return list(session.scalars(stmt).all())
 
 
-def _format_change(entity: str, id: int, op: str) -> dict:
+def _format_change(entity: str, entity_id: int, op: str) -> dict:
     """Render a change event as an SSE message dict (client refetches on it)."""
-    data = json.dumps({"entity": entity, "id": id, "op": op})
+    data = json.dumps({"entity": entity, "id": entity_id, "op": op})
     return {"event": "change", "data": data}
 
 
@@ -125,8 +126,8 @@ def subscribe(emitter: InProcessEmitter) -> tuple[asyncio.Queue, Callable[[], No
     """
     queue: asyncio.Queue[tuple[str, int, str]] = asyncio.Queue()
 
-    async def listener(entity: str, id: int, op: str) -> None:
-        await queue.put((entity, id, op))
+    async def listener(entity: str, entity_id: int, op: str) -> None:
+        await queue.put((entity, entity_id, op))
 
     emitter.add_listener(listener)
 
@@ -164,6 +165,10 @@ async def events_stream(
 
 
 def _load_work_item(session: Session, work_item_id: int) -> WorkItem:
+    # REST layer: a missing item on a direct GET/POST is a 404. (The action
+    # handlers in app/assistant/actions.py deliberately raise ActionError
+    # instead — the confirm endpoint maps that to 422, since a bad target there
+    # is an invalid *action*, not a missing *route resource*.)
     wi = session.get(WorkItem, work_item_id)
     if wi is None:
         raise HTTPException(status_code=404, detail="Work item not found.")
@@ -266,8 +271,9 @@ def append_update(
 
 # --- Board (read-only projection, Phase 3 checkpoint 5) ------------------
 
-# Fixed column order (GROOM). Display labels are a UI concern; these are codes.
-BOARD_COLUMNS = ["todo", "on_deck", "doing", "done"]
+# Fixed column order (GROOM) — single source of truth in models. Display labels
+# are a UI concern (app/web.py); these are the domain status codes.
+BOARD_COLUMNS = list(WORK_ITEM_STATUSES)
 
 
 def _board_columns(session: Session) -> dict[str, list[WorkItem]]:
@@ -340,38 +346,43 @@ def calendar_view(
 # --- Capture with proposals (Phase 4, task 4) ----------------------------
 
 
+def _to_proposal_read(
+    action: ProposedAction, index: int, target_label: str | None
+) -> ProposalRead:
+    """Pure map: an engine ProposedAction -> the app's ProposalRead DTO.
+
+    Assigns a batch-local proposal_id from ``index`` (unless the action already
+    carries one) and derives ``action_summary`` from the registry (ground truth,
+    NOT the model's text). No I/O — unit-testable in isolation.
+    """
+    return ProposalRead(
+        name=action.name,
+        params=action.params,
+        action_summary=describe_action(action.name, action.params),
+        llm_rationale=action.llm_rationale,
+        target_id=action.target_id,
+        target_type=action.target_type,
+        proposal_id=action.proposal_id or f"p{index}",
+        target_ref=action.target_ref,
+        target_label=target_label,
+    )
+
+
 def _propose_bounded(
     ctx: FocusedContext, target_label: str | None
 ) -> list[ProposalRead]:
-    """Get proposals from the configured assistant (bounded; degrade to []), then
-    map them to the app DTO — assigning batch-local proposal_ids and deriving each
-    action_summary from the registry (ground truth).
+    """Get proposals from the configured assistant (bounded; degrade to []) and
+    map them to the app DTO.
 
-    The bounded-timeout + graceful-degrade wrapper is the engine's
-    ``propose_bounded``; this function is the app boundary that turns engine
-    ProposedActions into ProposalReads. ``target_label`` is the captured item's
-    title, echoed onto each proposal so the confirm card shows context.
+    Orchestration only: the bounded-timeout + graceful-degrade wrapper is the
+    engine's ``propose_bounded``; the per-action mapping is the pure
+    :func:`_to_proposal_read`. ``target_label`` is echoed onto each proposal so
+    the confirm card shows context.
     """
     timeout = float(os.environ.get("NTAKE_ASSISTANT_TIMEOUT", "4.0"))
     actions = propose_bounded(get_assistant(), ctx, timeout)
     return [
-        ProposalRead(
-            name=a.name,
-            params=a.params,
-            # Ground truth: what the action WILL do, derived from the registry
-            # (NOT from the model), via the describe seam.
-            action_summary=describe_action(a.name, a.params),
-            # The model's own narration — passed through, may be wrong/empty.
-            llm_rationale=a.llm_rationale,
-            target_id=a.target_id,
-            target_type=a.target_type,
-            # Batch-local handle assigned here so every assistant implementation
-            # gets consistent ids: p1, p2, … within one response.
-            proposal_id=a.proposal_id or f"p{i}",
-            target_ref=a.target_ref,
-            target_label=target_label,
-        )
-        for i, a in enumerate(actions, start=1)
+        _to_proposal_read(a, i, target_label) for i, a in enumerate(actions, start=1)
     ]
 
 

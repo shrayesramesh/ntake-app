@@ -18,16 +18,17 @@ from __future__ import annotations
 
 from html import escape
 
-from app.models import Event, WorkItem
+from app.models import WORK_ITEM_STATUSES, Event, WorkItem
 
-# Display labels for the fixed status codes (UI-layer, per DESIGN §3).
+# Column order = the canonical domain status codes (single source of truth in
+# models). Labels are the UI-layer display names, keyed off those codes.
+COLUMN_ORDER = list(WORK_ITEM_STATUSES)
 COLUMN_LABELS = {
     "todo": "Todo",
     "on_deck": "On deck",
     "doing": "Doing",
     "done": "Done",
 }
-COLUMN_ORDER = ["todo", "on_deck", "doing", "done"]
 
 
 def render_board(columns: dict[str, list[WorkItem]]) -> str:
