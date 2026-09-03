@@ -48,7 +48,7 @@ import uvicorn  # noqa: E402
 
 from app.db import SessionLocal, engine, init_schema  # noqa: E402
 from app.main import app  # noqa: E402
-from app.manage import gen_token_for  # noqa: E402
+from app.manage import gen_token_for, seed_sample_events  # noqa: E402
 from app.models import Family, Member  # noqa: E402
 from app.tokens import token_secret  # noqa: E402
 
@@ -197,6 +197,21 @@ def run_checks(base: str, token: str) -> bool:
         )
         assert c.status == 200, c.status
 
+    def seed_events_show_in_calendar():
+        # Seed sample events directly (no assistant) and confirm GET /events
+        # returns them — the manual-testing seed path (task 9).
+        s = SessionLocal()
+        try:
+            seeded = seed_sample_events(s)
+        finally:
+            s.close()
+        assert len(seeded) >= 2
+        r = _get(f"{base}/events", token=token)
+        assert r.status == 200
+        titles = [e["title"] for e in json.loads(r.read())]
+        for ev in seeded:
+            assert ev.title in titles, titles
+
     for name, fn in [
         ("health is ok", health),
         ("shell page renders", shell),
@@ -205,6 +220,7 @@ def run_checks(base: str, token: str) -> bool:
         ("board fragment shows created item", board_shows_item),
         ("SSE delivers a change frame", sse_delivers_change),
         ("assistant capture->propose->confirm", assistant_capture_propose_confirm),
+        ("seed-events show in calendar", seed_events_show_in_calendar),
     ]:
         ok = _check(name, fn) and ok
     return ok

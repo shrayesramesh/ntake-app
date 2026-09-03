@@ -107,3 +107,49 @@ def auth_headers(session, monkeypatch):
     session.commit()
 
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
+def event_factory(session):
+    """Factory to seed events into the test DB (thin wrapper over seed_event).
+
+    Returns a callable ``make(family_id, **kwargs)`` so a test can create as many
+    events as it needs; each is committed and returned. Defaults to a timed event
+    with a fixed UTC start so callers only pass what they care about.
+    """
+    from datetime import UTC, datetime
+
+    from app.manage import seed_event
+
+    default_start = datetime(2026, 9, 1, 15, 0, tzinfo=UTC)
+
+    def make(family_id, *, title="Test event", **kwargs):
+        if not kwargs.get("all_day") and "start_at" not in kwargs:
+            kwargs["start_at"] = default_start
+        return seed_event(session, family_id, title=title, **kwargs)
+
+    return make
+
+
+@pytest.fixture()
+def seeded_events(session, event_factory):
+    """A family plus one timed and one all-day event; returns the two events.
+
+    For tests/manual-parity that need a populated calendar (task 9). Kept minimal:
+    exactly one of each timing kind so ``{ev.all_day}`` is ``{True, False}``.
+    """
+    from datetime import UTC, date, datetime
+
+    from app.models import Family
+
+    fam = Family(name="SeededFam", timezone="America/New_York")
+    session.add(fam)
+    session.commit()
+
+    timed = event_factory(
+        fam.id, title="Seeded timed", start_at=datetime(2026, 9, 4, 19, 0, tzinfo=UTC)
+    )
+    all_day = event_factory(
+        fam.id, title="Seeded all-day", all_day=True, start_date=date(2026, 9, 5)
+    )
+    return [timed, all_day]

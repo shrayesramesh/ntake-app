@@ -6,10 +6,17 @@ the config (seeded on startup); this mints per-device tokens for them.
     python -m app.manage gen-token "Shrayes" --label "Pixel phone"
     python -m app.manage list-tokens
     python -m app.manage revoke 3
+    python -m app.manage seed-events
 
 gen-token prints the plaintext token ONCE — it is never stored or logged; only
 its hash is persisted (DESIGN §2). Deliver the printed token to the device
 (QR/paste/tailnet link — operator's choice).
+
+``seed-events`` populates the calendar with a couple of sample events (one timed,
+one all-day) for manual/display testing — the only non-assistant way to create
+events (there is deliberately no human event-CRUD UI; events arrive via the
+assistant or this seed path). See ``seed_event`` for the reusable helper the
+tests + fixtures also use.
 
 Core functions take a Session so they are unit-testable; ``main`` wraps them and
 uses the app's real DB + the per-install secret.
@@ -19,12 +26,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import DeviceToken, Member
+from app.models import DeviceToken, Event, Family, Member
 from app.tokens import generate_token, hash_token, token_secret
 
 
@@ -79,6 +86,95 @@ def list_tokens(session: Session) -> list[dict]:
     return rows
 
 
+def seed_event(
+    session: Session,
+    family_id: int,
+    *,
+    title: str,
+    all_day: bool = False,
+    start_at: datetime | None = None,
+    end_at: datetime | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    description: str | None = None,
+    location: str | None = None,
+) -> Event:
+    """Create + commit an Event directly (no assistant), returning it.
+
+    The only non-assistant way to create events: used by the ``seed-events`` CLI,
+    the pytest fixtures, and the host smoke to populate the calendar for manual
+    testing. Enforces the event timing invariant (DESIGN §3.1): exactly one
+    timing pair keyed by ``all_day`` —
+
+    * **timed** (``all_day=False``): requires ``start_at`` (UTC); ``end_at``
+      defaults to ``start_at`` (a point-in-time event).
+    * **all-day** (``all_day=True``): requires ``start_date``; ``end_date``
+      defaults to ``start_date`` (a single-day event).
+
+    Raises ValueError if the required timing for the chosen mode is missing.
+    """
+    if all_day:
+        if start_date is None:
+            raise ValueError("all-day event requires start_date")
+        end_date = end_date or start_date
+        start_at = end_at = None
+    else:
+        if start_at is None:
+            raise ValueError("timed event requires start_at")
+        end_at = end_at or start_at
+        start_date = end_date = None
+
+    now = datetime.now(UTC)
+    ev = Event(
+        family_id=family_id,
+        title=title,
+        description=description,
+        location=location,
+        all_day=all_day,
+        start_at=start_at,
+        end_at=end_at,
+        start_date=start_date,
+        end_date=end_date,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(ev)
+    session.commit()
+    session.refresh(ev)
+    return ev
+
+
+def seed_sample_events(session: Session) -> list[Event]:
+    """Populate the first family with a sample timed + all-day event.
+
+    The CLI/smoke seed path (task 9). Deterministic sample data so a fresh
+    install has something on the calendar to look at. Raises ValueError if no
+    family exists yet (identity is config-seeded on startup — DESIGN §2).
+    """
+    family = session.scalars(select(Family).order_by(Family.id)).first()
+    if family is None:
+        raise ValueError("No family found. Seed the family config first (startup).")
+
+    now = datetime.now(UTC)
+    timed = seed_event(
+        session,
+        family.id,
+        title="Sample: dentist",
+        start_at=now.replace(microsecond=0),
+        end_at=(now.replace(microsecond=0)),
+        description="Seeded timed event for manual/display testing.",
+        location="Downtown clinic",
+    )
+    all_day = seed_event(
+        session,
+        family.id,
+        title="Sample: school holiday",
+        all_day=True,
+        start_date=now.date(),
+    )
+    return [timed, all_day]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.manage")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -91,6 +187,10 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("token_id", type=int)
 
     sub.add_parser("list-tokens", help="List device tokens and their status")
+
+    sub.add_parser(
+        "seed-events", help="Populate the calendar with sample events (dev/manual)"
+    )
 
     args = parser.parse_args(argv)
 
@@ -118,6 +218,12 @@ def main(argv: list[str] | None = None) -> int:
                     row["id"], row["member"], row["label"], status
                 )
                 print(line)
+        elif args.command == "seed-events":
+            events = seed_sample_events(session)
+            print(f"Seeded {len(events)} sample event(s):")
+            for ev in events:
+                kind = "all-day" if ev.all_day else "timed"
+                print(f"    [{ev.id}] {ev.title} ({kind})")
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
