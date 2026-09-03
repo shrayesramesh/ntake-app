@@ -34,7 +34,7 @@ setup: ## Create venv, install deps, and run tests (delegates to setup.sh)
 
 test: ## Run the test suite
 	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
-	$(PYTEST) -q
+	$(PYTEST) -v -W ignore
 
 run: ## Run the dev server (127.0.0.1:8000)
 	@test -x $(UVICORN) || { echo "No venv found — run 'make setup' first."; exit 1; }
