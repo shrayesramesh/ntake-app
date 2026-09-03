@@ -40,16 +40,47 @@ def _free_port() -> int:
 
 
 @pytest.fixture()
-def live_server():
+def live_server(monkeypatch):
     """Run the real app under uvicorn in a background thread (same process).
 
     Same-process is required for correctness: the write must go through the
     app's own ``SessionLocal`` (the sessionmaker the 1d seam is bound to) so it
     reaches the module-level ``app_emitter`` the server streams from. Uses the
-    app's own engine/DB; the test cleans up the row it writes. Yields the port.
+    app's own engine/DB; the test cleans up the rows it writes. Also enrolls a
+    device token (the stream is now auth-protected). Yields (port, headers).
     """
+    from datetime import UTC, datetime
+
+    from app.models import DeviceToken, Member
+    from app.tokens import generate_token, hash_token
+
     # Ensure schema exists on the app's own engine (the one SessionLocal uses).
     Base.metadata.create_all(engine)
+
+    secret = "test-token-secret"
+    monkeypatch.setenv("NTAKE_TOKEN_SECRET", secret)
+
+    # Enroll a family/member/token so the auth-protected stream accepts us.
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    setup = SessionLocal()
+    fam = Family(name="LiveFam", timezone="America/New_York")
+    setup.add(fam)
+    setup.commit()
+    member = Member(family_id=fam.id, display_name="Live", role="adult", created_at=now)
+    setup.add(member)
+    setup.commit()
+    token = generate_token()
+    setup.add(
+        DeviceToken(
+            member_id=member.id,
+            token_hash=hash_token(token, secret=secret),
+            label="live",
+            created_at=now,
+        )
+    )
+    setup.commit()
+    fam_id = fam.id
+    setup.close()
 
     port = _free_port()
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
@@ -66,7 +97,7 @@ def live_server():
         raise RuntimeError("uvicorn did not start in time")
 
     try:
-        yield port
+        yield port, {"Authorization": f"Bearer {token}"}, fam_id
     finally:
         server.should_exit = True
         thread.join(timeout=5)
@@ -78,16 +109,17 @@ def live_server():
 
 
 def test_committed_write_delivered_over_real_socket(live_server):
-    port = live_server
+    port, headers, fam_id = live_server
     result: dict[str, object] = {}
 
     def reader() -> None:
         try:
-            req = urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/events/stream", timeout=10
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/events/stream", headers=headers
             )
-            assert req.headers["content-type"].startswith("text/event-stream")
-            for raw in req:
+            resp = urllib.request.urlopen(req, timeout=10)
+            assert resp.headers["content-type"].startswith("text/event-stream")
+            for raw in resp:
                 line = raw.decode().strip()
                 if line.startswith("data:"):
                     result["frame"] = json.loads(line[len("data:") :].strip())
@@ -103,26 +135,39 @@ def test_committed_write_delivered_over_real_socket(live_server):
 
     # Write through the app's OWN SessionLocal — the sessionmaker the 1d seam is
     # registered on, so this commit publishes to the server's app_emitter.
+    from datetime import UTC, datetime
+
+    from app.models import Event
+
+    now = datetime(2026, 9, 1, 15, 0, tzinfo=UTC)
     db = SessionLocal()
-    fam = Family(name="LiveFam", timezone="America/New_York")
-    db.add(fam)
+    ev = Event(
+        family_id=fam_id,
+        title="live-event",
+        start_at=now,
+        end_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(ev)
     db.commit()
-    fam_id = fam.id
+    ev_id = ev.id
     db.close()
 
     t.join(timeout=10)
 
-    # Clean up the row we wrote to the shared app DB.
+    # Clean up rows written to the shared app DB (event, member, family).
     cleanup = SessionLocal()
-    obj = cleanup.get(Family, fam_id)
-    if obj is not None:
-        cleanup.delete(obj)
-        cleanup.commit()
+    for model, key in ((Event, ev_id),):
+        obj = cleanup.get(model, key)
+        if obj is not None:
+            cleanup.delete(obj)
+    cleanup.commit()
     cleanup.close()
 
     assert "error" not in result, f"stream reader failed: {result.get('error')}"
     frame = result.get("frame")
     assert frame is not None, "no SSE frame received over the socket"
-    assert frame["entity"] == "families"
+    assert frame["entity"] == "events"
     assert frame["op"] == "create"
-    assert isinstance(frame["id"], int)
+    assert frame["id"] == ev_id

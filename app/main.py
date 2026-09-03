@@ -25,10 +25,11 @@ from sse_starlette.sse import EventSourceResponse
 
 import app.db as db
 from app import __version__
+from app.auth import current_member
 from app.config import config_path, load_config, seed_from_config
 from app.db import SessionLocal, get_session, init_schema, register_change_events
 from app.event_emitter import InProcessEmitter
-from app.models import Event
+from app.models import Event, Member
 from app.schemas import EventRead
 
 
@@ -70,11 +71,14 @@ def health() -> dict:
 
 
 @app.get("/events", response_model=list[EventRead])
-def list_events(session: Session = Depends(get_session)) -> list[Event]:
+def list_events(
+    session: Session = Depends(get_session),
+    _member: Member = Depends(current_member),
+) -> list[Event]:
     """Return all persisted events as JSON (checkpoint 1c).
 
-    Ordered by start time. FastAPI serializes each ORM Event via EventRead
-    (from_attributes).
+    Requires a valid device token (ACCESS-2). Ordered by start time; FastAPI
+    serializes each ORM Event via EventRead (from_attributes).
     """
     stmt = select(Event).order_by(Event.start_at)
     return list(session.scalars(stmt).all())
@@ -107,12 +111,15 @@ def subscribe(emitter: InProcessEmitter) -> tuple[asyncio.Queue, Callable[[], No
 
 
 @app.get("/events/stream")
-async def events_stream() -> EventSourceResponse:
+async def events_stream(
+    _member: Member = Depends(current_member),
+) -> EventSourceResponse:
     """Server-Sent Events stream of change notifications (checkpoint 1e).
 
-    Thin transport over :func:`subscribe`: each connection gets its own queue,
-    the emitter fans committed changes out to it, and we stream them until the
-    client disconnects. `EventSource` auto-reconnects.
+    Requires a valid device token (ACCESS-2). Thin transport over
+    :func:`subscribe`: each connection gets its own queue, the emitter fans
+    committed changes out to it, and we stream them until the client
+    disconnects. `EventSource` auto-reconnects.
     """
     queue, unsubscribe = subscribe(app_emitter)
 

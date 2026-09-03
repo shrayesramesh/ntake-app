@@ -34,17 +34,48 @@ def test_build_engine_returns_usable_engine(tmp_path):
 def test_app_lifespan_initializes_schema_so_events_works(tmp_path, monkeypatch):
     """Booting the app on a fresh DB yields a working /events with no manual DDL.
 
-    The app's engine is created at import from CALENDAR_DB_URL. We rebind it to a
-    fresh temp file and run the app through its lifespan (TestClient context
-    manager triggers startup), then hit /events.
+    The app engine is created at import from CALENDAR_DB_URL. We rebind it (and
+    SessionLocal) to a fresh temp file, run the app through its lifespan
+    (TestClient context manager triggers startup → init_schema), enroll a token
+    in that same DB, and hit the now auth-protected /events.
     """
+    from datetime import UTC, datetime
+
     import app.db as db
     import app.main as main
+    from app.db import make_session_factory
+    from app.models import DeviceToken, Family, Member
+    from app.tokens import generate_token, hash_token
+
+    secret = "test-token-secret"
+    monkeypatch.setenv("NTAKE_TOKEN_SECRET", secret)
 
     fresh = build_engine(f"sqlite:///{tmp_path / 'boot.db'}")
     monkeypatch.setattr(db, "engine", fresh)
+    monkeypatch.setattr(db, "SessionLocal", make_session_factory(fresh))
 
     with TestClient(main.app) as client:  # enters lifespan → init_schema(engine)
-        r = client.get("/events")
+        # Enroll a device token in the freshly-created schema.
+        now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+        s = db.SessionLocal()
+        fam = Family(name="Fam", timezone="America/New_York")
+        s.add(fam)
+        s.commit()
+        m = Member(family_id=fam.id, display_name="A", role="adult", created_at=now)
+        s.add(m)
+        s.commit()
+        token = generate_token()
+        s.add(
+            DeviceToken(
+                member_id=m.id,
+                token_hash=hash_token(token, secret=secret),
+                label="d",
+                created_at=now,
+            )
+        )
+        s.commit()
+        s.close()
+
+        r = client.get("/events", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
         assert r.json() == []

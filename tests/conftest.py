@@ -49,3 +49,43 @@ def client(session):
         yield TestClient(app)
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def auth_headers(session, monkeypatch):
+    """Enroll a member + active device token; return an Authorization header.
+
+    Sets NTAKE_TOKEN_SECRET and stores the token's hash under that secret, so the
+    auth dependency resolves the returned bearer token to the enrolled member.
+    Use on tests that hit auth-protected endpoints.
+    """
+    from datetime import UTC, datetime
+
+    from app.models import DeviceToken, Family, Member
+    from app.tokens import generate_token, hash_token
+
+    secret = "test-token-secret"
+    monkeypatch.setenv("NTAKE_TOKEN_SECRET", secret)
+
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    fam = Family(name="TestFam", timezone="America/New_York")
+    session.add(fam)
+    session.commit()
+    member = Member(
+        family_id=fam.id, display_name="Tester", role="adult", created_at=now
+    )
+    session.add(member)
+    session.commit()
+
+    token = generate_token()
+    session.add(
+        DeviceToken(
+            member_id=member.id,
+            token_hash=hash_token(token, secret=secret),
+            label="test-device",
+            created_at=now,
+        )
+    )
+    session.commit()
+
+    return {"Authorization": f"Bearer {token}"}

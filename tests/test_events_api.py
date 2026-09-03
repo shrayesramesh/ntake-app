@@ -1,17 +1,17 @@
-"""Checkpoint 1c — GET /events read path."""
+"""Checkpoint 1c — GET /events read path (now auth-protected, ACCESS-2)."""
 
 from datetime import UTC, datetime
 
 from app.models import Event, Family
 
 
-def test_events_empty(client):
-    r = client.get("/events")
+def test_events_empty(client, auth_headers):
+    r = client.get("/events", headers=auth_headers)
     assert r.status_code == 200
     assert r.json() == []
 
 
-def test_events_returns_seeded_event(client, session):
+def test_events_returns_seeded_event(client, session, auth_headers):
     fam = Family(name="Fam", timezone="America/New_York")
     session.add(fam)
     session.commit()
@@ -29,7 +29,7 @@ def test_events_returns_seeded_event(client, session):
     )
     session.commit()
 
-    r = client.get("/events")
+    r = client.get("/events", headers=auth_headers)
     assert r.status_code == 200
     data = r.json()
     assert len(data) == 1
