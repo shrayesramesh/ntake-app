@@ -1,4 +1,5 @@
-"""Stage 1 — CaptureResolver.focus(): CaptureRequest -> FocusedContext (DB lookups).
+"""Stage 1 — CaptureResolver.focus(): CaptureRequest -> FocusedContext (DB lookups),
+plus render_focus and how the FakeAssistant stamps it onto proposals.
 
 The ``CaptureResolver`` seam is the app-coupled resolver: it queries the DB and
 produces the *focused world* stage 2 reasons over. ``FakeCaptureResolver`` (v1)
@@ -6,6 +7,10 @@ does NOT resolve a target work item from free text (that's a v2/Ollama
 capability), so ``work_item_id`` is always None. It DOES populate
 ``calendar_window`` with the family's events as id-bearing ``EventSummary``
 objects — the ids are what make stage-2 proposals executable against real events.
+
+``render_focus`` is a readable print of the focused context; the FakeAssistant
+stamps it verbatim onto each proposal's ``llm_rationale`` (pass-through, no
+intelligence). A real assistant (Ollama) writes a genuine description there.
 """
 
 from __future__ import annotations
@@ -15,8 +20,13 @@ from datetime import UTC, date, datetime
 import pytest
 
 from app.assistant.base import CaptureResolver
-from app.assistant.context import CaptureRequest, EventSummary, FocusedContext
-from app.assistant.fake import FakeCaptureResolver
+from app.assistant.context import (
+    CaptureRequest,
+    EventSummary,
+    FocusedContext,
+    render_focus,
+)
+from app.assistant.fake import FakeAssistant, FakeCaptureResolver
 from app.manage import seed_event
 from app.models import Family, Member
 
@@ -123,3 +133,67 @@ def test_fake_capture_resolver_is_a_capture_resolver():
 def test_capture_resolver_abc_cannot_be_instantiated():
     with pytest.raises(TypeError):
         CaptureResolver()  # type: ignore[abstract]
+
+
+# --- render_focus + FakeAssistant rationale stamping ----------------------
+
+
+def _ctx(text: str, window=None, target_id=None) -> FocusedContext:
+    return FocusedContext(
+        text=text,
+        work_item_id=target_id,
+        timezone="America/New_York",
+        now=NOW,
+        calendar_window=window or [],
+    )
+
+
+def test_render_focus_includes_text_and_event_titles():
+    ctx = _ctx(
+        "dentist appointment friday",
+        window=[EventSummary(id=1, title="Soccer", start=NOW)],
+    )
+    out = render_focus(ctx)
+    assert "dentist appointment friday" in out
+    assert "Soccer" in out  # event titles are surfaced, not a count
+    assert isinstance(out, str) and out
+
+
+def test_render_focus_handles_empty_window():
+    out = render_focus(_ctx("buy milk"))
+    assert "buy milk" in out
+
+
+def test_render_focus_handles_all_day_events():
+    ctx = _ctx(
+        "check",
+        window=[
+            EventSummary(
+                id=2, title="Holiday", start_date=date(2026, 12, 25), all_day=True
+            )
+        ],
+    )
+    assert isinstance(render_focus(ctx), str)
+
+
+def test_fake_stamps_focus_into_every_proposal_rationale():
+    ctx = _ctx("dentist appointment friday")
+    props = FakeAssistant().propose(ctx)
+    expected = render_focus(ctx)
+    assert props  # there is at least one proposal
+    for p in props:
+        assert p.llm_rationale == expected
+
+
+def test_fake_focus_rationale_reflects_calendar_window():
+    # Two overlapping events -> deconflict proposal; its rationale prints the
+    # focused context, which mentions the calendar window.
+    start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)
+    window = [
+        EventSummary(id=5, title="Soccer", start=start),
+        EventSummary(id=8, title="Dentist", start=start),
+    ]
+    ctx = _ctx("check calendar", window=window)
+    props = FakeAssistant().propose(ctx)
+    dc = next(p for p in props if p.name == "deconflict_events")
+    assert dc.llm_rationale == render_focus(ctx)

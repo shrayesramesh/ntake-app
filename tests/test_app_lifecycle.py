@@ -1,9 +1,11 @@
-"""App startup creates the schema (regression for the LAN-smoke 500).
+"""App lifecycle — the health endpoint and startup schema init.
 
-A real server run must have its tables without any manual ``create_all``. This
-boots the app via its lifespan against a *fresh* temp-file DB and asserts the
-events read path works — the exact path that 500'd with ``no such table:
-events`` before startup schema-init existed.
+Consolidates the two boot-time checkpoint files:
+
+* **Health (1a)** — ``GET /health`` returns ok + a version.
+* **Startup schema** — a real server run creates its tables via the app lifespan
+  with no manual ``create_all`` (regression for the LAN-smoke 500 that was
+  ``no such table: events`` before startup schema-init existed).
 """
 
 from __future__ import annotations
@@ -12,6 +14,19 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect
 
 from app.db import build_engine, init_schema
+
+# --- health endpoint (1a) -------------------------------------------------
+
+
+def test_health_ok(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert "version" in body
+
+
+# --- startup schema init --------------------------------------------------
 
 
 def test_init_schema_creates_all_tables(tmp_path):

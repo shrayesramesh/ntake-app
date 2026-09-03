@@ -1,19 +1,18 @@
-"""Checkpoint 1e — real-socket SSE integration test (option B).
+"""SSE / change-emitter subsystem — the write → publish → stream path.
 
-Proves **actual socket bytes**: a real uvicorn server, a real HTTP client reading
-a real ``text/event-stream``, and a write that travels write → 1d seam →
-app_emitter → SSE frame on the wire.
+Consolidates three checkpoint-era files (the emitter unit, the subscribe wiring,
+and the real-socket integration) into one module for the SSE feature:
 
-Key correctness point: the emit is *in-process* to the server (app_emitter is a
-module singleton the seam is bound to at import via ``SessionLocal``). So the
-write must happen in the **same process** as the server, through that same
-``SessionLocal`` — a separate process or a separate sessionmaker would have its
-own (unobserved) emitter. We therefore run uvicorn in a background **thread**
-(same process) and read over a **real TCP socket** (a real client, not an
-in-process ASGI transport — the latter deadlocks on an infinite SSE stream).
+* **Emitter unit** — ``InProcessEmitter.emit`` fans out to listeners.
+* **Subscribe wiring (1e)** — a published change lands on a subscriber's queue,
+  formatted as the SSE message; unsubscribe detaches. Unit-tested directly
+  against ``app.main.subscribe`` (the endpoint's ``while True`` never completes,
+  so we test the wiring, not the ASGI stream).
+* **Real-socket integration (1e, option B)** — a real uvicorn server + real TCP
+  client prove actual ``text/event-stream`` bytes travel write → 1d seam →
+  app_emitter → SSE frame on the wire.
 
-All waits are bounded (boot poll, socket read timeout, thread joins) so a wiring
-regression fails loudly instead of hanging the suite.
+The 1d commit→publish seam itself is proven in test_write_seam.py.
 """
 
 from __future__ import annotations
@@ -29,8 +28,53 @@ import pytest
 import uvicorn
 
 from app.db import Base, SessionLocal, engine
-from app.main import app
+from app.event_emitter import InProcessEmitter
+from app.main import _format_change, app, subscribe
 from app.models import Family
+
+# --- emitter unit ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_emit():
+    emitter = InProcessEmitter()
+    received = []
+
+    async def listener(entity, id, op):
+        received.append((entity, id, op))
+
+    emitter.add_listener(listener)
+
+    await emitter.emit("event", 123, "create")
+
+    assert received == [("event", 123, "create")]
+
+
+# --- subscribe wiring (1e) ------------------------------------------------
+
+
+def test_format_change_shape():
+    msg = _format_change("events", 7, "create")
+    assert msg["event"] == "change"
+    assert json.loads(msg["data"]) == {"entity": "events", "id": 7, "op": "create"}
+
+
+@pytest.mark.asyncio
+async def test_subscribe_receives_emitted_change():
+    emitter = InProcessEmitter()
+    queue, unsubscribe = subscribe(emitter)
+
+    await emitter.emit("families", 3, "update")
+
+    assert queue.get_nowait() == ("families", 3, "update")
+
+    # Unsubscribing detaches the listener so later emits are not received.
+    unsubscribe()
+    await emitter.emit("families", 4, "create")
+    assert queue.empty()
+
+
+# --- real-socket integration (1e, option B) -------------------------------
 
 
 def _free_port() -> int:

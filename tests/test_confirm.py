@@ -1,14 +1,25 @@
-"""Phase 4, task 5 — confirm endpoint.
+"""Phase 4, task 5 — confirm endpoint, plus the proposal_id/executable-only
+guarantees the confirm payload depends on.
 
 The client sends back a chosen proposed action; the server looks it up in the
 registry, validates, applies (mutation + source=assistant update), and commits
 (publishing via the seam -> SSE). Dismiss is purely client-side (no call here).
+
+Every proposal returned by /capture MUST be independently executable as-is (the
+assistant is a "planner over a fixed set of actions") — that's what makes a
+Confirm payload a self-contained action the endpoint below can dispatch. A
+NEW-item capture must NOT return an item-targeting action (set_due_date /
+complete_work_item) with target_id=None. Each proposal carries a batch-local
+``proposal_id``; ``target_ref`` is reserved for v2 dependency chaining (None in
+v1).
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from app.assistant.context import FocusedContext
+from app.assistant.fake import FakeAssistant
 from app.models import Event, Family, Member, WorkItem, WorkItemUpdate
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
@@ -139,3 +150,71 @@ def test_confirm_no_action_is_noop(client, session, auth_headers):
     assert r.status_code == 200
     session.expire_all()
     assert session.query(WorkItemUpdate).count() == 0
+
+
+# --- executable-only proposals + the proposal_id primitive -----------------
+# Unit-level (FakeAssistant.propose directly): the guarantees that make a
+# Confirm payload dispatchable as-is by the endpoint above.
+
+_PROPOSE_NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
+
+
+def _propose_ctx(text: str, target_id=None) -> FocusedContext:
+    return FocusedContext(
+        text=text,
+        work_item_id=target_id,
+        timezone="America/New_York",
+        now=_PROPOSE_NOW,
+    )
+
+
+def _needs_concrete_target(p) -> bool:
+    """True when the proposal targets a WORK ITEM and therefore must carry a
+    concrete target_id. A standalone event (target_type='event') is fully defined
+    by its params and needs no work-item id."""
+    return p.target_type == "work_item"
+
+
+def test_new_item_capture_has_no_unexecutable_item_action():
+    # 'monday' would previously add a set_due_date with target_id=None.
+    props = FakeAssistant().propose(_propose_ctx("soccer game on monday"))
+    for p in props:
+        if _needs_concrete_target(p):
+            assert p.target_id is not None, f"{p.name} has no target on a new capture"
+    # It proposes creating the work item (self-contained)...
+    assert "create_work_item" in [p.name for p in props]
+    # ...and NOT a bare set_due_date (no item to attach it to yet).
+    assert "set_due_date" not in [p.name for p in props]
+
+
+def test_new_event_capture_is_standalone_and_executable():
+    # event word + weekday → a standalone create_event, fully specified.
+    props = FakeAssistant().propose(_propose_ctx("dentist appointment monday"))
+    assert [p.name for p in props] == ["create_event"]
+    ev = props[0]
+    assert ev.target_type == "event"
+    assert ev.target_id is None
+    assert ev.params.get("start_at") and ev.params.get("end_at")
+
+
+def test_new_project_word_is_ordinary_text_now():
+    # 'project' dropped as a trigger (produced two unrelated rows) — it's now
+    # ordinary text: a single, fully-defined create_work_item.
+    props = FakeAssistant().propose(_propose_ctx("project launch monday"))
+    assert [p.name for p in props] == ["create_work_item"]
+    for p in props:
+        if _needs_concrete_target(p):
+            assert p.target_id is not None
+
+
+def test_existing_item_capture_still_targets_the_item():
+    props = FakeAssistant().propose(_propose_ctx("he is coming monday", target_id=7))
+    due = next(p for p in props if p.name == "set_due_date")
+    assert due.target_id == 7
+    assert due.target_type == "work_item"
+
+
+def test_proposals_expose_proposal_id_and_no_target_ref():
+    for p in FakeAssistant().propose(_propose_ctx("dentist appointment monday")):
+        assert hasattr(p, "proposal_id")
+        assert p.target_ref is None  # v1: no dangling dependency
