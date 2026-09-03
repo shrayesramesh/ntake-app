@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 
 # Re-export the domain-agnostic contract from the engine.
-from app.routing import AssistantClient, NullAssistant, ProposedAction
+from app.routing import ActionContext, AssistantClient, NullAssistant, ProposedAction
 
 __all__ = [
     "AssistantClient",
@@ -62,7 +62,7 @@ class EventSummary:
 
 
 @dataclass
-class FocusedContext:
+class FocusedContext(ActionContext):
     """Stage-2 input: the *focused world* the assistant reasons over.
 
     Produced by ``focus()`` (stage 1) from a CaptureRequest + DB lookups. Holds
@@ -90,9 +90,9 @@ def render_focus(ctx: FocusedContext) -> str:
     write a genuine natural-language description in that slot.
     """
     parts = [f"Understood: “{ctx.text}”"]
-    n = len(ctx.calendar_window)
-    if n:
-        parts.append(f"{n} event(s) in view")
+    if ctx.calendar_window:
+        titles = ", ".join(ev.title for ev in ctx.calendar_window)
+        parts.append(f"events in view: {titles}")
     if ctx.work_item_id is not None:
         parts.append(f"on work item #{ctx.work_item_id}")
     return " · ".join(parts)

@@ -81,7 +81,7 @@ def _next_weekday(ctx: FocusedContext, weekday: int, hour: int = 9) -> str:
     return target.astimezone(ZoneInfo("UTC")).isoformat()
 
 
-class FakeAssistant(AssistantClient):
+class FakeAssistant(AssistantClient[FocusedContext]):
     def propose(self, ctx: FocusedContext) -> list[ProposedAction]:
         text = ctx.text.lower()
         tid = ctx.work_item_id

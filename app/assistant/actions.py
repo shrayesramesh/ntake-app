@@ -26,11 +26,17 @@ from sqlalchemy.orm import Session
 from app.models import Event, Member, WorkItem, WorkItemUpdate
 
 # Engine (domain-agnostic) — the plugin builds on these.
-from app.routing import ActionError, ActionRegistry, ActionSpec, require_params
+from app.routing import (
+    ActionContext,
+    ActionError,
+    ActionRegistry,
+    ActionSpec,
+    require_params,
+)
 
 
 @dataclass
-class NtakeActionContext:
+class NtakeActionContext(ActionContext):
     """The opaque context ntake injects into the engine at dispatch time.
 
     The engine never inspects this; the handlers below unpack it. ``target_type``
@@ -234,7 +240,7 @@ def _describe_deconflict(params: dict) -> str:
 # The ntake action set (spec/ASSISTANT_ACTIONS.md, v1). A plain dict of engine
 # ActionSpecs — kept public as ``ACTIONS`` for callers/tests — registered into an
 # engine ActionRegistry below.
-ACTIONS: dict[str, ActionSpec] = {
+ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
     "set_due_date": ActionSpec(
         required=["due_at"],
         apply=_apply_set_due_date,
@@ -270,7 +276,7 @@ ACTIONS: dict[str, ActionSpec] = {
 }
 
 # The engine registry instance the app dispatches through.
-REGISTRY = ActionRegistry()
+REGISTRY: ActionRegistry[NtakeActionContext] = ActionRegistry()
 for _name, _spec in ACTIONS.items():
     REGISTRY.register(_name, _spec)
 

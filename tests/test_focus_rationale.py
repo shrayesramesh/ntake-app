@@ -27,14 +27,14 @@ def _ctx(text: str, window=None, target_id=None) -> FocusedContext:
 # --- render_focus: a readable print of the focused context ----------------
 
 
-def test_render_focus_includes_text_and_calendar_count():
+def test_render_focus_includes_text_and_event_titles():
     ctx = _ctx(
         "dentist appointment friday",
-        window=[EventSummary(id=1, title="A", start=NOW)],
+        window=[EventSummary(id=1, title="Soccer", start=NOW)],
     )
     out = render_focus(ctx)
     assert "dentist appointment friday" in out
-    assert "1" in out  # the calendar-window size is surfaced
+    assert "Soccer" in out  # event titles are surfaced, not a count
     assert isinstance(out, str) and out
 
 

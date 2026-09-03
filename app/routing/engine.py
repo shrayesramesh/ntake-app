@@ -5,10 +5,15 @@ One cohesive module: the propose contract (``ProposedAction`` /
 (``ActionRegistry`` / ``ActionSpec`` / ``ActionError`` / ``require_params``), and
 the bounded/graceful-degrade ``propose_bounded`` wrapper.
 
+The opaque context is a **type parameter** (``ContextT`` bound to
+``ActionContext``): the engine never inspects it, and each plugin binds its own
+concrete context type — no ``Any``, and no parameter-variance issues, because a
+plugin's ``AssistantClient[FocusedContext]`` / handler is a fully-typed
+specialization rather than an override that narrows a base parameter.
+
 Imports NOTHING app-specific (no app.models, no sqlalchemy, no fastapi) — that
 boundary (enforced by tests/test_engine.py) is what makes it extractable into
-its own package by a directory move. Any project reuses it by registering its
-own actions and injecting its own opaque context.
+its own package by a directory move.
 """
 
 from __future__ import annotations
@@ -17,7 +22,16 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any
+
+
+class ActionContext:
+    """Opaque context base — the thing the engine passes around but NEVER
+    inspects. Plugins subclass it with their own fields (a session, target ids,
+    the focused capture world, …) and bind it as the ``ContextT`` type parameter.
+    Naming the concept (instead of ``Any``) documents the boundary and bounds the
+    type parameter.
+    """
+
 
 # --- the propose contract -------------------------------------------------
 
@@ -46,30 +60,28 @@ class ProposedAction:
     target_ref: str | None = None
 
 
-class AssistantClient(ABC):
-    """Proposes zero or more actions for an opaque context. MUST NOT mutate
+class AssistantClient[ContextT: ActionContext](ABC):
+    """Proposes zero or more actions for its context type. MUST NOT mutate
     anything and MUST return [] on any failure (never raise into the request
-    path). The engine treats ``ctx`` as opaque (``Any``) — it never inspects it;
-    a concrete client may annotate its own context type."""
+    path). The engine never inspects ``ctx``; a concrete client binds ``ContextT``
+    to its own ActionContext subclass (e.g. ``AssistantClient[FocusedContext]``)."""
 
     @abstractmethod
-    def propose(self, ctx: Any) -> list[ProposedAction]: ...
+    def propose(self, ctx: ContextT) -> list[ProposedAction]: ...
 
 
-class NullAssistant(AssistantClient):
-    """The 'off' client — never proposes anything."""
+class NullAssistant(AssistantClient[ActionContext]):
+    """The 'off' client — never proposes anything (accepts any context)."""
 
-    def propose(self, ctx: Any) -> list[ProposedAction]:
+    def propose(self, ctx: ActionContext) -> list[ProposedAction]:
         return []
 
 
 # --- the generic action registry ------------------------------------------
 
-# A handler receives the OPAQUE context the app injects at dispatch time, plus
-# the action params, and returns a human summary. The engine never inspects the
-# context — its type is ``Any`` because the engine imposes NOTHING on it; the
-# plugin's handler annotates and unpacks its own concrete context type.
-Handler = Callable[[Any, dict], str]
+# A handler receives the plugin's concrete context (its bound ContextT) plus the
+# action params, and returns a human summary. The engine never inspects it.
+type Handler[ContextT: ActionContext] = Callable[[ContextT, dict], str]
 
 # describe(params) -> deterministic action_summary. Pure fn of params (no app
 # types); must tolerate missing/partial params (runs on unconfirmed proposals).
@@ -82,13 +94,15 @@ class ActionError(Exception):
 
 
 @dataclass(frozen=True)
-class ActionSpec:
-    """A registered action: its param contract, flags, describe, and handler."""
+class ActionSpec[ContextT: ActionContext]:
+    """A registered action: its param contract, flags, describe, and handler.
+
+    Parameterized by the plugin's context type so ``apply`` is fully typed."""
 
     required: list[str] = field(default_factory=list)
     needs_target: bool = True  # operates on an existing entity?
     logs: bool = True  # appends a source=assistant log entry on apply?
-    apply: Handler = None  # type: ignore[assignment]
+    apply: Handler[ContextT] = None  # type: ignore[assignment]
     describe: DescribeFn = None  # type: ignore[assignment]
 
 
@@ -99,20 +113,20 @@ def require_params(params: dict, keys: list[str]) -> None:
             raise ActionError(f"missing required param: {k}")
 
 
-class ActionRegistry:
+class ActionRegistry[ContextT: ActionContext]:
     """A name → ActionSpec registry with validate + dispatch + describe.
 
-    Domain-agnostic: the app registers its actions and injects an opaque context
-    at dispatch time. Reusable across projects by construction.
+    Parameterized by the plugin's context type: the app registers its actions and
+    injects a ``ContextT`` at dispatch time. Reusable across projects.
     """
 
     def __init__(self) -> None:
-        self._actions: dict[str, ActionSpec] = {}
+        self._actions: dict[str, ActionSpec[ContextT]] = {}
 
-    def register(self, name: str, spec: ActionSpec) -> None:
+    def register(self, name: str, spec: ActionSpec[ContextT]) -> None:
         self._actions[name] = spec
 
-    def get(self, name: str) -> ActionSpec | None:
+    def get(self, name: str) -> ActionSpec[ContextT] | None:
         return self._actions.get(name)
 
     def names(self) -> list[str]:
@@ -129,11 +143,11 @@ class ActionRegistry:
             return name
         return spec.describe(params)
 
-    def dispatch(self, name: str, params: dict, context: Any) -> str:
+    def dispatch(self, name: str, params: dict, context: ContextT) -> str:
         """Validate + apply a confirmed action. Returns a human summary.
 
         Raises ActionError for unknown names or missing required params. The
-        handler does the actual work using the opaque ``context``.
+        handler does the actual work using the plugin's ``context``.
         """
         spec = self._actions.get(name)
         if spec is None:
@@ -145,8 +159,8 @@ class ActionRegistry:
 # --- bounded, graceful-degrade propose ------------------------------------
 
 
-def propose_bounded(
-    client: AssistantClient, ctx: Any, timeout: float
+def propose_bounded[ContextT: ActionContext](
+    client: AssistantClient[ContextT], ctx: ContextT, timeout: float
 ) -> list[ProposedAction]:
     """Call ``client.propose(ctx)`` bounded by ``timeout`` seconds; degrade to [].
 

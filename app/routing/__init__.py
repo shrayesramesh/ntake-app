@@ -13,6 +13,7 @@ whole engine lives in :mod:`app.routing.engine`; this re-exports its public API.
 from __future__ import annotations
 
 from app.routing.engine import (
+    ActionContext,
     ActionError,
     ActionRegistry,
     ActionSpec,
@@ -26,6 +27,7 @@ from app.routing.engine import (
 )
 
 __all__ = [
+    "ActionContext",
     "ActionError",
     "ActionRegistry",
     "ActionSpec",
