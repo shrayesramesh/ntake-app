@@ -49,7 +49,12 @@ from __future__ import annotations
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
-from app.assistant.context import AssistantClient, FocusedContext, ProposedAction
+from app.assistant.context import (
+    AssistantClient,
+    FocusedContext,
+    ProposedAction,
+    render_focus,
+)
 
 _WEEKDAYS = {
     "monday": 0,
@@ -96,6 +101,12 @@ class FakeAssistant(AssistantClient):
         # Drop a lone no_action if we already have a real proposal (deconflict).
         if len(proposals) > 1:
             proposals = [p for p in proposals if p.name != "no_action"]
+        # The assistant describes what it understood. The fake just passes the
+        # focused context through (a print) onto each proposal — per-action, so a
+        # card is self-describing. A real assistant writes a genuine description.
+        focus_note = render_focus(ctx)
+        for p in proposals:
+            p.llm_rationale = focus_note
         return proposals
 
     def _deconflict(self, ctx: FocusedContext) -> list[ProposedAction]:

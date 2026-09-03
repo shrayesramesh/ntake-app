@@ -25,6 +25,7 @@ __all__ = [
     "FocusedContext",
     "NullAssistant",
     "ProposedAction",
+    "render_focus",
 ]
 
 
@@ -78,3 +79,20 @@ class FocusedContext:
     # Lean, id-bearing context (kept small = fast for the model):
     item_log: list[str] = field(default_factory=list)  # target item's recent updates
     calendar_window: list[EventSummary] = field(default_factory=list)  # nearby events
+
+
+def render_focus(ctx: FocusedContext) -> str:
+    """A readable print of what the assistant is focused on (the FocusedContext).
+
+    Used to describe back to the user what the assistant understood. The
+    FakeAssistant stamps this verbatim onto each proposal's ``llm_rationale``
+    (pass-through — no intelligence); a real assistant (Ollama) will instead
+    write a genuine natural-language description in that slot.
+    """
+    parts = [f"Understood: “{ctx.text}”"]
+    n = len(ctx.calendar_window)
+    if n:
+        parts.append(f"{n} event(s) in view")
+    if ctx.work_item_id is not None:
+        parts.append(f"on work item #{ctx.work_item_id}")
+    return " · ".join(parts)
