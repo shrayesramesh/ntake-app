@@ -30,7 +30,7 @@ def _event_params():
 # --- standalone event: no work item, no work-item update ------------------
 
 
-def test_create_event_standalone_creates_event_without_work_item_update(
+def test_create_timed_event_standalone_creates_event_without_work_item_update(
     session, fam_member
 ):
     fam, m = fam_member
@@ -38,7 +38,7 @@ def test_create_event_standalone_creates_event_without_work_item_update(
     apply_action(
         session,
         m,
-        "create_event",
+        "create_timed_event",
         target_id=None,
         params=_event_params(),
         target_type=None,
@@ -54,13 +54,15 @@ def test_create_event_standalone_creates_event_without_work_item_update(
     assert session.query(WorkItemUpdate).count() == 0
 
 
-def test_create_event_explicit_event_target_type_also_standalone(session, fam_member):
+def test_create_timed_event_explicit_event_target_type_also_standalone(
+    session, fam_member
+):
     fam, m = fam_member
 
     apply_action(
         session,
         m,
-        "create_event",
+        "create_timed_event",
         target_id=None,
         params=_event_params(),
         target_type="event",
@@ -74,13 +76,13 @@ def test_create_event_explicit_event_target_type_also_standalone(session, fam_me
 # --- event FROM a work item: link + log -----------------------------------
 
 
-def test_create_event_from_work_item_links_and_logs(session, fam_member_item):
+def test_create_timed_event_from_work_item_links_and_logs(session, fam_member_item):
     fam, m, wi = fam_member_item
 
     apply_action(
         session,
         m,
-        "create_event",
+        "create_timed_event",
         target_id=wi.id,
         params=_event_params(),
         target_type="work_item",

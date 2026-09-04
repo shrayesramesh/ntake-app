@@ -170,8 +170,9 @@ class ActionSpec[ContextT: ActionContext]:
     it). ``params`` is the single source of the param contract — ``required`` is
     derived from it. ``exclusive_params`` holds mutually-exclusive param *groups*
     (supply exactly one group; references param names) — the one cross-param
-    constraint a flat ``params`` list can't express (e.g. create_event's
-    timed-vs-all-day). ``description`` is the human sentence shown to the model.
+    constraint a flat ``params`` list can't express (for example, a future plugin
+    action with mutually exclusive modes). ``description`` is the human sentence
+    shown to the model.
     """
 
     name: str = ""

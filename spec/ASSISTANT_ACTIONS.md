@@ -1,11 +1,12 @@
 # Assistant Actions — the LLM capability registry
 
 > **Status:** BUILT (both fake + live local-LLM backends). The v1 toolset was
-> seeded at 6 actions then **expanded to 16** for richer LLM context (status
+> seeded at 6 actions then **expanded to 18** for richer LLM context (status
 > lifecycle, assignment, reschedule, archive, checklist, delete). Current v1 set:
 > `set_due_date`, `complete_work_item`, `start_work_item`, `move_to_on_deck`,
 > `move_to_todo`, `reopen_work_item`, `assign_work_item`, `archive_work_item`,
-> `add_checklist_items`, `create_event`, `reschedule_event`, `delete_event`,
+> `add_checklist_items`, `create_timed_event`, `create_all_day_event`,
+> `reschedule_timed_event`, `reschedule_all_day_event`, `delete_event`,
 > `create_work_item`, `append_update`, `no_action`, `deconflict_events`. Each row's scope column
 > below is the source of truth for what's built (**v1**) vs. backlog (v2 /
 > deferred). This file remains the registry + scope reference; the live contract
@@ -130,9 +131,11 @@ no cleaner verb.
 
 | key | params | applies to | grounds | scope |
 |---|---|---|---|---|
-| `create_event` | `title`, one of `{start_at,end_at}` (timed UTC) OR `{start_date,end_date}` (all-day); `description?`, `location?`, `tags?: [str]`, `participants?: [{member_id?, name}]`; links `source_update_id` | inserts `events` row | ASSIST-3; EVENT-1/2/3/5/6/7 | **v1** |
+| `create_timed_event` | `title`, `start_at`, `end_at` (UTC), `description?`, `location?`, `participants?`; links `source_update_id` | inserts a timed `events` row | ASSIST-3; EVENT-1/2/3/5/7 | **v1** |
+| `create_all_day_event` | `title`, `start_date`, `end_date?`, `description?`, `location?`, `participants?`; links `source_update_id` | inserts an all-day `events` row; missing `end_date` defaults to `start_date` | ASSIST-3; EVENT-1/2/3/5/7 | **v1** |
 | `deconflict_events` | `event_id` (target; the later-created of a same-start pair) | shifts the target event's timing pair (`start_at/end_at` or `start_date/end_date`) by +1 day; event-only (appends NO work-item update) | EVENT-1; calendar-context placeholder proving stage-1 `calendar_window` → action → apply (NOT smart scheduling) | **v1** |
-| `reschedule_event` | `event_id`, new `{start_at,end_at}` or `{start_date,end_date}` | updates only the timing fields | EVENT-1 ("move the dentist to Thursday") | **v1** |
+| `reschedule_timed_event` | `event_id`, `start_at`, `end_at` | updates an existing event to a timed range | EVENT-1 ("move the dentist to Thursday at 3") | **v1** |
+| `reschedule_all_day_event` | `event_id`, `start_date`, `end_date?` | updates an existing event to an all-day range; missing `end_date` defaults to `start_date` | EVENT-1 | **v1** |
 | `rename_event` | `event_id`, `title` | sets event `title` | EVENT-1 | deferred |
 | `set_event_location` | `event_id`, `location` | sets `location` | EVENT-3 | deferred |
 | `add_event_participants` | `event_id`, `participants: [{member_id?, name}]` | appends `participants` | EVENT-5 | deferred |
@@ -187,10 +190,10 @@ Excluded write actions (would violate a design stance):
 
 ## v1 cut — LOCKED
 
-## v1 cut — the built toolset (seeded at 6, now 16)
+## v1 cut — the built toolset (seeded at 6, now 18)
 
 The v1 was **seeded** with the 6 below (the minimal architecture-proving set),
-then expanded to its current **16 actions** as richer prompt context and explicit
+then expanded to its current **18 actions** as richer prompt context and explicit
 confirmable mutations proved useful. Everything still-unbuilt in the registry is
 a pre-shaped slot (add later by registering the entry — no rework of the flow).
 
@@ -198,7 +201,9 @@ a pre-shaped slot (add later by registering the entry — no rework of the flow)
 
 1. **`set_due_date`** — flagship assistant field (WORKITEM-8); first real use of
    `families.timezone` for relative-date resolution.
-2. **`create_event`** — the calendar bridge (ASSIST-3); exercises `source_update_id`.
+2. **`create_timed_event` / `create_all_day_event`** — the calendar bridge
+   (ASSIST-3), each with one unambiguous timing shape; a work-item-driven create
+   exercises `source_update_id`.
 3. **`complete_work_item`** — the most common lifecycle verb; composite
    (status=done + completed_at), showing why verbose verbs beat bare `set_status`.
 4. **`create_work_item`** — the "this is a new thing" capture branch (WORKITEM-1).
@@ -216,8 +221,9 @@ a pre-shaped slot (add later by registering the entry — no rework of the flow)
 8. **`assign_work_item`** — first **whitelist-validated context id** (`member_id`
    must be a real family member, else ActionError); makes members-in-context
    actionable.
-9. **`reschedule_event`** — first **modify-existing** action (non-null event
-   target); exercises create-vs-modify disambiguation.
+9. **`reschedule_timed_event` / `reschedule_all_day_event`** — explicit
+   modify-existing actions with non-null event targets; avoids an intra-action
+   timed/all-day choice.
 10. **`archive_work_item`** — done-only invariant (ActionError otherwise). The
     assistant action is built; the board's manual grooming UI is Phase 5.
 11. **`add_checklist_items`** — the easy grocery-list slice (`items: [str]`);

@@ -98,14 +98,14 @@ def test_confirm_append_update_adds_assistant_context(client, session, auth_head
     assert update.body == "Vendor confirmed the delay."
 
 
-def test_confirm_create_event_applies(client, session, auth_headers):
+def test_confirm_create_timed_event_applies(client, session, auth_headers):
     wid = _create(session)
     start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC).isoformat()
     end = datetime(2026, 9, 5, 20, 0, tzinfo=UTC).isoformat()
     r = client.post(
         "/actions/confirm",
         json={
-            "name": "create_event",
+            "name": "create_timed_event",
             "params": {"title": "Plumber visit", "start_at": start, "end_at": end},
             "target_id": wid,
         },
@@ -117,7 +117,7 @@ def test_confirm_create_event_applies(client, session, auth_headers):
     assert ev.title == "Plumber visit"
 
 
-def test_confirm_create_event_standalone_no_work_item_update(
+def test_confirm_create_timed_event_standalone_no_work_item_update(
     client, session, auth_headers
 ):
     """A standalone event (target_type=event, no target_id) is created with NO
@@ -127,7 +127,7 @@ def test_confirm_create_event_standalone_no_work_item_update(
     r = client.post(
         "/actions/confirm",
         json={
-            "name": "create_event",
+            "name": "create_timed_event",
             "params": {"title": "Standalone party", "start_at": start, "end_at": end},
             "target_type": "event",
         },
@@ -226,7 +226,9 @@ def test_confirm_assign_rejects_foreign_member_422(client, session, auth_headers
     assert session.get(WorkItem, wid).assigned_to is None
 
 
-def test_confirm_reschedule_event_target_type_event(client, session, auth_headers):
+def test_confirm_reschedule_timed_event_target_type_event(
+    client, session, auth_headers
+):
     fam = session.query(Family).first()  # auth_headers seeds the family
     ev = Event(
         family_id=fam.id,
@@ -244,7 +246,7 @@ def test_confirm_reschedule_event_target_type_event(client, session, auth_header
     r = client.post(
         "/actions/confirm",
         json={
-            "name": "reschedule_event",
+            "name": "reschedule_timed_event",
             "params": {"start_at": new_start, "end_at": new_start},
             "target_type": "event",
             "target_id": ev_id,
@@ -323,9 +325,9 @@ def test_new_item_capture_has_no_unexecutable_item_action():
 
 
 def test_new_event_capture_is_standalone_and_executable():
-    # event word + weekday → a standalone create_event, fully specified.
+    # event word + weekday → a standalone create_timed_event, fully specified.
     props = FakeAssistant().propose(_propose_ctx("dentist appointment monday"))
-    assert [p.name for p in props] == ["create_event"]
+    assert [p.name for p in props] == ["create_timed_event"]
     ev = props[0]
     assert ev.target_type == "event"
     assert ev.target_id is None

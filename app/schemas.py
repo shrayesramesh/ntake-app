@@ -124,8 +124,9 @@ class CaptureResponse(BaseModel):
 
     ``item`` is the existing work item a capture targeted (with its freshly
     appended human note). For a NEW-item capture it is ``None`` — nothing is saved
-    until the human confirms a ``create_work_item`` / ``create_event`` proposal
-    (propose-only; bare text no longer auto-creates a work item).
+    until the human confirms a ``create_work_item`` / ``create_timed_event`` or
+    ``create_all_day_event`` proposal (propose-only; bare text no longer
+    auto-creates a work item).
 
     ``debug`` is a DEBUGGING-ONLY trace of the live-LLM pipeline (prompts sent,
     raw model replies, resolved ids, deep context). Populated only when the local

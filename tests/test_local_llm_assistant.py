@@ -92,7 +92,15 @@ def test_append_update_targets_the_resolved_work_item():
 
 def test_attaches_event_target_for_an_event_action():
     a = _assistant(
-        [{"name": "reschedule_event", "params": {"start_at": "2026-09-05T19:00:00Z"}}]
+        [
+            {
+                "name": "reschedule_timed_event",
+                "params": {
+                    "start_at": "2026-09-05T19:00:00Z",
+                    "end_at": "2026-09-05T20:00:00Z",
+                },
+            }
+        ]
     )
     out = a.propose(_ctx("move it", event_id=42))
     assert out[0].target_type == "event"
@@ -114,15 +122,15 @@ def test_drops_target_required_actions_without_a_resolved_target():
     assert out[0].target_id is None and out[0].target_type is None
 
 
-def test_create_event_is_a_creator_passing_event_params_through_no_target():
-    # create_event does NOT operate on an existing entity — the event it creates
+def test_create_timed_event_is_a_creator_passing_event_params_through_no_target():
+    # create_timed_event does NOT operate on an existing entity — the event it creates
     # is fully specified by its params (title + a timing one-of), not a target.
     # So the assistant passes the params through and attaches NO target, even
     # when the context has a resolved work item (a creator never auto-attaches).
     a = _assistant(
         [
             {
-                "name": "create_event",
+                "name": "create_timed_event",
                 "params": {
                     "title": "Dentist",
                     "start_at": "2026-09-04T19:00:00Z",
@@ -134,7 +142,7 @@ def test_create_event_is_a_creator_passing_event_params_through_no_target():
     out = a.propose(_ctx("dentist appointment friday", work_item_id=9))
     assert len(out) == 1
     p = out[0]
-    assert p.name == "create_event"
+    assert p.name == "create_timed_event"
     # The event timing params the model supplied flow through unchanged…
     assert p.params == {
         "title": "Dentist",
@@ -146,25 +154,20 @@ def test_create_event_is_a_creator_passing_event_params_through_no_target():
     assert p.target_type is None
 
 
-def test_create_event_timing_contract_is_expressed_in_the_tools_schema():
-    # How the model is TOLD it must supply an event's timing when it picks
-    # create_event: via the action's params one-of in the constrained schema
-    # (not via target_type). Pin that linkage here.
+def test_explicit_event_variants_have_single_timing_shapes_in_tools_schema():
     from app.assistant.actions import REGISTRY
     from app.assistant.local_llm.tools_schema import build_tools_schema
 
-    schema = build_tools_schema(REGISTRY)
-    create_event = next(
-        b
-        for b in schema["properties"]["actions"]["items"]["oneOf"]
-        if b["properties"]["name"]["const"] == "create_event"
-    )
-    params = create_event["properties"]["params"]
-    assert params["required"] == ["title"]
-    assert params["oneOf"] == [
-        {"required": ["title", "start_at", "end_at"]},
-        {"required": ["title", "start_date", "end_date"]},
-    ]
+    branches = build_tools_schema(REGISTRY)["properties"]["actions"]["items"]["oneOf"]
+    by_name = {branch["properties"]["name"]["const"]: branch for branch in branches}
+
+    timed = by_name["create_timed_event"]["properties"]["params"]
+    assert timed["required"] == ["title", "start_at", "end_at"]
+    assert "oneOf" not in timed
+
+    all_day = by_name["create_all_day_event"]["properties"]["params"]
+    assert all_day["required"] == ["title", "start_date"]
+    assert "oneOf" not in all_day
 
 
 def test_builds_prompt_and_schema_and_sends_them_to_the_llm():

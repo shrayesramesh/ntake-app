@@ -124,7 +124,7 @@ not a single ambiguous phrasing.
 The PROPOSE prompt now provides both the UTC instant and the explicit family-local
 clock/date (including weekday), and requires the model to round-trip emitted UTC
 times back to the requested local weekday and clock time. The local-LLM proposal
-parser independently drops `create_event` and `reschedule_event` calls that
+parser independently drops explicit timed/all-day event variants that contradict
 contradict an explicit weekday and/or AM/PM time in the note. It does not silently
 rewrite model output or invent a time for ambiguous prose.
 
@@ -232,39 +232,27 @@ mismatch.
 
 ---
 
-### BUG-006 — timed create_event with only start_at persists no end — open
+### BUG-006 — timed create_event with only start_at persists no end — fixed (test-verified; live retest pending)
 
-**Class:** code / action-contract mismatch  
-**Severity:** medium (proposal is reviewable, but confirmed event duration is
+**Class:** code / action-contract mismatch
+**Severity:** medium (proposal was reviewable, but confirmed event duration was
 underspecified)
 
 **Reproduction**
 
-For `sam meal prep wed 1pm`, PROPOSE emitted:
+For `sam meal prep wed 1pm`, PROPOSE emitted the overloaded `create_event` with
+only `start_at`. Its exclusive timing contract accepted the start anchor, while
+the apply handler persisted `end_at=None`.
 
-```json
-{
-  "name": "create_event",
-  "params": {"title": "Sam meal prep", "start_at": "2026-09-08T13:00:00Z"}
-}
-```
+**Fix (2026-09-04)**
 
-`ActionSpec.accepts()` treats `start_at` as the timed exclusive-group anchor, so
-this proposal is valid. `_apply_create_event` currently persists `end_at=None`
-when it is absent. EventCalendar then falls back to the start, rendering a
-zero-duration/point event.
-
-**Expected**
-
-Choose and enforce one explicit contract:
-
-- require `end_at` for a timed create, or
-- default `end_at` to `start_at` (point event), or
-- default a documented duration suitable for household events.
-
-The contract should match `reschedule_event`, which already defaults a missing
-end to the start, and the verbose proposal card should disclose the resulting
-duration before Confirm.
+The overloaded `create_event` and `reschedule_event` actions were replaced with
+explicit timed/all-day variants. `create_timed_event` and
+`reschedule_timed_event` both require `start_at` **and** `end_at`.
+`create_all_day_event` and `reschedule_all_day_event` require `start_date` and
+default an omitted `end_date` to the start date. No current ntake action uses
+per-action `exclusive_params`; the generic engine support remains available for
+future consumers.
 
 ---
 

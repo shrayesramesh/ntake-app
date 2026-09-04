@@ -5,12 +5,12 @@ keyword rules that can drive every v1 action and combination. These tests pin
 the trigger vocabulary as its contract (see the fake's module docstring):
 
   New-item capture (no target):
-    • event word (appointment/event/meeting/visit) + weekday → create_event ONLY
+    • event word (appointment/event/meeting/visit) + weekday → create_timed_event ONLY
     • event word WITHOUT a weekday                            → work item only
     • anything else                                          → work item only
   Existing-item capture (real target):
     • weekday                    → set_due_date
-    • + event word               → also a linked create_event
+    • + event word               → also a linked create_timed_event
     • done word                  → complete_work_item
     • none of the above          → no_action
 
@@ -86,7 +86,7 @@ def test_every_proposal_fully_defines_its_operation():
 
 def test_new_event_word_with_weekday_proposes_event_only():
     props = FakeAssistant().propose(_ctx("dentist appointment friday"))
-    assert _names(props) == ["create_event"]
+    assert _names(props) == ["create_timed_event"]
     ev = props[0]
     assert ev.target_type == "event"
     assert ev.target_id is None  # standalone but fully specified (has title+time)
@@ -131,8 +131,8 @@ def test_existing_weekday_proposes_due_date():
 def test_existing_event_word_plus_weekday_also_links_event():
     props = FakeAssistant().propose(_ctx("dentist appointment friday", target_id=7))
     names = _names(props)
-    assert "set_due_date" in names and "create_event" in names
-    ev = next(p for p in props if p.name == "create_event")
+    assert "set_due_date" in names and "create_timed_event" in names
+    ev = next(p for p in props if p.name == "create_timed_event")
     assert ev.target_id == 7 and ev.target_type == "work_item"  # linked + logged
 
 
@@ -151,7 +151,7 @@ def test_existing_untriggered_text_proposes_no_action():
 
 def test_resolved_event_reschedule_word_plus_weekday_proposes_reschedule():
     props = FakeAssistant().propose(_ctx("reschedule dentist to friday", event_id=8))
-    resch = next(p for p in props if p.name == "reschedule_event")
+    resch = next(p for p in props if p.name == "reschedule_timed_event")
     assert resch.target_id == 8 and resch.target_type == "event"
     # Fully specified: a timed pair to move to (weekday 3–4pm local).
     assert resch.params["start_at"] and resch.params["end_at"]
@@ -159,20 +159,20 @@ def test_resolved_event_reschedule_word_plus_weekday_proposes_reschedule():
 
 def test_resolved_event_move_word_also_triggers_reschedule():
     props = FakeAssistant().propose(_ctx("move soccer to monday", event_id=5))
-    resch = next(p for p in props if p.name == "reschedule_event")
+    resch = next(p for p in props if p.name == "reschedule_timed_event")
     assert resch.target_id == 5 and resch.target_type == "event"
 
 
 def test_reschedule_word_without_a_weekday_does_not_propose_reschedule():
     # No weekday → no target time → nothing to reschedule to.
     props = FakeAssistant().propose(_ctx("move the dentist thing", event_id=8))
-    assert "reschedule_event" not in _names(props)
+    assert "reschedule_timed_event" not in _names(props)
 
 
 def test_reschedule_word_without_a_resolved_event_does_not_propose_reschedule():
     # No event resolved → nothing to reschedule (a new capture, no target event).
     props = FakeAssistant().propose(_ctx("reschedule something to friday"))
-    assert "reschedule_event" not in _names(props)
+    assert "reschedule_timed_event" not in _names(props)
 
 
 # --- contract: read-only + rationale --------------------------------------

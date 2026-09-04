@@ -183,20 +183,11 @@ def _apply_append_update(ctx: NtakeActionContext, params: dict) -> str:
     return "Appended work-item update"
 
 
-def _apply_reschedule_event(ctx: NtakeActionContext, params: dict) -> str:
-    """Move an existing event to new timing (modify-existing; event-only).
-
-    Updates ONLY the timing fields, keyed by which timing pair was supplied
-    (timed ``start_at``/``end_at`` OR all-day ``start_date``/``end_date``).
-    Event-only: appends NO work-item update.
-    """
+def _reschedule_event(ctx: NtakeActionContext, params: dict, *, all_day: bool) -> str:
+    """Apply one explicit timing shape to an existing event."""
     ev = _load_event(ctx.session, ctx.target_id)
-    if params.get("start_at"):
-        ev.all_day = False
-        ev.start_at = _parse_dt(params["start_at"])
-        ev.end_at = _parse_dt(params["end_at"]) if params.get("end_at") else ev.start_at
-        ev.start_date = ev.end_date = None
-    elif params.get("start_date"):
+    if all_day:
+        require_params(params, ["start_date"])
         ev.all_day = True
         ev.start_date = date.fromisoformat(params["start_date"])
         ev.end_date = (
@@ -206,9 +197,21 @@ def _apply_reschedule_event(ctx: NtakeActionContext, params: dict) -> str:
         )
         ev.start_at = ev.end_at = None
     else:
-        raise ActionError("reschedule_event requires a timed or all-day timing pair")
+        require_params(params, ["start_at", "end_at"])
+        ev.all_day = False
+        ev.start_at = _parse_dt(params["start_at"])
+        ev.end_at = _parse_dt(params["end_at"])
+        ev.start_date = ev.end_date = None
     ev.updated_at = datetime.now(UTC)
     return f"Rescheduled event “{ev.title}”"
+
+
+def _apply_reschedule_timed_event(ctx: NtakeActionContext, params: dict) -> str:
+    return _reschedule_event(ctx, params, all_day=False)
+
+
+def _apply_reschedule_all_day_event(ctx: NtakeActionContext, params: dict) -> str:
+    return _reschedule_event(ctx, params, all_day=True)
 
 
 def _apply_archive_work_item(ctx: NtakeActionContext, params: dict) -> str:
@@ -259,68 +262,54 @@ def _apply_add_checklist_items(ctx: NtakeActionContext, params: dict) -> str:
     return note
 
 
-def _apply_create_event(ctx: NtakeActionContext, params: dict) -> str:
-    """Create an event — standalone OR driven by a work item (task 12).
-
-    * **From a work item** (``target_type == "work_item"`` and a ``target_id``):
-      append the driving ``source=assistant`` update, then link the event back to
-      it via ``source_update_id`` (EVENT-7). This is the labor-log path.
-    * **Standalone** (no work-item target): just insert the event. Events aren't
-      part of the labor log, so NO work_item_update is appended (WORKITEM-3).
-    """
+def _create_event(ctx: NtakeActionContext, params: dict, *, all_day: bool) -> str:
+    """Create one explicit timing shape, standalone or from a work item."""
     require_params(params, ["title"])
-    # Timing is required: exactly the propose-side contract (accepts() demands one
-    # exclusive group). Enforce it here too so the confirm path can't persist a
-    # timing-less event (all_day would be False + start_at None → a junk row).
-    if not params.get("start_at") and not params.get("start_date"):
-        raise ActionError(
-            "create_event requires a timed (start_at) or all-day (start_date) timing"
-        )
-    now = datetime.now(UTC)
+    if all_day:
+        require_params(params, ["start_date"])
+    else:
+        require_params(params, ["start_at", "end_at"])
 
+    now = datetime.now(UTC)
     source_update_id = None
     family_id = ctx.member.family_id
     if ctx.target_type == "work_item" and ctx.target_id is not None:
         wi = _load_item(ctx.session, ctx.target_id)
         family_id = wi.family_id
-        upd = _append_assistant_update(
+        update = _append_assistant_update(
             ctx.session, ctx.member, wi.id, f"Created calendar event: {params['title']}"
         )
-        source_update_id = upd.id
+        source_update_id = update.id
 
-    all_day = bool(params.get("start_date"))
-    ev = Event(
+    event = Event(
         family_id=family_id,
         title=params["title"],
         description=params.get("description"),
         location=params.get("location"),
         all_day=all_day,
-        start_at=_parse_dt(params["start_at"]) if params.get("start_at") else None,
-        end_at=_parse_dt(params["end_at"]) if params.get("end_at") else None,
-        # All-day date fields — mirror the timed pair above. Without these an
-        # all-day event would persist with all_day=True but start_date=None
-        # (renders "all-day · ?"); default end_date to start_date (single day).
-        start_date=(
-            date.fromisoformat(params["start_date"])
-            if params.get("start_date")
-            else None
-        ),
+        start_at=_parse_dt(params["start_at"]) if not all_day else None,
+        end_at=_parse_dt(params["end_at"]) if not all_day else None,
+        start_date=(date.fromisoformat(params["start_date"]) if all_day else None),
         end_date=(
             date.fromisoformat(params["end_date"])
-            if params.get("end_date")
-            else (
-                date.fromisoformat(params["start_date"])
-                if params.get("start_date")
-                else None
-            )
+            if all_day and params.get("end_date")
+            else (date.fromisoformat(params["start_date"]) if all_day else None)
         ),
         participants=params.get("participants") or [],
         source_update_id=source_update_id,
         created_at=now,
         updated_at=now,
     )
-    ctx.session.add(ev)
+    ctx.session.add(event)
     return f"Created event: {params['title']}"
+
+
+def _apply_create_timed_event(ctx: NtakeActionContext, params: dict) -> str:
+    return _create_event(ctx, params, all_day=False)
+
+
+def _apply_create_all_day_event(ctx: NtakeActionContext, params: dict) -> str:
+    return _create_event(ctx, params, all_day=True)
 
 
 def _apply_create_work_item(ctx: NtakeActionContext, params: dict) -> str:
@@ -642,42 +631,61 @@ _ACTION_SPECS: dict[str, ActionSpec[NtakeActionContext]] = {
         describe=_describe_add_checklist_items,
         render_card=_render_add_checklist_items,
     ),
-    "create_event": ActionSpec(
-        name="create_event",
-        description="Create a calendar event (timed OR all-day).",
+    "create_timed_event": ActionSpec(
+        name="create_timed_event",
+        description="Create a timed calendar event.",
         params=[
             Param("title", DataType.STRING, required=True),
+            Param("start_at", DataType.DATETIME, required=True),
+            Param("end_at", DataType.DATETIME, required=True),
             Param("description", DataType.STRING),
             Param("location", DataType.STRING),
-            Param("start_at", DataType.DATETIME),
-            Param("end_at", DataType.DATETIME),
-            Param("start_date", DataType.DATE),
-            Param("end_date", DataType.DATE),
             Param("participants", DataType.OBJECT),
         ],
-        exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
-        # A creator: targets nothing by default. (Confirm may still attach a
-        # work_item target for a create-from-item, set on the proposal/payload —
-        # not a spec default.)
         target_type=None,
-        apply=_apply_create_event,
+        apply=_apply_create_timed_event,
         describe=_describe_create_event,
         render_card=_render_create_event,
     ),
-    "reschedule_event": ActionSpec(
-        name="reschedule_event",
-        description="Move an existing event to new timing (timed OR all-day).",
+    "create_all_day_event": ActionSpec(
+        name="create_all_day_event",
+        description="Create an all-day calendar event.",
         params=[
-            Param("start_at", DataType.DATETIME),
-            Param("end_at", DataType.DATETIME),
-            Param("start_date", DataType.DATE),
+            Param("title", DataType.STRING, required=True),
+            Param("start_date", DataType.DATE, required=True),
             Param("end_date", DataType.DATE),
+            Param("description", DataType.STRING),
+            Param("location", DataType.STRING),
+            Param("participants", DataType.OBJECT),
         ],
-        exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
-        # Targets an existing event; event-only so it appends NO work-item update.
+        target_type=None,
+        apply=_apply_create_all_day_event,
+        describe=_describe_create_event,
+        render_card=_render_create_event,
+    ),
+    "reschedule_timed_event": ActionSpec(
+        name="reschedule_timed_event",
+        description="Move an existing event to a timed range.",
+        params=[
+            Param("start_at", DataType.DATETIME, required=True),
+            Param("end_at", DataType.DATETIME, required=True),
+        ],
         target_type=TargetType.EVENT,
         logs=False,
-        apply=_apply_reschedule_event,
+        apply=_apply_reschedule_timed_event,
+        describe=_describe_reschedule_event,
+        render_card=_render_reschedule,
+    ),
+    "reschedule_all_day_event": ActionSpec(
+        name="reschedule_all_day_event",
+        description="Move an existing event to all-day date(s).",
+        params=[
+            Param("start_date", DataType.DATE, required=True),
+            Param("end_date", DataType.DATE),
+        ],
+        target_type=TargetType.EVENT,
+        logs=False,
+        apply=_apply_reschedule_all_day_event,
         describe=_describe_reschedule_event,
         render_card=_render_reschedule,
     ),
@@ -744,8 +752,10 @@ WORK_ITEM_ACTIONS = {
 EVENT_ACTIONS = {
     name: _ACTION_SPECS[name]
     for name in (
-        "create_event",
-        "reschedule_event",
+        "create_timed_event",
+        "create_all_day_event",
+        "reschedule_timed_event",
+        "reschedule_all_day_event",
         "delete_event",
         "deconflict_events",
     )

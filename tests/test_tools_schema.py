@@ -161,18 +161,6 @@ def test_full_schema_snapshot_over_the_real_registry():
     arr_s = {"type": "array", "items": {"type": "string"}}
 
     empty_params = obj({})
-    # create_event has a required `title`, so each exclusive group is required in
-    # addition to it; reschedule_event has no required params, so its groups stand
-    # alone.
-    create_event_oneof = [
-        {"required": ["title", "start_at", "end_at"]},
-        {"required": ["title", "start_date", "end_date"]},
-    ]
-    reschedule_oneof = [
-        {"required": ["start_at", "end_at"]},
-        {"required": ["start_date", "end_date"]},
-    ]
-
     expected = {
         "type": "object",
         "additionalProperties": False,
@@ -220,32 +208,45 @@ def test_full_schema_snapshot_over_the_real_registry():
                             ),
                         ),
                         action(
-                            "create_event",
+                            "create_timed_event",
                             obj(
                                 {
                                     "title": s,
-                                    "description": s,
-                                    "location": s,
                                     "start_at": dt,
                                     "end_at": dt,
-                                    "start_date": d,
-                                    "end_date": d,
+                                    "description": s,
+                                    "location": s,
                                     "participants": {"type": "object"},
                                 },
-                                required=["title"],
-                                one_of=create_event_oneof,
+                                required=["title", "start_at", "end_at"],
                             ),
                         ),
                         action(
-                            "reschedule_event",
+                            "create_all_day_event",
                             obj(
                                 {
-                                    "start_at": dt,
-                                    "end_at": dt,
+                                    "title": s,
                                     "start_date": d,
                                     "end_date": d,
+                                    "description": s,
+                                    "location": s,
+                                    "participants": {"type": "object"},
                                 },
-                                one_of=reschedule_oneof,
+                                required=["title", "start_date"],
+                            ),
+                        ),
+                        action(
+                            "reschedule_timed_event",
+                            obj(
+                                {"start_at": dt, "end_at": dt},
+                                required=["start_at", "end_at"],
+                            ),
+                        ),
+                        action(
+                            "reschedule_all_day_event",
+                            obj(
+                                {"start_date": d, "end_date": d},
+                                required=["start_date"],
                             ),
                         ),
                         action("delete_event", empty_params),

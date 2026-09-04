@@ -22,7 +22,8 @@ NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 def test_registry_has_v1_actions():
     assert set(ACTIONS) == {
         "set_due_date",
-        "create_event",
+        "create_timed_event",
+        "create_all_day_event",
         "complete_work_item",
         "start_work_item",
         "move_to_on_deck",
@@ -33,7 +34,8 @@ def test_registry_has_v1_actions():
         "add_checklist_items",
         "create_work_item",
         "append_update",
-        "reschedule_event",
+        "reschedule_timed_event",
+        "reschedule_all_day_event",
         "no_action",
         "deconflict_events",
         "delete_event",
@@ -76,11 +78,12 @@ def test_all_actions_are_wellformed():
     assert ACTIONS["create_work_item"].needs_target is False
     assert ACTIONS["no_action"].needs_target is False
     # Non-logging actions: no_action (meta) and event-only actions (no work item
-    # to log against, e.g. deconflict_events / reschedule_event).
+    # to log against, e.g. deconflict_events / reschedule_timed_event).
     assert {n for n, s in ACTIONS.items() if not s.logs} == {
         "no_action",
         "deconflict_events",
-        "reschedule_event",
+        "reschedule_timed_event",
+        "reschedule_all_day_event",
         "delete_event",
     }
 
@@ -91,8 +94,8 @@ def test_describe_set_due_date_uses_param():
     assert "due" in text.lower()
 
 
-def test_describe_create_event_uses_title():
-    text = ACTIONS["create_event"].describe(
+def test_describe_create_timed_event_uses_title():
+    text = ACTIONS["create_timed_event"].describe(
         {"title": "Plumber visit", "start_at": "2026-09-05T19:00:00+00:00"}
     )
     assert "Plumber visit" in text
@@ -121,10 +124,10 @@ def test_describe_is_deterministic():
     assert a == b
 
 
-def test_describe_create_event_title_only():
+def test_describe_create_timed_event_title_only():
     # Title but no timing yet: still a meaningful, deterministic summary with no
     # dangling "at <when>" clause.
-    text = ACTIONS["create_event"].describe({"title": "Plumber visit"})
+    text = ACTIONS["create_timed_event"].describe({"title": "Plumber visit"})
     assert "Plumber visit" in text
     assert " at " not in text
 
@@ -209,7 +212,7 @@ def test_reopen_work_item_clears_completed_at(session, fam_member_item):
     assert got.completed_at is None
 
 
-def test_create_event_inserts_and_links_source_update(session, fam_member_item):
+def test_create_timed_event_inserts_and_links_source_update(session, fam_member_item):
     fam, m, wi = fam_member_item
     start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)
     end = datetime(2026, 9, 5, 20, 0, tzinfo=UTC)
@@ -217,7 +220,7 @@ def test_create_event_inserts_and_links_source_update(session, fam_member_item):
     apply_action(
         session,
         m,
-        "create_event",
+        "create_timed_event",
         wi.id,
         {
             "title": "Plumber visit",
@@ -392,7 +395,7 @@ def test_assign_work_item_rejects_unknown_member(session, fam_member_item):
         apply_action(session, m, "assign_work_item", wi.id, {"member_id": 9999})
 
 
-def test_reschedule_event_updates_timing_only(session, fam_member_item):
+def test_reschedule_timed_event_updates_timing_only(session, fam_member_item):
     fam, m, wi = fam_member_item
     ev = Event(
         family_id=fam.id,
@@ -409,7 +412,7 @@ def test_reschedule_event_updates_timing_only(session, fam_member_item):
     apply_action(
         session,
         m,
-        "reschedule_event",
+        "reschedule_timed_event",
         ev.id,
         {"start_at": new_start.isoformat(), "end_at": new_start.isoformat()},
         target_type="event",
@@ -475,13 +478,13 @@ def test_add_checklist_items_requires_nonempty_list(session, fam_member_item):
         apply_action(session, m, "add_checklist_items", wi.id, {"items": []})
 
 
-def test_create_event_writes_participants(session, fam_member):
+def test_create_timed_event_writes_participants(session, fam_member):
     fam, m = fam_member
     start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC).isoformat()
     apply_action(
         session,
         m,
-        "create_event",
+        "create_timed_event",
         None,
         {
             "title": "Soccer",
@@ -496,25 +499,29 @@ def test_create_event_writes_participants(session, fam_member):
     assert ev.participants == [{"member_id": m.id}, {"name": "Coach Lee"}]
 
 
-def test_create_event_requires_a_timing(session, fam_member):
-    """create_event with neither a timed (start_at) nor all-day (start_date)
+def test_create_timed_event_requires_a_timing(session, fam_member):
+    """create_timed_event with neither a timed (start_at) nor all-day (start_date)
     timing is rejected — the confirm path can't persist a timing-less junk row
     (mirrors the propose-side accepts() contract)."""
     _fam, m = fam_member
     with pytest.raises(ActionError):
         apply_action(
-            session, m, "create_event", None, {"title": "No when"}, target_type="event"
+            session,
+            m,
+            "create_timed_event",
+            None,
+            {"title": "No when"},
+            target_type="event",
         )
 
 
-def test_create_event_all_day_persists_dates(session, fam_member):
-    """An all-day create_event must persist start_date/end_date (not leave them
-    None with all_day=True — the "all-day · ?" bug). end_date defaults to start."""
+def test_create_all_day_event_persists_dates(session, fam_member):
+    """An all-day create must persist dates and default end_date to start_date."""
     fam, m = fam_member
     apply_action(
         session,
         m,
-        "create_event",
+        "create_all_day_event",
         None,
         {"title": "Family Day", "start_date": "2026-09-12"},
         target_type="event",
@@ -584,7 +591,7 @@ def test_render_card_set_due_date_shows_the_date():
 
 def test_render_card_reschedule_shows_new_timing_and_target():
     lines = _card(
-        "reschedule_event",
+        "reschedule_timed_event",
         {"start_at": "2026-09-10T14:00:00Z"},
         {"target_label": "Dentist"},
     )
@@ -593,9 +600,9 @@ def test_render_card_reschedule_shows_new_timing_and_target():
     assert "Dentist" in text  # the target label (already-resolved) is used
 
 
-def test_render_card_create_event_shows_title_and_when():
+def test_render_card_create_timed_event_shows_title_and_when():
     lines = _card(
-        "create_event",
+        "create_timed_event",
         {"title": "Soccer", "start_at": "2026-09-10T14:00:00Z"},
     )
     text = " ".join(lines)
@@ -623,8 +630,8 @@ def test_render_card_tolerates_empty_params():
     for name in (
         "assign_work_item",
         "set_due_date",
-        "reschedule_event",
-        "create_event",
+        "reschedule_timed_event",
+        "create_timed_event",
         "create_work_item",
         "append_update",
         "add_checklist_items",

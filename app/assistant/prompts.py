@@ -101,8 +101,9 @@ Rules:
   propose a work-item modifier without that existing target. `create_work_item`
   needs only a title; include optional `checklist_items` only when the note
   supplies concrete entries.
-  Similarly, use an event modifier only for an existing resolved event; use
-  `create_event` for a new event.
+  Similarly, use an event modifier only for an existing resolved event. Use
+  `create_timed_event` when the note supplies times, or `create_all_day_event`
+  for an all-day date range.
 - Calendar frame: the family timezone is {timezone}; its current local date and
   time is {local_now} ({local_weekday}). A bare weekday means its next occurrence
   after the current local date.

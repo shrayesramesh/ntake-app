@@ -113,14 +113,12 @@ def test_keeps_call_with_required_param_present():
     assert [p.name for p in out] == ["set_due_date"]
 
 
-def test_drops_call_supplying_no_exclusive_group():
-    # create_event must supply exactly one timing group; title-only is incomplete.
-    a = _assistant([{"name": "create_event", "params": {"title": "Dentist"}}])
+def test_drops_timed_action_missing_a_required_time():
+    a = _assistant([{"name": "create_timed_event", "params": {"title": "Dentist"}}])
     assert a.propose(_ctx()) == []
 
 
-def test_drops_call_supplying_both_exclusive_groups():
-    # Both a timed pair AND an all-day pair violates the exactly-one rule.
+def test_drops_removed_overloaded_event_action():
     a = _assistant(
         [
             {
@@ -138,11 +136,11 @@ def test_drops_call_supplying_both_exclusive_groups():
     assert a.propose(_ctx()) == []
 
 
-def test_keeps_call_supplying_exactly_one_exclusive_group():
+def test_keeps_explicit_timed_action_with_complete_pair():
     a = _assistant(
         [
             {
-                "name": "create_event",
+                "name": "create_timed_event",
                 "params": {
                     "title": "Dentist",
                     "start_at": "2026-09-05T19:00:00Z",
@@ -152,7 +150,7 @@ def test_keeps_call_supplying_exactly_one_exclusive_group():
         ]
     )
     out = a.propose(_ctx())
-    assert [p.name for p in out] == ["create_event"]
+    assert [p.name for p in out] == ["create_timed_event"]
 
 
 def test_a_valid_call_survives_alongside_an_invalid_one():
@@ -182,7 +180,7 @@ def test_drops_event_with_wrong_explicit_weekday_or_local_time():
     a = _assistant(
         [
             {
-                "name": "create_event",
+                "name": "create_timed_event",
                 "params": {
                     "title": "Soccer game",
                     "start_at": "2026-09-07T17:00:00Z",
@@ -199,7 +197,7 @@ def test_keeps_event_matching_explicit_weekday_and_local_time():
     a = _assistant(
         [
             {
-                "name": "create_event",
+                "name": "create_timed_event",
                 "params": {
                     "title": "Soccer game",
                     "start_at": "2026-09-09T21:00:00Z",
@@ -211,14 +209,14 @@ def test_keeps_event_matching_explicit_weekday_and_local_time():
 
     out = a.propose(_friday_ctx("soccer game Wednesday 5-6 PM"))
 
-    assert [proposal.name for proposal in out] == ["create_event"]
+    assert [proposal.name for proposal in out] == ["create_timed_event"]
 
 
 def test_drops_event_with_wrong_explicit_single_clock_time():
     a = _assistant(
         [
             {
-                "name": "create_event",
+                "name": "create_timed_event",
                 "params": {
                     "title": "Sam meal prep",
                     "start_at": "2026-09-08T13:00:00Z",

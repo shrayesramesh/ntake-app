@@ -34,7 +34,14 @@ from app.assistant.tools_view import build_tools_view
 from app.models import TargetType
 from app.routing.engine import ActionRegistry, AssistantClient
 
-_EVENT_TIMING_ACTIONS = frozenset({"create_event", "reschedule_event"})
+_EVENT_TIMING_ACTIONS = frozenset(
+    {
+        "create_timed_event",
+        "create_all_day_event",
+        "reschedule_timed_event",
+        "reschedule_all_day_event",
+    }
+)
 _WEEKDAY_NUMBERS = {
     "monday": 0,
     "mon": 0,

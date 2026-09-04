@@ -96,13 +96,13 @@ def test_capture_returns_item_null_for_untriggered_text(client, auth_headers):
 def test_capture_proposals_carry_two_summaries(client, auth_headers):
     """Each proposal has a registry-derived action_summary (ground truth) AND an
     llm_rationale (model narration) — the task-8 split. Uses an event-word new
-    capture, which proposes a fully-defined create_event."""
+    capture, which proposes a fully-defined create_timed_event."""
     body = client.post(
         "/capture",
         json={"text": "dentist appointment friday"},
         headers=auth_headers,
     ).json()
-    ev = next(p for p in body["proposals"] if p["name"] == "create_event")
+    ev = next(p for p in body["proposals"] if p["name"] == "create_timed_event")
     assert "event" in ev["action_summary"].lower()
     assert ev["params"]["title"] in ev["action_summary"]
     assert ev["llm_rationale"]
@@ -118,7 +118,7 @@ def test_capture_action_summary_is_registry_truth_not_model(client, auth_headers
         json={"text": "dentist appointment thursday"},
         headers=auth_headers,
     ).json()
-    ev = next(p for p in body["proposals"] if p["name"] == "create_event")
+    ev = next(p for p in body["proposals"] if p["name"] == "create_timed_event")
     assert "event" in ev["action_summary"].lower()
     assert ev["params"]["title"] in ev["action_summary"]
 
@@ -206,7 +206,7 @@ def test_to_proposal_read_resolves_target_label_from_labels_map():
     from app.routing.engine import ProposedAction
 
     action = ProposedAction(
-        name="reschedule_event",
+        name="reschedule_timed_event",
         params={"start_at": "2026-09-10T14:00:00Z"},
         target_id=1,
         target_type="event",

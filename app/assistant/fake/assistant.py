@@ -19,7 +19,7 @@ Event creation and a project's event/due-date REQUIRE a weekday.
 
 New-item capture (no existing target) — self-contained proposals only:
   • **event word** (appointment/event/meeting/visit) **+ weekday**
-        → ``create_event`` ONLY (standalone, timed). No work item.
+        → ``create_timed_event`` ONLY (standalone, timed). No work item.
   • anything else
         → ``create_work_item`` only.
   (An event word WITHOUT a weekday yields just ``create_work_item`` — there's no
@@ -27,17 +27,17 @@ New-item capture (no existing target) — self-contained proposals only:
 
 Existing-item capture (real target_id) — item-targeting actions are valid:
   • **weekday** → ``set_due_date`` on the item.
-  • **event word + weekday** → also a linked ``create_event``.
+  • **event word + weekday** → also a linked ``create_timed_event``.
   • **done word** (done/finished/complete/completed) → ``complete_work_item``.
   • none of the above → ``no_action``.
 
 Resolved-event capture (the note linked an existing event):
-  • **reschedule/move word + weekday** → ``reschedule_event`` on that event
+  • **reschedule/move word + weekday** → ``reschedule_timed_event`` on that event
         (moved to the weekday, 3–4pm local). Needs a weekday for the target time.
 
 Examples
 --------
-  "dentist appointment friday"     → create_event only (timed)
+  "dentist appointment friday"     → create_timed_event only (timed)
   "buy milk"                       → create_work_item only
   "team meeting"      (no weekday)  → create_work_item only
   "he is coming friday" (on item)  → set_due_date
@@ -121,7 +121,7 @@ class FakeAssistant(AssistantClient[FocusedContext]):
         if not any(w in text for w in _RESCHEDULE_WORDS):
             return None
         return ProposedAction(
-            name="reschedule_event",
+            name="reschedule_timed_event",
             params={
                 "start_at": _next_weekday(ctx, weekday, hour=15),
                 "end_at": _next_weekday(ctx, weekday, hour=16),
@@ -197,11 +197,11 @@ class FakeAssistant(AssistantClient[FocusedContext]):
     def _event(
         self, ctx: FocusedContext, weekday: int, *, target_id, target_type: str
     ) -> ProposedAction:
-        """A fully-specified create_event (timed from the weekday, 3–4pm local)."""
+        """A fully specified timed event from the weekday at 3–4 PM local."""
         start = _next_weekday(ctx, weekday, hour=15)
         end = _next_weekday(ctx, weekday, hour=16)
         return ProposedAction(
-            name="create_event",
+            name="create_timed_event",
             params={"title": ctx.text, "start_at": start, "end_at": end},
             llm_rationale="Looks like a scheduled event.",
             target_id=target_id,

@@ -159,8 +159,8 @@ def _event_when(ev: Event) -> str:
         end = ev.end_date.isoformat()
         span = start if end == start else f"{start} – {end}"
         return f"all-day · {span}"
-    # A timed event always has start_at (create_event/reschedule/seed all require
-    # a timing; create_event now rejects a timing-less confirm too). Assert the
+    # A timed event always has start_at (create_timed_event,
+    # reschedule_timed_event, and seeding all require a timing). Assert the
     # invariant rather than carry an unreachable fallback.
     assert ev.start_at is not None
     # Minute precision is enough for a card; drop seconds/microseconds.
