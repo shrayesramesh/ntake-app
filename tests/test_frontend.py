@@ -33,6 +33,17 @@ def test_index_serves_shell_without_auth(client):
     assert "localStorage" in body
 
 
+def test_shell_resyncs_board_and_calendar_on_sse_open(client):
+    """DISP-2/5: on SSE (re)connect the display must re-sync, so a change that
+    happened during a disconnect isn't missed. The shell wires an EventSource
+    'open' handler that reloads both views."""
+    body = client.get("/").text
+    assert "addEventListener('open'" in body
+    # The open handler re-fetches both surfaces (belt-and-suspenders over the
+    # per-'change' reloads, which don't fire for changes missed while offline).
+    assert "es.addEventListener('open'" in body
+
+
 def test_board_view_requires_auth(client):
     assert client.get("/board/view").status_code == 401
 

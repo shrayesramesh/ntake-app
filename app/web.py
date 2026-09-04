@@ -279,6 +279,13 @@ SHELL_PAGE = """<!doctype html>
       const t = getToken(); if (!t) return;
       if (es) es.close();
       es = new EventSource('/events/stream?token=' + encodeURIComponent(t));
+      // On (re)connect, re-sync both surfaces. EventSource auto-reconnects after
+      // a drop (sleep/wake, network blip); a 'change' that happened WHILE we were
+      // disconnected is never delivered, so without this the display would stay
+      // stale until the next change. Re-fetching on 'open' closes that gap
+      // (DISP-2/5: stays correct across sleep/wake for days).
+      es.addEventListener('open', reloadBoard);
+      es.addEventListener('open', reloadCalendar);
       es.addEventListener('change', reloadBoard);
       es.addEventListener('change', reloadCalendar);
     }
