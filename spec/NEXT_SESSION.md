@@ -1,5 +1,12 @@
 # Next session — Ollama (task 7), the last Phase-4 item
 
+> **Two tracks available next.** (a) **A2 reshape** — a written, ready-to-run plan
+> to reshape `FocusedContext` + wire the fake onto the real `link → deep_fetch →
+> propose` pipeline + retire `EventSummary`: see
+> **`spec/WORKPLAN-A2-focus-reshape.md`** (do this to make the fake exercise the
+> real two-call shape deterministically before Ollama). (b) **Ollama task 7** —
+> the live-model plumbing below. A2 is the natural pre-req; either can go first.
+>
 > Handoff for resuming Phase 4. The **fake-first assistant is complete** and both
 > capture stages sit behind swappable, config-selected seams. Both **prompt views
 > are built** (`build_world_view`, `build_tools_view`) and the toolset is a rich
