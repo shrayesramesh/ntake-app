@@ -62,7 +62,7 @@ app/assistant/local_llm/
 ├── assistant.py  # LocalLlmAssistant[FocusedContext] (stage 2): build prompt+schema,
 │                 #   call the LLM, parse -> [ProposedAction] [DONE]
 ├── resolver.py   # LocalLlmCaptureResolver (stage 1): build_world_view + note
-│                 #   -> LINK ids -> deep_context -> FocusedContext
+│                 #   -> LINK ids -> deep_context -> FocusedContext [DONE]
 ├── prompt.py     # (or reuse app/assistant/prompts.py — already built)
 └── infra.py      # host mgmt: health check + a warm ping (see Track B)
 ```
@@ -141,9 +141,15 @@ Each step is its own sub-checkpoint; run `make check` and paste output.
    both assistants read the spec instead of a local set. Engine default is `None`
    (safe/inert); `create_event` is now a `None`-target creator — the confirm path
    still attaches a work_item target for create-from-item via the payload.)*
-5. **link — call 1 (`resolver.py`, `LocalLlmCaptureResolver`).**
-   `build_world_view` + note → LINK call → `parse_ids` (exists) → `deep_context`
-   (exists) → `FocusedContext`. Test with `ScriptedLLM`.
+5. **link — call 1 (`resolver.py`, `LocalLlmCaptureResolver`). DONE.**
+   `build_world_view` + note → `build_link_prompt` → LINK call (fixed
+   `_LINK_SCHEMA`, `{work_item_ids, event_ids}`) → `parse_ids` → **`resolve_ids`**
+   (family whitelist — validate-don't-trust: drops hallucinated/foreign ids
+   BEFORE they reach the context, since resolved ids become attachable targets)
+   → `deep_context` → `FocusedContext`. Tested with `ScriptedLLM` + DB fixtures.
+   *(Added `resolve_ids` to `deep_context.py` — the id-whitelist counterpart to
+   the render whitelist; the fake path was safe already since `fake_link` only
+   returns real family ids.)*
 6. **Parsing / graceful-degrade hardening.** Malformed JSON, invalid/unknown tool
    name, missing required params, wrong types, empty/timeout → **degrade to `[]`**,
    never raise into the request path. The engine's `propose_bounded` already bounds
@@ -153,6 +159,17 @@ Each step is its own sub-checkpoint; run `make check` and paste output.
    (`get_assistant`, `get_capture_resolver`) at the real classes for
    `NTAKE_ASSISTANT=local` (they fall back to fake today). Plumb the config knobs
    below, incl. the larger timeout + warm behavior.
+
+**Planned follow-up (after 5–7, once the shape has settled): reorganize the
+local_llm package to mirror the data flow.** The pipeline is an alternating
+`build → call → parse` rhythm, twice, then act. Today the halves are scattered
+across `prompts.py`, `tools_schema.py`, `world_view.py`, `deep_context.py`, and
+inline parse logic in `resolver.py`/`assistant.py`. Pair each call's build + parse
+into one stage unit — e.g. a `link` unit owning `build_link_prompt` + `_LINK_SCHEMA`
++ `parse_ids`, a `propose` unit owning `build_propose_prompt` + `build_tools_schema`
++ `parse_actions` — so the code reads as
+`build_link → parse_link → build_propose → parse_propose → act`. Deferred to avoid
+reorganizing twice while steps 5–7 are still landing.
 
 **Config:** `NTAKE_ASSISTANT=local`, `NTAKE_ASSISTANT_MODEL` (default
 `llama3.1:8b`), `NTAKE_LOCAL_LLM_URL` (default `http://localhost:8080` for

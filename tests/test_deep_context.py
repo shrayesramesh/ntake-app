@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.assistant.deep_context import deep_context, parse_ids
+from app.assistant.deep_context import deep_context, parse_ids, resolve_ids
 from app.models import Event, WorkItem, WorkItemUpdate
 
 NOW = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)
@@ -186,3 +186,33 @@ def test_deep_context_empty_when_nothing_linked_or_assigned(session, fam_member)
     out = deep_context(session, m, [], [])
     # still a string with the member header, just no items/events sections filled.
     assert isinstance(out, str) and m.display_name in out
+
+
+# --- resolve_ids: whitelist untrusted linked ids to the family ------------
+
+
+def test_resolve_ids_keeps_only_family_ids_preserving_order(session, fam_member):
+    fam, m = fam_member
+    a = _wi(session, fam.id, "a")
+    b = _wi(session, fam.id, "b")
+    ev = _event(session, fam.id, "party")
+
+    from app.models import Family
+
+    other = Family(name="Other", timezone="UTC")
+    session.add(other)
+    session.commit()
+    foreign = _wi(session, other.id, "foreign")
+
+    # Model returned two valid ids (out of order), a foreign id, and an unknown
+    # id; only the family's survive, in the given order.
+    wi_ids, ev_ids = resolve_ids(
+        session, m, [b.id, 9999, foreign.id, a.id], [ev.id, 8888]
+    )
+    assert wi_ids == [b.id, a.id]
+    assert ev_ids == [ev.id]
+
+
+def test_resolve_ids_empty_in_empty_out(session, fam_member):
+    _fam, m = fam_member
+    assert resolve_ids(session, m, [], []) == ([], [])

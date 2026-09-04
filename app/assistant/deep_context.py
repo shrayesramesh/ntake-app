@@ -56,6 +56,32 @@ def _int_list(value: object) -> list[int]:
     return [x for x in value if isinstance(x, int) and not isinstance(x, bool)]
 
 
+def resolve_ids(
+    session: Session,
+    member: Member,
+    work_item_ids: list[int],
+    event_ids: list[int],
+) -> tuple[list[int], list[int]]:
+    """Whitelist untrusted linked ids to ``member``'s family (validate-don't-trust).
+
+    The LINK call's ids are well-formed but untrusted (a model may hallucinate or
+    name another family's entity). This drops any id that doesn't exist in the
+    capturing member's family, so ONLY validated ids reach ``FocusedContext``
+    (and thus become attachable targets). Input order is preserved.
+
+    The counterpart to ``deep_context`` (same family whitelist): the resolver
+    calls this for the ids it stores on the context, and ``deep_context`` for the
+    rendered records — both scoped to the family.
+    """
+    fam_id = member.family_id
+    valid_wi = {wi.id for wi in _load_family_items(session, fam_id, work_item_ids)}
+    valid_ev = {ev.id for ev in _load_family_events(session, fam_id, event_ids)}
+    return (
+        [i for i in work_item_ids if i in valid_wi],
+        [i for i in event_ids if i in valid_ev],
+    )
+
+
 def deep_context(
     session: Session,
     member: Member,
