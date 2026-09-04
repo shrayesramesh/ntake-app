@@ -29,12 +29,15 @@ from app.assistant.fake import FakeAssistant
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 
 
-def _ctx(text: str, target_id: int | None = None) -> FocusedContext:
+def _ctx(
+    text: str, target_id: int | None = None, event_id: int | None = None
+) -> FocusedContext:
     return FocusedContext(
         text=text,
         timezone="America/New_York",
         now=NOW,
         resolved_work_item_ids=[target_id] if target_id is not None else [],
+        resolved_event_ids=[event_id] if event_id is not None else [],
     )
 
 
@@ -141,6 +144,35 @@ def test_existing_done_word_proposes_complete():
 def test_existing_untriggered_text_proposes_no_action():
     props = FakeAssistant().propose(_ctx("just a note", target_id=7))
     assert _names(props) == ["no_action"]
+
+
+# --- resolved-event capture: reschedule/move an existing event ------------
+
+
+def test_resolved_event_reschedule_word_plus_weekday_proposes_reschedule():
+    props = FakeAssistant().propose(_ctx("reschedule dentist to friday", event_id=8))
+    resch = next(p for p in props if p.name == "reschedule_event")
+    assert resch.target_id == 8 and resch.target_type == "event"
+    # Fully specified: a timed pair to move to (weekday 3–4pm local).
+    assert resch.params["start_at"] and resch.params["end_at"]
+
+
+def test_resolved_event_move_word_also_triggers_reschedule():
+    props = FakeAssistant().propose(_ctx("move soccer to monday", event_id=5))
+    resch = next(p for p in props if p.name == "reschedule_event")
+    assert resch.target_id == 5 and resch.target_type == "event"
+
+
+def test_reschedule_word_without_a_weekday_does_not_propose_reschedule():
+    # No weekday → no target time → nothing to reschedule to.
+    props = FakeAssistant().propose(_ctx("move the dentist thing", event_id=8))
+    assert "reschedule_event" not in _names(props)
+
+
+def test_reschedule_word_without_a_resolved_event_does_not_propose_reschedule():
+    # No event resolved → nothing to reschedule (a new capture, no target event).
+    props = FakeAssistant().propose(_ctx("reschedule something to friday"))
+    assert "reschedule_event" not in _names(props)
 
 
 # --- contract: read-only + rationale --------------------------------------

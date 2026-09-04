@@ -31,6 +31,10 @@ Existing-item capture (real target_id) — item-targeting actions are valid:
   • **done word** (done/finished/complete/completed) → ``complete_work_item``.
   • none of the above → ``no_action``.
 
+Resolved-event capture (the note linked an existing event):
+  • **reschedule/move word + weekday** → ``reschedule_event`` on that event
+        (moved to the weekday, 3–4pm local). Needs a weekday for the target time.
+
 Examples
 --------
   "dentist appointment friday"     → create_event only (timed)
@@ -62,6 +66,7 @@ _WEEKDAYS = {
 }
 _DONE_WORDS = ("done", "finished", "completed", "complete")
 _EVENT_WORDS = ("appointment", "event", "meeting", "visit")
+_RESCHEDULE_WORDS = ("reschedule", "move")
 
 
 def _next_weekday(ctx: FocusedContext, weekday: int, hour: int = 9) -> str:
@@ -83,7 +88,14 @@ class FakeAssistant(AssistantClient[FocusedContext]):
         weekday = next((wd for name, wd in _WEEKDAYS.items() if name in text), None)
         event_word = any(w in text for w in _EVENT_WORDS)
 
-        if tid is None:
+        # Resolved-event capture: a reschedule/move word + weekday moves that
+        # event. This is the clear event-move intent, so it is the whole proposal
+        # (don't also run the item keyword logic, which would spuriously add a
+        # create_work_item). Requires a weekday — no target time, nothing to move to.
+        reschedule = self._propose_reschedule(ctx, weekday, text)
+        if reschedule is not None:
+            proposals = [reschedule]
+        elif tid is None:
             proposals = self._propose_new_item(ctx, weekday, event_word)
         else:
             proposals = self._propose_existing_item(ctx, tid, text, weekday, event_word)
@@ -94,6 +106,30 @@ class FakeAssistant(AssistantClient[FocusedContext]):
         for p in proposals:
             p.llm_rationale = focus_note
         return proposals
+
+    def _propose_reschedule(
+        self, ctx: FocusedContext, weekday, text: str
+    ) -> ProposedAction | None:
+        """Reschedule the resolved event to a weekday (3–4pm local), or None.
+
+        Fires only when the note resolved an event, carries a reschedule/move
+        word, and names a weekday (the target time). Fully specified: a timed pair.
+        """
+        eid = ctx.primary_event_id
+        if eid is None or weekday is None:
+            return None
+        if not any(w in text for w in _RESCHEDULE_WORDS):
+            return None
+        return ProposedAction(
+            name="reschedule_event",
+            params={
+                "start_at": _next_weekday(ctx, weekday, hour=15),
+                "end_at": _next_weekday(ctx, weekday, hour=16),
+            },
+            llm_rationale="Reschedule an existing event.",
+            target_id=eid,
+            target_type="event",
+        )
 
     # --- new-item capture: self-contained proposals only ------------------
 

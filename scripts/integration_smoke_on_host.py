@@ -311,6 +311,56 @@ def run_checks(base: str, token: str) -> bool:
         finally:
             s.close()
 
+    def reschedule_event_via_capture():
+        # A capture that NAMES an existing event + a reschedule/move word + a
+        # weekday: stage-1 fake_link resolves the event from the title word, and
+        # the fake proposes reschedule_event on it. Confirm -> the event moves.
+        s = SessionLocal()
+        try:
+            from app.manage import seed_event
+
+            fam = s.query(Family).filter_by(name="Smoke Household").one()
+            ev = seed_event(
+                s,
+                fam.id,
+                title="Piano recital",
+                start_at=datetime(2026, 9, 4, 19, 0, tzinfo=UTC),
+                end_at=datetime(2026, 9, 4, 20, 0, tzinfo=UTC),
+            )
+            ev_id, before = ev.id, ev.start_at
+        finally:
+            s.close()
+
+        body = json.loads(
+            _post_json(
+                f"{base}/capture", {"text": "move the recital to tuesday"}, token
+            ).read()
+        )
+        resch = next(p for p in body["proposals"] if p["name"] == "reschedule_event")
+        assert resch["target_type"] == "event", resch
+        assert resch["target_id"] == ev_id, resch  # fake_link resolved the event
+        c = _post_json(
+            f"{base}/actions/confirm",
+            {
+                "name": "reschedule_event",
+                "params": resch["params"],
+                "target_id": ev_id,
+                "target_type": "event",
+            },
+            token,
+        )
+        assert c.status == 200, c.status
+        s = SessionLocal()
+        try:
+            from app.models import Event
+
+            moved = s.get(Event, ev_id)
+            assert moved.start_at is not None and moved.start_at != before.replace(
+                tzinfo=None
+            ), moved.start_at
+        finally:
+            s.close()
+
     def seed_events_show_in_calendar():
         # Seed sample events directly (no assistant) and confirm GET /events
         # returns them — the manual-testing seed path (task 9).
@@ -336,6 +386,7 @@ def run_checks(base: str, token: str) -> bool:
         ("assistant capture->propose->confirm", assistant_capture_propose_confirm),
         ("standalone create_event via capture", standalone_create_event_via_capture),
         ("deconflict_events end-to-end", deconflict_events_end_to_end),
+        ("reschedule_event via capture", reschedule_event_via_capture),
         ("seed-events show in calendar", seed_events_show_in_calendar),
     ]:
         ok = _check(name, fn) and ok
