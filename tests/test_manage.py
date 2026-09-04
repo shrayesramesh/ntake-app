@@ -148,3 +148,29 @@ def test_main_list_and_revoke(cli_db, capsys):
     assert "Revoked" in capsys.readouterr().out
     session = cli_db()
     assert session.get(DeviceToken, dt_id).revoked_at is not None
+
+
+def test_main_backup_writes_snapshot(cli_db, tmp_path, capsys):
+    from sqlalchemy import select
+
+    from app.manage import main
+
+    dest = tmp_path / "cli-snapshot.db"
+    rc = main(["backup", "--dest", str(dest)])
+    assert rc == 0
+    assert dest.exists()
+    assert str(dest) in capsys.readouterr().out
+
+    # The snapshot is a complete copy — the seeded family is present in it.
+    from app.db import build_engine, make_session_factory
+
+    beng = build_engine(f"sqlite:///{dest}")
+    try:
+        bs = make_session_factory(beng)()
+        try:
+            fams = bs.scalars(select(Family)).all()
+            assert [f.name for f in fams] == ["Fam"]
+        finally:
+            bs.close()
+    finally:
+        beng.dispose()

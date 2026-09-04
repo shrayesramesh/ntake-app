@@ -176,8 +176,24 @@ does **not** exercise the PWA (that needs HTTPS, i.e. Tailscale).
 - The real config (`family.toml`) and `NTAKE_TOKEN_SECRET` are **not** in the
   repo — back them up separately (a lost `NTAKE_TOKEN_SECRET` invalidates all
   device tokens; you'd re-enroll every device).
-- Weekly consistent snapshot (`VACUUM INTO`) is planned (PLAN Phase 5); not
-  automated yet.
+- Weekly consistent snapshot: **`python -m app.manage backup`** writes a
+  `VACUUM INTO` snapshot — a fresh, self-contained copy of the whole DB (safe
+  under WAL; preferable to a raw file copy). By default it lands in
+  `./backups/ntake-YYYYMMDD-HHMMSS.db`; pass `--dest /path/to/snap.db` to choose
+  the location.
+  ```bash
+  python -m app.manage backup                       # ./backups/ntake-<stamp>.db
+  python -m app.manage backup --dest /mnt/usb/ntake.db
+  ```
+  **Scheduling is a host step (not built into the app).** Run it weekly via cron
+  or a systemd timer — for example, a crontab line (Sunday 03:00):
+  ```cron
+  0 3 * * 0  cd /path/to/ntake-app && NTAKE_TOKEN_SECRET=… NTAKE_CONFIG=… \
+             .venv/bin/python -m app.manage backup --dest /mnt/usb/ntake-weekly.db
+  ```
+  *(v1 limitation: the default lands on the same disk — protects against
+  corruption/accidental deletion, not physical disk failure. Point `--dest` at an
+  external/mounted volume for off-machine safety; NFR-DURABILITY.)*
 
 ---
 

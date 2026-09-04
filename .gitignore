@@ -20,6 +20,9 @@ htmlcov/
 calendar.db
 *.sqlite
 *.sqlite3
+calendar.db-wal
+calendar.db-shm
+backups/
 
 # --- Generated handoff bundle (see shovel-ready/agent_handoff_manifest.md) ---
 agent_handoff/

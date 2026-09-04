@@ -27,8 +27,9 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import UTC, date, datetime
+from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.models import DeviceToken, Event, Family, Member
@@ -177,6 +178,29 @@ def seed_sample_events(session: Session) -> list[Event]:
     return [timed, all_day]
 
 
+def backup_db(session: Session, dest: Path | str) -> Path:
+    """Write a consistent snapshot of the whole database to ``dest`` via
+    ``VACUUM INTO`` (NFR-DURABILITY). Returns the destination path.
+
+    ``VACUUM INTO`` produces a fresh, defragmented, self-contained copy in one
+    statement — safe under WAL (it reads the live DB through ``session``'s
+    connection, so committed data still in the WAL is included) and preferable to
+    a raw file copy (which can catch a torn write). The result is a plain
+    (non-WAL) single file suitable to move off-machine.
+
+    Creates ``dest``'s parent directories if missing. The SQLite grammar wants a
+    string *literal* for the path (no bind param), so the path is quoted with
+    SQLite's ``''`` escaping. *Scheduling* (weekly) is a host concern (cron/
+    systemd timer) and is intentionally not done here.
+    """
+    dest_path = Path(dest)
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    # SQLite string-literal escaping: single quote -> two single quotes.
+    literal = str(dest_path).replace("'", "''")
+    session.execute(text(f"VACUUM INTO '{literal}'"))
+    return dest_path
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.manage")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -192,6 +216,16 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser(
         "seed-events", help="Populate the calendar with sample events (dev/manual)"
+    )
+
+    b = sub.add_parser(
+        "backup",
+        help="Write a consistent DB snapshot (VACUUM INTO); schedule weekly on host",
+    )
+    b.add_argument(
+        "--dest",
+        default=None,
+        help="Destination file (default: ./backups/ntake-YYYYMMDD-HHMMSS.db)",
     )
 
     args = parser.parse_args(argv)
@@ -226,6 +260,14 @@ def main(argv: list[str] | None = None) -> int:
             for ev in events:
                 kind = "all-day" if ev.all_day else "timed"
                 print(f"    [{ev.id}] {ev.title} ({kind})")
+        elif args.command == "backup":
+            if args.dest:
+                dest = Path(args.dest)
+            else:
+                stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+                dest = Path("backups") / f"ntake-{stamp}.db"
+            out = backup_db(session, dest)
+            print(f"Wrote snapshot: {out}")
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
