@@ -23,11 +23,11 @@ app can improve the prompt, validation, or deterministic post-processing.
 
 ---
 
-## Open
+## Active / awaiting live verification
 
 ### BUG-001 — linked member is not attached to a new event — open
 
-**Class:** code / prompt-contract integration  
+**Class:** code / prompt-contract integration
 **Severity:** medium (proposal is reviewable before Confirm)
 
 **Reproduction**
@@ -73,7 +73,7 @@ explicit rule that does not overwrite an explicitly supplied participant list.
 
 ---
 
-### BUG-002 — relative weekday and local-time conversion are wrong — open
+### BUG-002 — relative weekday and local-time conversion are wrong — fixed (test-verified; live retest pending)
 
 **Class:** prompt/model with deterministic context contribution  
 **Severity:** high (Confirm could persist an event at the wrong time/day)
@@ -119,13 +119,19 @@ That is Monday, not Wednesday, and 1–2 PM New York, not 5–6 PM.
 The repeated one-day/timezone error indicates a prompt/model behavior problem,
 not a single ambiguous phrasing.
 
-**Investigation direction**
+**Fix (2026-09-04)**
 
-Strengthen the PROPOSE prompt's calendar arithmetic instruction and add a
-small deterministic date/time helper or validation layer if prompt-only tuning
-is not reliable. Do not silently "correct" ambiguous dates without a documented
-rule; the proposal card must make the resolved human date/time obvious before
-Confirm.
+The PROPOSE prompt now provides both the UTC instant and the explicit family-local
+clock/date (including weekday), and requires the model to round-trip emitted UTC
+times back to the requested local weekday and clock time. The local-LLM proposal
+parser independently drops `create_event` and `reschedule_event` calls that
+contradict an explicit weekday and/or AM/PM time in the note. It does not silently
+rewrite model output or invent a time for ambiguous prose.
+
+Regression tests cover both incident shapes: a wrong Wednesday 5–6 PM event and
+a wrong `wed 1pm` event are dropped; the correctly converted Wednesday 5–6 PM
+proposal remains confirmable. Re-run the live trace to verify model behavior now
+uses the strengthened prompt rather than needing the guard.
 
 ---
 
@@ -165,7 +171,7 @@ dropped if one does not already cover this exact member/event combination.
 
 ---
 
-### BUG-004 — deep context renders UTC timed events without a UTC label — open
+### BUG-004 — deep context renders UTC timed events without a UTC label — fixed (test-verified; live retest pending)
 
 **Class:** code / prompt-context ambiguity  
 **Severity:** medium (can contribute to incorrect model time arithmetic)
@@ -188,62 +194,43 @@ zone suffix while the PROPOSE prompt says relative dates/times should be resolve
 in the family timezone. The model receives two conflicting-looking times with no
 explanation.
 
-**Investigation direction**
+**Fix (2026-09-04)**
 
-Choose one representation for model context: preferably render deep-context event
-times in the family timezone, matching WorldView; alternatively retain UTC but
-append `UTC` to every timed value and make the prompt explicit. Add a snapshot test
-covering the chosen label/zone behavior.
+`deep_context` now resolves the household timezone and renders every timed event
+(and timed work-item due value) in that same family-local representation used by
+WorldView. SQLite's tz-naive readback is still attached to UTC before conversion.
+A regression test proves `2026-09-04T21:37:00Z` renders as `5:37 PM` in
+`America/New_York`, not `9:37 PM`.
 
 ---
 
-## Fixed
-
-### BUG-000 — constrained JSON schema was silently ignored by llamafile — fixed
-
-**Class:** code / integration  
-**Fixed:** 2026-09-04
-
-`LocalLlmClient` used flat `response_format.schema`, which this llamafile build
-silently ignored. LINK returned `{}`/free-form replies, so targets were unresolved
-and requests such as "move the dentist to Wednesday" degraded to `create_event`.
-
-The client now sends canonical `response_format.json_schema.{name, schema}`;
-llamafile enforces it. Live verification: "move the dentist to Friday" produces
-`reschedule_event` on the resolved dentist event. The family whitelist remains the
-second defense against model-supplied ids.
-
-
-### BUG-005 — EventCalendar default event card leads with time and drops context — open
+### BUG-005 — EventCalendar title-first cards need browser verification — investigating
 
 **Class:** UI integration  
-**Severity:** medium (calendar remains correct but is less informative than the
-replaced agenda cards)
+**Severity:** medium (calendar data remains correct; the gap is presentation and
+browser behavior)
 
-**Reproduction**
+**Current state**
 
-Open the EventCalendar month/week/day grid after the first integration. The
-library's default event rendering leads with `timeText`, then title, and omits the
-participant/location context previously visible in the agenda event cards.
+The documented EventCalendar implementation now renders title-first cards with
+local time, participant names, and location when present. `README.md` and
+`NEXT_SESSION.md` describe this code as landed, but it has not been visually
+verified on the intended month/week/day and device surfaces.
 
 **Expected**
 
-A compact grid event should lead with the event title, followed by small metadata
-when available: local time for timed events, participant names, and location. The
-month grid should remain dense; full description belongs in a later detail
-popover, not every cell.
+A compact grid event leads with the event title, followed by small local-time,
+participant, and location metadata when available. The month grid remains dense;
+full description belongs in a later detail popover, not every cell.
 
-**Observed**
+**Verification direction**
 
-The default library card leads with the time and appears less informative than the
-previous app-rendered event cards.
+Check the rendered month/week/day cards in the live UI, including all-day events,
+participant names rather than member ids, location display, and the kiosk-height
+constraint. Change implementation only if that visual verification finds a
+mismatch.
 
-**Investigation direction**
-
-Use EventCalendar's `eventContent` callback with safe DOM nodes; enrich the
-existing authenticated `/events` DTO with resolved `participant_names` so the
-client never renders member ids (`m2`). Keep EventCalendar read-only.
-
+---
 
 ### BUG-006 — timed create_event with only start_at persists no end — open
 
@@ -278,3 +265,103 @@ Choose and enforce one explicit contract:
 The contract should match `reschedule_event`, which already defaults a missing
 end to the start, and the verbose proposal card should disclose the resulting
 duration before Confirm.
+
+---
+
+### BUG-007 — targetless checklist/status proposals render but cannot confirm — open
+
+**Class:** code / prompt-contract integration
+**Severity:** medium (Confirm rejects the change before persistence, but presents a
+broken action card)
+
+**Reproduction**
+
+- Capturing member: Alex (`m1`)
+- Note: `alex is getting the dress tomorrow`
+- LINK/PROPOSE context: no relevant work items; only unrelated sample events
+- PROPOSE raw reply:
+
+```json
+{
+  "actions": [
+    {
+      "name": "add_checklist_items",
+      "params": {"items": ["dress"]}
+    }
+  ]
+}
+```
+
+`add_checklist_items` requires an existing work-item target. The local proposal
+attachment step has no `primary_work_item_id`, so it returns this proposal with
+`target_type: "work_item"` and `target_id: null`. The UI still renders its card.
+Confirming it reaches the work-item handler, which rejects it with `422: work item
+not found: None`; the UI only appends `(failed)`.
+
+The same root behavior appeared in two additional captures with no resolved work
+item:
+
+- `pack for pittsburg trip thurs morning` produced `add_checklist_items` plus
+  `move_to_on_deck` while the context contained an event but no work item.
+- `grocery list for the week` produced `add_checklist_items` with
+  `["grocery list for the week"]` as its sole item despite no target work item.
+
+All of these cards are targetless and cannot confirm.
+
+**Expected**
+
+No proposal that requires an existing target may be rendered unless the resolver
+attached a real target id. A new-item capture can instead propose a fully-defined
+`create_work_item`; a checklist action belongs only after that work item exists.
+A future dependent-card flow would require explicit `target_ref` chaining and a
+server-side unresolved-target rejection.
+
+**Observed**
+
+The schema accepts the action's parameters, but proposal construction does not
+validate the separate target contract. This displays a non-executable card despite
+the v1 requirement that every targeting proposal be independently confirmable.
+
+**Decision (2026-09-04)**
+
+Keep the v1 invariant that every rendered card is independently confirmable. For
+a new list with supplied entries, extend `create_work_item` with optional
+`checklist_items: [string]`. Its one Confirm operation atomically creates the
+work item and its initial checklist rows. This is a cohesive composite action,
+like `complete_work_item` setting both status and completion time; it does not
+make a second proposal depend on an unconfirmed first proposal.
+
+Multiple cards remain valid only when they are independent. Do not emit
+`create_work_item` plus `add_checklist_items` as ordinary v1 cards: the latter
+has no real target until the first card is confirmed. The deferred `target_ref`
+dependency-chaining design is the future option if that workflow is desired.
+
+**Implementation direction**
+
+Make proposal construction drop any `ActionSpec.needs_target` action when no
+same-type resolved id is available, and add a regression test for a local-LLM
+reply containing checklist/status actions with no resolved work item. Extend the
+`create_work_item` schema, handler, card renderer, action documentation, and
+prompt contract with optional `checklist_items`, validating a non-empty string
+list when it is supplied. Keep the Confirm-time rejection as defense in depth.
+Prompt tuning should choose the composite create action only when the note
+supplies actual entries; otherwise it should propose a work item without a
+checklist.
+
+---
+
+## Fixed
+
+### BUG-000 — constrained JSON schema was silently ignored by llamafile — fixed
+
+**Class:** code / integration
+**Fixed:** 2026-09-04
+
+`LocalLlmClient` used flat `response_format.schema`, which this llamafile build
+silently ignored. LINK returned `{}`/free-form replies, so targets were unresolved
+and requests such as "move the dentist to Wednesday" degraded to `create_event`.
+
+The client now sends canonical `response_format.json_schema.{name, schema}`;
+llamafile enforces it. Live verification: "move the dentist to Friday" produces
+`reschedule_event` on the resolved dentist event. The family whitelist remains the
+second defense against model-supplied ids.

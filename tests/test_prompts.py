@@ -81,6 +81,17 @@ def test_propose_prompt_states_utc_and_one_of_rules():
     assert "exactly one" in system.lower()  # the exclusive-params guidance
 
 
+def test_propose_prompt_states_a_local_clock_and_explicit_time_check():
+    system, _ = build_propose_prompt(
+        tools_view="x", deep_context="y", note="z", now=NOW, timezone=TZ
+    )
+
+    assert "2026-09-03T08:00:00-04:00" in system
+    assert "weekday" in system.lower()
+    assert "back to the family timezone" in system.lower()
+    assert "verify it" in system.lower()
+
+
 # --- integration: the REAL assembled prompts over populated_family --------
 # Full-text golden-file snapshots of both calls, assembled from build_world_view
 # / build_tools_view / deep_context. The .txt files under tests/expectations/ are

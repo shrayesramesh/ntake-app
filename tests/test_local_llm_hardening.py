@@ -164,3 +164,67 @@ def test_a_valid_call_survives_alongside_an_invalid_one():
     )
     out = a.propose(_ctx(work_item_id=3))
     assert [p.name for p in out] == ["complete_work_item"]
+
+
+# --- explicit local weekday/time validation (BUG-002) ----------------------
+
+
+def _friday_ctx(text: str) -> FocusedContext:
+    return FocusedContext(
+        text=text,
+        timezone="America/New_York",
+        now=datetime(2026, 9, 4, 18, 25, tzinfo=UTC),
+        deep_context="CTX",
+    )
+
+
+def test_drops_event_with_wrong_explicit_weekday_or_local_time():
+    a = _assistant(
+        [
+            {
+                "name": "create_event",
+                "params": {
+                    "title": "Soccer game",
+                    "start_at": "2026-09-07T17:00:00Z",
+                    "end_at": "2026-09-07T18:00:00Z",
+                },
+            }
+        ]
+    )
+
+    assert a.propose(_friday_ctx("soccer game Wednesday 5-6 PM")) == []
+
+
+def test_keeps_event_matching_explicit_weekday_and_local_time():
+    a = _assistant(
+        [
+            {
+                "name": "create_event",
+                "params": {
+                    "title": "Soccer game",
+                    "start_at": "2026-09-09T21:00:00Z",
+                    "end_at": "2026-09-09T22:00:00Z",
+                },
+            }
+        ]
+    )
+
+    out = a.propose(_friday_ctx("soccer game Wednesday 5-6 PM"))
+
+    assert [proposal.name for proposal in out] == ["create_event"]
+
+
+def test_drops_event_with_wrong_explicit_single_clock_time():
+    a = _assistant(
+        [
+            {
+                "name": "create_event",
+                "params": {
+                    "title": "Sam meal prep",
+                    "start_at": "2026-09-08T13:00:00Z",
+                },
+            }
+        ]
+    )
+
+    assert a.propose(_friday_ctx("sam meal prep wed 1pm")) == []

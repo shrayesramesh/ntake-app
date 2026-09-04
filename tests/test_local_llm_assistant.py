@@ -94,8 +94,8 @@ def test_create_event_is_a_creator_passing_event_params_through_no_target():
                 "name": "create_event",
                 "params": {
                     "title": "Dentist",
-                    "start_at": "2026-09-05T19:00:00Z",
-                    "end_at": "2026-09-05T20:00:00Z",
+                    "start_at": "2026-09-04T19:00:00Z",
+                    "end_at": "2026-09-04T20:00:00Z",
                 },
             }
         ]
@@ -107,8 +107,8 @@ def test_create_event_is_a_creator_passing_event_params_through_no_target():
     # The event timing params the model supplied flow through unchanged…
     assert p.params == {
         "title": "Dentist",
-        "start_at": "2026-09-05T19:00:00Z",
-        "end_at": "2026-09-05T20:00:00Z",
+        "start_at": "2026-09-04T19:00:00Z",
+        "end_at": "2026-09-04T20:00:00Z",
     }
     # …and no target is attached (creator), despite the resolved work item.
     assert p.target_id is None

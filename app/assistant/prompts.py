@@ -19,7 +19,8 @@ host. The JSON shapes here are the contract the client's schema also enforces.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 # --- CALL 1: LINK (entity resolution) -------------------------------------
 # Input: the shallow world (id-bearing menu) + the raw note.
@@ -93,8 +94,13 @@ Rules:
 - Do NOT include any entity id in params — the item/event being acted on is
   already known from CONTEXT and is attached for you. Only supply the payload
   params a tool lists.
-- Resolve relative dates/times in the family timezone ({timezone}) and emit
-  datetimes as UTC ISO-8601 (e.g. 2026-09-04T19:00:00Z). Right now it is {now}.
+- Calendar frame: the family timezone is {timezone}; its current local date and
+  time is {local_now} ({local_weekday}). A bare weekday means its next occurrence
+  after the current local date.
+- Resolve relative dates/times in that family timezone and emit datetimes as UTC
+  ISO-8601 (e.g. 2026-09-04T19:00:00Z). For an explicit weekday or clock time,
+  convert every emitted UTC datetime back to the family timezone and verify it
+  matches the requested weekday and local clock time. Right now in UTC it is {now}.
 - If nothing sensible applies, return exactly one no_action.
 - Prefer one precise action over several speculative ones.
 
@@ -122,7 +128,14 @@ def build_propose_prompt(
     rendering of the deep-fetched records for the linked ids (target item + its
     update history, linked events); ``note`` is the raw capture text.
     """
-    system = PROPOSE_SYSTEM.format(timezone=timezone, now=now.isoformat())
+    aware_now = now.replace(tzinfo=UTC) if now.tzinfo is None else now
+    local_now = aware_now.astimezone(ZoneInfo(timezone))
+    system = PROPOSE_SYSTEM.format(
+        timezone=timezone,
+        now=aware_now.isoformat(),
+        local_now=local_now.isoformat(),
+        local_weekday=local_now.strftime("%A"),
+    )
     user = PROPOSE_CONTEXT.format(
         tools_view=tools_view, deep_context=deep_context, note=note
     )

@@ -28,11 +28,12 @@ App-coupled (takes a Session), like world_view.py; returns a plain string.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Event, Member, WorkItem, WorkItemUpdate
+from app.models import Event, Family, Member, WorkItem, WorkItemUpdate
 
 _DATETIME_FMT = "%a %b %-d, %-I:%M %p"
 _DATE_FMT = "%a %b %-d"
@@ -133,6 +134,8 @@ def deep_context(
     has). Session in, string out.
     """
     fam_id = member.family_id
+    family = session.get(Family, fam_id)
+    zone = ZoneInfo(family.timezone if family is not None else "UTC")
 
     # Linked members (people the note names): validated to family. Their full
     # footprint is folded in below so the LLM can judge each person's workload.
@@ -158,7 +161,7 @@ def deep_context(
         participated += _load_participated_events(session, fam_id, fm.id)
     events = _dedup_events(linked_events + participated)
 
-    return _render(session, member, items, events, linked_members)
+    return _render(session, member, items, events, linked_members, zone)
 
 
 # --- loads (all scoped to family = the whitelist) -------------------------
@@ -273,6 +276,7 @@ def _render(
     items: list[WorkItem],
     events: list[Event],
     linked_members: list[Member],
+    zone: ZoneInfo,
 ) -> str:
     lines = [f"NOTE FROM: [m{member.id}] {member.display_name} ({member.role})"]
 
@@ -287,7 +291,7 @@ def _render(
     lines.append("RELEVANT WORK ITEMS:")
     if items:
         for wi in items:
-            due = f", due {wi.due_at.isoformat()}" if wi.due_at else ""
+            due = f", due {_fmt_dt(wi.due_at, zone)}" if wi.due_at else ""
             lines.append(f"- [w{wi.id}] {wi.title} ({wi.status}{due})")
             updates = _item_updates(session, wi.id)
             for u in updates:
@@ -298,22 +302,22 @@ def _render(
         lines.append("- (none)")
 
     lines += ["", "RELEVANT EVENTS:"]
-    lines += [_fmt_event(ev) for ev in events] or ["- (none)"]
+    lines += [_fmt_event(ev, zone) for ev in events] or ["- (none)"]
     return "\n".join(lines)
 
 
-def _fmt_event(ev: Event) -> str:
+def _fmt_event(ev: Event, zone: ZoneInfo) -> str:
     if ev.all_day:
         start = ev.start_date.strftime(_DATE_FMT) if ev.start_date else "?"
         return f"- [e{ev.id}] {ev.title} — {start} (all day)"
-    start = _fmt_dt(ev.start_at) if ev.start_at else "?"
-    end = _fmt_dt(ev.end_at) if ev.end_at else start
+    start = _fmt_dt(ev.start_at, zone) if ev.start_at else "?"
+    end = _fmt_dt(ev.end_at, zone) if ev.end_at else start
     when = start if start == end else f"{start} – {end}"
     return f"- [e{ev.id}] {ev.title} — {when}"
 
 
-def _fmt_dt(dt: datetime) -> str:
-    # DB datetimes come back tz-naive (UTC). Show UTC (deep context is for the
-    # model to reason over; grounding to family tz happens in param output).
+def _fmt_dt(dt: datetime, zone: ZoneInfo) -> str:
+    """Format a stored UTC timestamp in the family's local timezone."""
+    # SQLite returns stored UTC timestamps as tz-naive values.
     aware = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt
-    return aware.strftime(_DATETIME_FMT)
+    return aware.astimezone(zone).strftime(_DATETIME_FMT)

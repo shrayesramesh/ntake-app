@@ -167,9 +167,26 @@ def test_deep_context_excludes_other_members_assigned_items(session, fam_member)
 
 
 def test_deep_context_has_member_header(session, fam_member):
-    fam, m = fam_member
+    _fam, m = fam_member
     out = deep_context(session, m, [], [])
     assert m.display_name in out  # whose context this is
+
+
+def test_deep_context_renders_timed_events_in_the_family_timezone(session, fam_member):
+    """Stored UTC datetimes must not conflict with the family-time prompt frame."""
+    fam, m = fam_member
+    ev = _event(
+        session,
+        fam.id,
+        "Dentist",
+        start_at=datetime(2026, 9, 4, 21, 37, tzinfo=UTC),
+        end_at=datetime(2026, 9, 4, 22, 37, tzinfo=UTC),
+    )
+
+    out = deep_context(session, m, [], [ev.id])
+
+    assert "Dentist — Fri Sep 4, 5:37 PM – Fri Sep 4, 6:37 PM" in out
+    assert "9:37 PM" not in out
 
 
 def test_deep_context_renders_full_update_history(session, fam_member):
