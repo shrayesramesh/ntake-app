@@ -11,8 +11,10 @@
 > Handoff for resuming Phase 4. The **fake-first assistant is complete** and both
 > capture stages sit behind swappable, config-selected seams. Both **prompt views
 > are built** (`build_world_view`, `build_tools_view`) and the toolset is a rich
-> **13 actions**. `make check` is green (257 tests, ≥95% cov). The one remaining
-> Phase-4 build is the **live local model (Ollama)**, host-only. Read DESIGN §4.1
+> **13 actions**. `make check` is green (296 tests, ≥95% cov; + `make smoke`, 12
+> real-stack checks). Live-surface hardening is done (WAL, `manage backup`, SSE
+> reconnect re-sync, PWA). The one remaining Phase-4 build is the **live local
+> model (Ollama)**, host-only. Read DESIGN §4.1
 > + §4.1a and `spec/LLD-assistant-pipeline.md` first — those are the source of
 > truth for the assistant architecture.
 
@@ -194,13 +196,19 @@ functional design + open questions (incl. OQ-1 pipeline shape / the 2-call goal)
 
 ## Polish / gaps (lower priority)
 
-- **Integration coverage (real-stack).** The smoke script now covers, over real
-  HTTP against the fake: the assistant **capture→propose→confirm** path using the
-  current propose-only `/capture` (stage-1 `fake_link` resolves the target from the
-  note text — no `work_item_id` param), a **standalone `create_event`** (target_type
-  `event`, shows in `/events`, no work item), and **`deconflict_events`**
-  end-to-end. Remaining gap: (3) an SSE-triggered **calendar** refresh (the generic
-  SSE change frame is already covered).
+- **Live-surface hardening — DONE (this session).** WAL + `synchronous=NORMAL`;
+  `VACUUM INTO` snapshot via `python -m app.manage backup` (weekly scheduling is a
+  documented host cron/systemd step, HOST_SETUP_GUIDE §6); SSE re-sync on
+  (re)connect (DISP-2/5); PWA manifest + pass-through service worker
+  (installability verified on-device over HTTPS — HOST_SETUP_GUIDE §4a). Also a
+  fake **reschedule_event** trigger so event-move is exercisable in the UI.
+- **Integration coverage (real-stack).** `make smoke` (12 checks) covers, over
+  real HTTP against the fake: assistant **capture→propose→confirm** (stage-1
+  `fake_link` resolves the target from the note text — no `work_item_id` param),
+  a **standalone `create_event`**, **`deconflict_events`** end-to-end,
+  **`reschedule_event`** via capture, and **SSE reconnect re-sync**. Remaining
+  gap: an SSE-triggered **calendar** refresh in the *browser* (server side + the
+  generic SSE frame are covered; browser reconnect is the on-device HTTPS smoke).
 - **Double-confirm semantics:** proposals aren't persisted, so confirming twice
   re-applies (deconflict → +2 days). Accepted for v1; document if it surfaces.
 - **GROOM board UI** — the board is read-only today (no archive/unarchive UI).

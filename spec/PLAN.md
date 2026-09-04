@@ -7,24 +7,36 @@
 
 ## Current state (already built & passing)
 
-Phases 0–3 and the fake-first Phase 4 are built and green (`make check` → 257
-tests pass, ≥95% cov). What exists:
+Phases 0–3 and the fake-first Phase 4 are built and green (`make check` → 296
+tests pass, ≥95% cov; plus `make smoke`, 12 real-stack checks). What exists:
 - FastAPI app; `GET /health`, `GET /events`, the work-item/board read + append
   paths, `/capture` (propose-only) and `/actions/confirm`.
 - SQLAlchemy 2.0 + SQLite: `Family`, `Event`, `Member`, `device_tokens`,
   `work_items`, `work_item_updates`, `checklist_items`. Pydantic DTOs at the edge.
+  **SQLite runs in WAL + `synchronous=NORMAL`** (crash-safety, NFR-DURABILITY).
 - Change-event seam → in-process emitter → SSE endpoint (live sync), with a
-  real-socket integration test.
+  real-socket integration test. The front end **re-syncs on SSE (re)connect** so
+  a change during a disconnect isn't missed (DISP-2/5).
+- **PWA:** manifest + minimal (pass-through) service worker so the phones + wall
+  tablet install via add-to-home-screen. Install/SW registration is verified
+  on-device over HTTPS (Tailscale) — a documented second smoke.
+- **Backup:** `VACUUM INTO` consistent snapshot via `python -m app.manage backup`
+  (weekly *scheduling* is a documented host cron/systemd step; same-disk v1).
 - Config-seeded identity (`family.toml`) + token CLI (`python -m app.manage`);
   auth on every request.
 - The assistant: reusable engine (`app/routing/`) + ntake plugin
   (`app/assistant/`) with the two swappable seams (`CaptureResolver`,
-  `AssistantClient`) and the `fake/` backend. Skinny calendar render + SSE.
+  `AssistantClient`) and the `fake/` backend. The fake runs the real two-call
+  *shape* — `build_world_view` → `fake_link` (deterministic title match) →
+  `deep_context` → `propose` — so it resolves a target from free text and can
+  propose existing-item + event-reschedule actions without a model. Skinny
+  calendar render + SSE.
 - Makefile, setup.sh, pinned requirements, ruff + mypy config.
 
-**Not yet built:** Phase-4 **task 7** (the live Ollama backend — see the Phase 4
-status note below) and all of Phase 5. Alembic migration wiring is still deferred
-(tests/app use `create_all`).
+**Not yet built:** Phase-4 **task 7** (the live Ollama backend — host-only) and
+Phase 5's **labor view** + grooming assist + kiosk polish. Smaller loose ends:
+Alembic migration wiring (tests/app use `create_all`), the manual board-grooming
+UI (the assistant `archive_work_item` action exists; the UI doesn't).
 
 ## Phasing
 
@@ -119,15 +131,20 @@ calendar mutations only on confirm.
 ### Phase 5 — labor view, grooming assist, hardening
 - **Labor view** (on demand): assistant reads the raw update log by author over
   time, using `source` to credit human effort vs. assistant-confirmed — surfaced
-  as recognition, **not** scores (R-labor guardrail).
+  as recognition, **not** scores (R-labor guardrail). *(Underspecified — needs a
+  design spike on the output shape before building; it's an ASSIST-* feature, so
+  it's coupled to task 7's live model.)*
 - **On-demand grooming** assist for the ~monthly review.
-- **Persistence/resiliency:** WAL mode + `synchronous=NORMAL`; the **one scheduled
-  job** — weekly consistent snapshot (`VACUUM INTO`, same-disk v1).
-- Kiosk hardening: PWA manifest + service worker, always-on, SSE reconnect.
-- Failure surfacing in the UI; basic logging.
+- **Persistence/resiliency ✅ (done this session):** WAL mode +
+  `synchronous=NORMAL`; the **one scheduled job** — weekly consistent snapshot
+  (`VACUUM INTO` via `manage backup`, same-disk v1). *Scheduling* itself is a
+  documented host cron/systemd step (not in-app).
+- **Kiosk hardening — partly done:** PWA manifest + service worker ✅; SSE
+  reconnect re-sync ✅. **Remaining:** always-on soak (days of uptime — on-device),
+  failure surfacing in the UI, basic logging.
 
-**Exit:** data is backed up weekly; wall display survives days of uptime; labor
-view works; failures are visible.
+**Exit:** data is backed up weekly ✅ (logic; scheduling documented); wall display
+survives days of uptime; labor view works; failures are visible.
 
 ## Deferred (explicitly not built)
 - SMS/text capture channel (DESIGN-sms-deferred.md).
@@ -179,13 +196,13 @@ task 2/4/5 code and is cleaner as its own focused, well-tested change.
 ## Deferred-decision ledger (decide at the forcing phase)
 | Decision | At |
 |---|---|
-| Alembic migration wiring | 1b (finish) |
-| SSE event granularity + reconnect replay | 1e / 5 |
+| Alembic migration wiring | 1b (finish) — **still deferred** (app/tests use `create_all`) |
+| SSE event granularity + reconnect replay | 1e / 5 — **resolved:** re-sync (refetch) on SSE (re)connect; no per-event replay buffer |
 | Token delivery mechanism (QR / link / paste) | 2 → **resolved:** CLI prints plaintext once; operator delivers (paste/link/QR) |
 | Board labels / calendar default view / card face | 3 |
 | Assistant model + runtime; prompt contract; latency validation | 4 |
-| Labor-view output shape (summary, not scores) | 5 |
-| Backup destination → off-machine | future |
+| Labor-view output shape (summary, not scores) | 5 — **needs a design spike** before build |
+| Backup destination → off-machine | future — **v1 resolved:** `VACUUM INTO` same-disk via `manage backup`; point `--dest` off-machine + schedule on host |
 
 ## Change log
 - Reconciled to v2: work-item/update-log model, inline assistant, `source` field,

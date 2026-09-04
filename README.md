@@ -28,14 +28,26 @@ household/emotional labor **visible for recognition and fairness**.
 ## Current status
 
 Phases 0–3 and the **fake-first Phase 4** are built and passing (`make check` →
-257 tests green, ≥95% cov): FastAPI app; `/health`, `/events`, the work-item +
-board read/append paths, `/capture` (propose-only) and `/actions/confirm`;
-config-seeded identity + token CLI; change-event seam → SSE live sync; and the
-assistant as a reusable engine (`app/routing/`) + ntake plugin (`app/assistant/`)
-with two swappable seams (`CaptureResolver`, `AssistantClient`), a `fake/`
-backend, a 13-action toolset, and the two prompt views (`build_world_view`,
-`build_tools_view`). **Next:** Phase-4 **task 7** — the live Ollama backend
-(host-only) — then Phase 5. See `spec/PLAN.md` and `spec/NEXT_SESSION.md`.
+296 tests green, ≥95% cov; plus a real-stack `make smoke`, 12 checks): FastAPI
+app; `/health`, `/events`, the work-item + board read/append paths, `/capture`
+(propose-only) and `/actions/confirm`; config-seeded identity + token CLI;
+change-event seam → SSE live sync; and the assistant as a reusable engine
+(`app/routing/`) + ntake plugin (`app/assistant/`) with two swappable seams
+(`CaptureResolver`, `AssistantClient`), a `fake/` backend, a 13-action toolset,
+and the two prompt views (`build_world_view`, `build_tools_view`). The two-call
+pipeline shape is wired: the fake resolves a target from free text
+deterministically (`fake_link` → `deep_context`), so existing-item and
+event-reschedule proposals are reachable without a model.
+
+**Live-surface hardening (done):** SQLite WAL + `synchronous=NORMAL`
+(crash-safety); a `VACUUM INTO` weekly-snapshot backup (`python -m app.manage
+backup`; scheduling is a documented host cron/systemd step); SSE re-sync on
+(re)connect so the wall display can't miss a change during a disconnect; and a
+PWA manifest + service worker for add-to-home-screen.
+
+**Next:** Phase-4 **task 7** — the live Ollama backend (host-only). Phase 5
+(labor view, grooming assist, kiosk polish) and a few loose ends (Alembic, board
+grooming UI) follow. See `spec/PLAN.md` and `spec/NEXT_SESSION.md`.
 
 ## Key shape (details in `spec/`)
 

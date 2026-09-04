@@ -20,11 +20,14 @@ setup like Tailscale/hardware/stack).
 
 `app/`, `tests/`, `Makefile`, `setup.sh`, `requirements.txt`, `pyproject.toml`.
 Current state: phases 0–3 and the **fake-first Phase 4** are built and green
-(`make check` → 257 tests pass). Events + work-item/board + live SSE +
-config-seeded identity are in; the assistant runs as a two-stage pipeline
-(`CaptureResolver` → `AssistantClient`) over a reusable engine, with a `fake/`
-backend. **Not built yet:** Phase-4 **task 7** (the live Ollama backend) and
-Phase 5 (see PLAN.md).
+(`make check` → 296 tests pass; + `make smoke`, 12 real-stack checks). Events +
+work-item/board + live SSE + config-seeded identity are in; the assistant runs as
+a two-stage pipeline (`CaptureResolver` → `AssistantClient`) over a reusable
+engine, with a `fake/` backend that runs the real two-call shape
+(`build_world_view` → `fake_link` → `deep_context` → `propose`). Live-surface
+hardening is done (WAL, `manage backup`, SSE reconnect re-sync, PWA). **Not built
+yet:** Phase-4 **task 7** (the live Ollama backend) and Phase 5's labor view +
+grooming assist + kiosk polish (see PLAN.md).
 
 ## How to work
 
