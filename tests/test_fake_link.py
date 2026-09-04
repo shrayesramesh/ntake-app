@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.assistant.fake.link import fake_link
+from app.assistant.fake.resolver import fake_link
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 TZ = "America/New_York"

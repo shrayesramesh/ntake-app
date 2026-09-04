@@ -43,7 +43,7 @@ def test_focus_deep_context_includes_the_member_header(session, fam_member):
     assert m.display_name in ctx.deep_context
 
 
-# --- the resolver runs the real build_world_view -> fake_link -> deep_context
+# --- the resolver runs the real fake_link -> deep_context -----------------
 
 
 def test_focus_resolves_a_work_item_target_from_the_note(
