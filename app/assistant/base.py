@@ -12,7 +12,7 @@ implement, so a reader (or a new backend) has a single contract reference:
 
 The concrete backends live in parallel sub-packages selected by ``factory``:
 ``app.assistant.fake`` (dev/tests) and ``app.assistant.ollama`` (host, task 7).
-The app-specific capture *value types* stay in ``app.assistant.context``; this
+The app-specific capture *value types* stay in ``app.assistant.capture``; this
 re-exports them too so a backend needs only ``from app.assistant.base import …``.
 """
 
@@ -22,13 +22,12 @@ from abc import ABC, abstractmethod
 
 from sqlalchemy.orm import Session
 
-from app.assistant.context import (
+from app.assistant.capture import (
     AssistantClient,
     CaptureRequest,
     FocusedContext,
     NullAssistant,
     ProposedAction,
-    render_focus,
 )
 from app.models import Member
 
@@ -39,7 +38,6 @@ __all__ = [
     "FocusedContext",
     "NullAssistant",
     "ProposedAction",
-    "render_focus",
 ]
 
 

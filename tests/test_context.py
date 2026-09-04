@@ -8,7 +8,8 @@ legacy ``calendar_window``/``work_item_id``. It stays a session-free
 
 The ``primary_work_item_id`` / ``primary_event_id`` accessors give stage 2 a tiny,
 readable way to attach a target from the resolved id lists (≤1 per type in v1).
-``render_focus`` prints what the assistant understood (text + resolved ids); the
+``FocusedContext.render()`` prints what the assistant understood (text + resolved
+ids); the
 fake stamps it verbatim onto each proposal's ``llm_rationale``.
 """
 
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.assistant.context import FocusedContext, render_focus
+from app.assistant.capture import FocusedContext
 from app.routing.engine import ActionContext
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
@@ -72,21 +73,21 @@ def test_primary_event_id_returns_first_resolved_or_none():
     assert _ctx(ev_ids=[]).primary_event_id is None
 
 
-# --- render_focus ---------------------------------------------------------
+# --- FocusedContext.render() ----------------------------------------------
 
 
-def test_render_focus_includes_the_text():
-    out = render_focus(_ctx("buy milk"))
+def test_render_includes_the_text():
+    out = _ctx("buy milk").render()
     assert "buy milk" in out
     assert isinstance(out, str) and out
 
 
-def test_render_focus_mentions_resolved_ids_when_present():
-    out = render_focus(_ctx("the plumber item", wi_ids=[3], ev_ids=[8]))
+def test_render_mentions_resolved_ids_when_present():
+    out = _ctx("the plumber item", wi_ids=[3], ev_ids=[8]).render()
     assert "3" in out  # resolved work item surfaced
     assert "8" in out  # resolved event surfaced
 
 
-def test_render_focus_handles_no_resolved_ids():
-    out = render_focus(_ctx("nothing linked"))
+def test_render_handles_no_resolved_ids():
+    out = _ctx("nothing linked").render()
     assert "nothing linked" in out

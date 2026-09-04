@@ -13,7 +13,7 @@ def test_default_is_fake(monkeypatch):
 
 
 def test_off_is_null(monkeypatch):
-    from app.assistant.context import NullAssistant
+    from app.assistant.capture import NullAssistant
 
     monkeypatch.setenv("NTAKE_ASSISTANT", "off")
     a = get_assistant()
@@ -21,7 +21,7 @@ def test_off_is_null(monkeypatch):
     # NullAssistant proposes nothing regardless of input.
     from datetime import UTC, datetime
 
-    from app.assistant.context import FocusedContext
+    from app.assistant.capture import FocusedContext
 
     ctx = FocusedContext(
         text="friday", timezone="UTC", now=datetime.now(UTC), resolved_work_item_ids=[1]

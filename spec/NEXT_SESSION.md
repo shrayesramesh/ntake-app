@@ -59,7 +59,7 @@
   real LINK call under Ollama — so existing-item proposals are reachable. Each
   proposal carries a registry-derived `action_summary` (ground truth) +
   `llm_rationale` (the model's account — the fake passes the focused context
-  through via `render_focus`, which prints the resolved ids).
+  through via `FocusedContext.render()`, which prints the resolved ids).
 - **Events:** `seed_event` + fixtures + `python -m app.manage seed-events`; skinny
   calendar render (`render_calendar` + `GET /calendar/view`), live via SSE.
 

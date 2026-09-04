@@ -1,13 +1,18 @@
-"""The ntake assistant boundary — app-specific capture context + the engine
-contract it reuses.
+"""The capture pipeline's stage data + the engine contract it reuses.
+
+The two value objects that flow through the two-stage capture pipeline:
+``CaptureRequest`` (stage-1 input) and ``FocusedContext`` (stage-2 input). Both
+are plain, **session-free** data (the DB ``Session`` lives on the resolver seam,
+not on these) — ``FocusedContext`` is the engine's opaque, read-only ``ctx``.
+
+``CaptureRequest`` (``{text, timezone, now}``) is itself domain-agnostic; what
+pins this file to the ntake plugin is ``FocusedContext``, which names ntake's
+entity types (``resolved_work_item_ids`` / ``resolved_event_ids``) and so cannot
+live in the domain-agnostic engine.
 
 The generic propose contract (``AssistantClient`` / ``ProposedAction`` /
-``NullAssistant``) lives in the domain-agnostic engine (``app.routing``) and is
-re-exported here so the plugin (FakeAssistant, endpoints, tests) can import it
-from one place. The **app-specific** capture types (``CaptureRequest``,
-``FocusedContext``) stay here — they are ntake's domain shape, NOT part of the
-reusable engine. ntake assistants consume a ``FocusedContext``; the engine treats
-that as the opaque ``ctx`` it never inspects.
+``NullAssistant``) lives in the engine (``app.routing``) and is re-exported here
+so the plugin (FakeAssistant, endpoints, tests) can import it from one place.
 """
 
 from __future__ import annotations
@@ -29,7 +34,6 @@ __all__ = [
     "FocusedContext",
     "NullAssistant",
     "ProposedAction",
-    "render_focus",
 ]
 
 
@@ -81,20 +85,19 @@ class FocusedContext(ActionContext):
         """The event target to attach, or None (first resolved event id)."""
         return self.resolved_event_ids[0] if self.resolved_event_ids else None
 
+    def render(self) -> str:
+        """A readable print of what the assistant is focused on.
 
-def render_focus(ctx: FocusedContext) -> str:
-    """A readable print of what the assistant is focused on (the FocusedContext).
-
-    Used to describe back to the user what the assistant understood. The
-    FakeAssistant stamps this verbatim onto each proposal's ``llm_rationale``
-    (pass-through — no intelligence); a real assistant (Ollama) will instead
-    write a genuine natural-language description in that slot.
-    """
-    parts = [f"Understood: “{ctx.text}”"]
-    if ctx.resolved_work_item_ids:
-        ids = ", ".join(f"#{i}" for i in ctx.resolved_work_item_ids)
-        parts.append(f"work items: {ids}")
-    if ctx.resolved_event_ids:
-        ids = ", ".join(f"e{i}" for i in ctx.resolved_event_ids)
-        parts.append(f"events: {ids}")
-    return " · ".join(parts)
+        Describes back to the user what the assistant understood (text + resolved
+        ids). The FakeAssistant stamps this verbatim onto each proposal's
+        ``llm_rationale`` (pass-through — no intelligence); a real assistant
+        (Ollama) will instead write a genuine natural-language description there.
+        """
+        parts = [f"Understood: “{self.text}”"]
+        if self.resolved_work_item_ids:
+            ids = ", ".join(f"#{i}" for i in self.resolved_work_item_ids)
+            parts.append(f"work items: {ids}")
+        if self.resolved_event_ids:
+            ids = ", ".join(f"e{i}" for i in self.resolved_event_ids)
+            parts.append(f"events: {ids}")
+        return " · ".join(parts)

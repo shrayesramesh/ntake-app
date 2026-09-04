@@ -318,7 +318,7 @@ Member enters an event capture or a work-item update (free text) in the PWA
 - **The assistant describes what it understood.** Each proposal carries, in its
   `llm_rationale`, the model's account of what it focused on / why it proposed
   this (rendered as the card's secondary line). In v1 the fake passes the focused
-  context through verbatim (`render_focus`); a real model writes a genuine
+  context through verbatim (`FocusedContext.render()`); a real model writes a genuine
   description. The ground-truth "what this will do" line is separate and
   registry-derived (`action_summary`), so a wrong rationale can't misstate the
   action.

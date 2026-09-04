@@ -15,7 +15,7 @@ Auth-protected. Proposals are returned only to the caller (author's device).
 from __future__ import annotations
 
 import app.main as main
-from app.assistant.context import AssistantClient
+from app.assistant.capture import AssistantClient
 from app.models import Event, WorkItem, WorkItemUpdate
 
 

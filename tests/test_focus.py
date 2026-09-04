@@ -6,7 +6,8 @@ produces the *focused world* stage 2 reasons over. Post-reshape (WORKPLAN-A2) th
 (NOT the legacy ``calendar_window``). ``FakeCaptureResolver`` runs the real
 two-call *shape* with a deterministic, model-free LINK.
 
-``render_focus`` and the FocusedContext shape are pinned in ``test_context.py``.
+``FocusedContext.render()`` and the FocusedContext shape are pinned in
+``test_context.py``.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.assistant.base import CaptureResolver
-from app.assistant.context import CaptureRequest, FocusedContext
+from app.assistant.capture import CaptureRequest, FocusedContext
 from app.assistant.fake import FakeCaptureResolver
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)

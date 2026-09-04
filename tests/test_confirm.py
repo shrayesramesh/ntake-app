@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.assistant.context import FocusedContext
+from app.assistant.capture import FocusedContext
 from app.assistant.fake import FakeAssistant
 from app.models import Event, Family, Member, WorkItem, WorkItemUpdate
 

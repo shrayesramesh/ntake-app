@@ -49,7 +49,6 @@ from app.assistant.base import (
     AssistantClient,
     FocusedContext,
     ProposedAction,
-    render_focus,
 )
 
 _WEEKDAYS = {
@@ -91,7 +90,7 @@ class FakeAssistant(AssistantClient[FocusedContext]):
         # The assistant describes what it understood. The fake just passes the
         # focused context through (a print) onto each proposal — per-action, so a
         # card is self-describing. A real assistant writes a genuine description.
-        focus_note = render_focus(ctx)
+        focus_note = ctx.render()
         for p in proposals:
             p.llm_rationale = focus_note
         return proposals

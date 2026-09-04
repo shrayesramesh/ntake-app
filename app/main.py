@@ -29,7 +29,7 @@ from sse_starlette.sse import EventSourceResponse
 import app.db as db
 from app import __version__
 from app.assistant.actions import REGISTRY, ActionError, apply_action
-from app.assistant.context import CaptureRequest, FocusedContext
+from app.assistant.capture import CaptureRequest, FocusedContext
 from app.assistant.factory import get_assistant, get_capture_resolver
 from app.auth import current_member, current_member_stream
 from app.config import config_path, load_config, seed_from_config
