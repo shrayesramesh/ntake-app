@@ -22,7 +22,7 @@ Two deliberate properties:
   **events they participate in** (their id in the event's ``participants``) are
   unioned in (deduped) so PROPOSE can reason about the member's load.
 
-App-coupled (takes a Session), like world.py; returns a plain string.
+App-coupled (takes a Session), like world_view.py; returns a plain string.
 """
 
 from __future__ import annotations

@@ -10,7 +10,7 @@ registry.
 from __future__ import annotations
 
 from app.assistant.actions import REGISTRY
-from app.assistant.tools import build_tools_view
+from app.assistant.tools_view import build_tools_view
 from app.routing.engine import ActionRegistry, ActionSpec, Param
 
 

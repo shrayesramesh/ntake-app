@@ -89,7 +89,7 @@ def test_propose_prompt_states_utc_and_one_of_rules():
 
 
 def test_assembled_link_prompt_over_populated_family(session, populated_family):
-    from app.assistant.world import build_world_view
+    from app.assistant.world_view import build_world_view
     from tests.expectations import assert_matches_expectation
 
     p = populated_family
@@ -104,7 +104,7 @@ def test_assembled_link_prompt_over_populated_family(session, populated_family):
 def test_assembled_propose_prompt_over_populated_family(session, populated_family):
     from app.assistant.actions import REGISTRY
     from app.assistant.deep_context import deep_context
-    from app.assistant.tools import build_tools_view
+    from app.assistant.tools_view import build_tools_view
     from app.models import Member
     from tests.expectations import assert_matches_expectation
 

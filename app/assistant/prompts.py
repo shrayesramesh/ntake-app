@@ -1,11 +1,11 @@
 """Prompt templates for the two-LLM-call capture pipeline (LLD OQ-1).
 
 Backend-agnostic (any LLM backend uses the same role/rules; nothing Ollama-
-specific here), so this lives in the plugin next to ``world.py`` / ``tools.py``
-rather than in an ``ollama`` package. Each prompt is a ``str.format`` template
-plus a small filler function; the model client injects the runtime pieces
-(now/tz, the views, the note) at call time and applies its own ``format`` JSON
-schema on top.
+specific here), so this lives in the plugin next to ``world_view.py`` /
+``tools_view.py`` rather than in an ``ollama`` package. Each prompt is a
+``str.format`` template plus a small filler function; the model client injects
+the runtime pieces (now/tz, the views, the note) at call time and applies its own
+``format`` JSON schema on top.
 
 Two calls (see spec/LLD-assistant-pipeline.md):
 
