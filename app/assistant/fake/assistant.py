@@ -84,17 +84,10 @@ class FakeAssistant(AssistantClient[FocusedContext]):
         weekday = next((wd for name, wd in _WEEKDAYS.items() if name in text), None)
         event_word = any(w in text for w in _EVENT_WORDS)
 
-        proposals: list[ProposedAction] = []
-
         if tid is None:
-            proposals += self._propose_new_item(ctx, weekday, event_word)
+            proposals = self._propose_new_item(ctx, weekday, event_word)
         else:
-            proposals += self._propose_existing_item(
-                ctx, tid, text, weekday, event_word
-            )
-        # Drop a lone no_action if we already have a real proposal.
-        if len(proposals) > 1:
-            proposals = [p for p in proposals if p.name != "no_action"]
+            proposals = self._propose_existing_item(ctx, tid, text, weekday, event_word)
         # The assistant describes what it understood. The fake just passes the
         # focused context through (a print) onto each proposal — per-action, so a
         # card is self-describing. A real assistant writes a genuine description.
