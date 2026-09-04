@@ -1,0 +1,28 @@
+AVAILABLE TOOLS:
+- set_due_date: Set a work item's due date. — params: due_at: datetime
+- complete_work_item: Mark a work item done. — params: (no params)
+- start_work_item: Start work on an item (move it to Doing). — params: (no params)
+- move_to_on_deck: Move a work item to On deck (queued up next). — params: (no params)
+- move_to_todo: Move a work item back to Todo. — params: (no params)
+- reopen_work_item: Reopen a completed item (back to Todo; clears completion). — params: (no params)
+- assign_work_item: Assign a work item to a family member. — params: member_id: integer
+- archive_work_item: Archive a work item (only a done item may be archived). — params: (no params)
+- add_checklist_items: Add checklist items (e.g. a grocery list) to a work item. — params: items: array<string>
+- create_event: Create a calendar event (timed OR all-day). — params: title: string, description: string?, location: string?, start_at: datetime?, end_at: datetime?, start_date: date?, end_date: date?, participants: object?  (exactly one of: {start_at, end_at} OR {start_date, end_date})
+- reschedule_event: Move an existing event to new timing (timed OR all-day). — params: start_at: datetime?, end_at: datetime?, start_date: date?, end_date: date?  (exactly one of: {start_at, end_at} OR {start_date, end_date})
+- create_work_item: Create a new work item (a task/todo). — params: title: string, description: string?, tags: array<string>?
+- no_action: Nothing to suggest. — params: (no params)
+- deconflict_events: Move an event to the next day to resolve a same-time conflict. — params: (no params)
+
+CONTEXT:
+NOTE FROM: [m1] Alex (adult)
+
+RELEVANT WORK ITEMS:
+- [w2] call plumber (doing)
+    · (no updates yet)
+
+RELEVANT EVENTS:
+- (none)
+
+THE NOTE:
+"he's coming friday at 3"

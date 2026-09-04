@@ -1,0 +1,17 @@
+THE WORLD:
+FAMILY MEMBERS:
+- [m1] Alex (adult)
+- [m2] Sam (child)
+
+OPEN WORK ITEMS:
+- [w1] buy stamps (todo)
+- [w2] call plumber (doing)
+- [w3] file taxes (done)
+
+EVENTS:
+- [e4] Holiday — Sat Sep 5 (all day)
+- [e1] Soccer — Tue Sep 1, 3:00 PM
+- [e3] Dentist — Tue Dec 1, 2:00 PM
+
+THE NOTE:
+"he's coming friday at 3"

@@ -21,7 +21,7 @@ SRC  := app tests
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup test run lint format typecheck check coverage smoke freeze clean
+.PHONY: help setup test run lint format typecheck check coverage smoke freeze clean update-expectations
 
 help: ## Show available targets
 	@echo "Targets:"
@@ -35,6 +35,11 @@ setup: ## Create venv, install deps, and run tests (delegates to setup.sh)
 test: ## Run the test suite
 	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
 	$(PYTEST) -v -W ignore
+
+update-expectations: ## Regenerate golden-file prompt/LLM expectations (review the diff!)
+	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
+	NTAKE_UPDATE_EXPECTATIONS=1 $(PYTEST) -q -W ignore tests/test_prompts.py
+	@echo "Expectations regenerated — review 'git diff tests/expectations/'."
 
 run: ## Run the dev server (127.0.0.1:8000)
 	@test -x $(UVICORN) || { echo "No venv found — run 'make setup' first."; exit 1; }
