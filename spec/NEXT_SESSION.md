@@ -60,7 +60,7 @@ app/assistant/local_llm/
 │                 #   holds base_url/model/timeout. No prompt/domain logic. [DONE]
 ├── tools_schema.py  # registry -> constrained-output JSON schema (pure fn). [DONE]
 ├── assistant.py  # LocalLlmAssistant[FocusedContext] (stage 2): build prompt+schema,
-│                 #   call the LLM, parse -> [ProposedAction]
+│                 #   call the LLM, parse -> [ProposedAction] [DONE]
 ├── resolver.py   # LocalLlmCaptureResolver (stage 1): build_world_view + note
 │                 #   -> LINK ids -> deep_context -> FocusedContext
 ├── prompt.py     # (or reuse app/assistant/prompts.py — already built)
@@ -128,10 +128,16 @@ Each step is its own sub-checkpoint; run `make check` and paste output.
    (`httpx.MockTransport`) — the transport shape + happy path + a minimal
    "don't raise on a junk body → `{}`" posture; full adversarial/timeout
    hardening is step 6. `transport=` is an injection seam for tests.
-4. **propose — call 2 (`assistant.py`, `LocalLlmAssistant`).** Build the propose
-   prompt + schema → call the `LLM` → parse/validate/attach → `[ProposedAction]`.
-   Test with a hand-built deep `FocusedContext` + `ScriptedLLM` (no link needed
-   yet).
+4. **propose — call 2 (`assistant.py`, `LocalLlmAssistant`). DONE.** Builds the
+   propose prompt (`build_propose_prompt`) + schema (`build_tools_schema`) → calls
+   the `LLM` seam → parses the actions array (tolerant drop) → keeps only
+   registered names → attaches the server-known target from the resolved ids →
+   `[ProposedAction]`. The model emits id-free `{name, params}`; attach is
+   type-based (≤1 per type): `needs_target` → primary work-item id, except the
+   event-target actions → primary event id. Tested with a hand-built deep
+   `FocusedContext` + `ScriptedLLM` (no link/DB). *(Fast-follow: the event-vs-work
+   target category is being lifted onto `ActionSpec.target_type` so the assistant
+   reads it instead of a local set — see the refactor commit.)*
 5. **link — call 1 (`resolver.py`, `LocalLlmCaptureResolver`).**
    `build_world_view` + note → LINK call → `parse_ids` (exists) → `deep_context`
    (exists) → `FocusedContext`. Test with `ScriptedLLM`.
