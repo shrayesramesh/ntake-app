@@ -188,3 +188,126 @@ def test_main_backup_writes_snapshot(cli_db, tmp_path, capsys):
             bs.close()
     finally:
         beng.dispose()
+
+
+# --- llm ops (run_llm_command) --------------------------------------------
+
+
+def _cfg():
+    from app.assistant.factory import AssistantConfig
+
+    return AssistantConfig(kind="local", model="llama3.1:8b")
+
+
+def test_llm_health_ok_returns_zero(monkeypatch):
+    import app.assistant.local_llm.infra as infra
+    from app.assistant.local_llm.infra import HealthResult
+    from app.manage import run_llm_command
+
+    monkeypatch.setattr(
+        infra,
+        "check_health",
+        lambda base_url, model: HealthResult(
+            reachable=True, model_ok=True, served_models=[model], detail="serving"
+        ),
+    )
+    code, out = run_llm_command("health", _cfg())
+    assert code == 0
+    assert "health: ok" in out
+
+
+def test_llm_health_not_serving_returns_one(monkeypatch):
+    import app.assistant.local_llm.infra as infra
+    from app.assistant.local_llm.infra import HealthResult
+    from app.manage import run_llm_command
+
+    monkeypatch.setattr(
+        infra,
+        "check_health",
+        lambda base_url, model: HealthResult(
+            reachable=True, model_ok=False, served_models=["other"], detail="nope"
+        ),
+    )
+    code, out = run_llm_command("health", _cfg())
+    assert code == 1
+    assert "NOT ok" in out
+
+
+def test_llm_warm_ok_returns_zero(monkeypatch):
+    import app.assistant.local_llm.infra as infra
+    from app.manage import run_llm_command
+
+    monkeypatch.setattr(infra, "warm", lambda base_url, model: True)
+    code, out = run_llm_command("warm", _cfg())
+    assert code == 0
+    assert "warm: ok" in out
+
+
+def test_llm_warm_failure_returns_one(monkeypatch):
+    import app.assistant.local_llm.infra as infra
+    from app.manage import run_llm_command
+
+    monkeypatch.setattr(infra, "warm", lambda base_url, model: False)
+    code, out = run_llm_command("warm", _cfg())
+    assert code == 1
+    assert "FAILED" in out
+
+
+def test_llm_status_combines_health_and_warm(monkeypatch):
+    import app.assistant.local_llm.infra as infra
+    from app.assistant.local_llm.infra import HealthResult
+    from app.manage import run_llm_command
+
+    monkeypatch.setattr(
+        infra,
+        "check_health",
+        lambda base_url, model: HealthResult(
+            reachable=True, model_ok=True, served_models=[model], detail="serving"
+        ),
+    )
+    monkeypatch.setattr(infra, "warm", lambda base_url, model: True)
+    code, out = run_llm_command("status", _cfg())
+    assert code == 0
+    assert "health: ok" in out and "warm: ok" in out
+
+
+def test_llm_status_unreachable_skips_warm(monkeypatch):
+    import app.assistant.local_llm.infra as infra
+    from app.assistant.local_llm.infra import HealthResult
+    from app.manage import run_llm_command
+
+    monkeypatch.setattr(
+        infra,
+        "check_health",
+        lambda base_url, model: HealthResult(
+            reachable=False, model_ok=False, served_models=[], detail="unreachable"
+        ),
+    )
+    code, out = run_llm_command("status", _cfg())
+    assert code == 1
+    assert "warm: skipped" in out
+
+
+def test_main_llm_dispatch_prints_and_returns_code(monkeypatch, capsys):
+    import app.manage as manage
+    from app.manage import main
+
+    # Stub the core so the CLI wiring is tested without touching a real server.
+    monkeypatch.setattr(
+        manage, "run_llm_command", lambda cmd, config: (0, f"health: ok ({cmd})")
+    )
+    rc = main(["llm", "health"])
+    assert rc == 0
+    assert "health: ok (health)" in capsys.readouterr().out
+
+
+def test_main_llm_dispatch_propagates_failure_code(monkeypatch, capsys):
+    import app.manage as manage
+    from app.manage import main
+
+    monkeypatch.setattr(
+        manage, "run_llm_command", lambda cmd, config: (1, "warm: FAILED")
+    )
+    rc = main(["llm", "warm"])
+    assert rc == 1
+    assert "warm: FAILED" in capsys.readouterr().out

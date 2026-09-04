@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -72,6 +73,30 @@ from app.web import (
 )
 
 
+def _warm_local_model_in_background() -> None:
+    """Fire a best-effort warm-ping if the local LLM backend is configured.
+
+    Priming loads the model into memory so the first real capture isn't a
+    cold-load miss (the pipeline is two sequential calls; a cold first call can
+    take tens of seconds). Runs in a daemon thread so it NEVER blocks startup or
+    delays serving, and is fully best-effort — any failure is swallowed (the
+    request path already degrades gracefully if the model is cold/down). No-op
+    unless ``kind == "local"``.
+    """
+    from app.assistant.factory import default_assistant_config
+
+    config = default_assistant_config()
+    if config.kind != "local":
+        return
+
+    def _warm() -> None:
+        from app.assistant.local_llm.infra import warm
+
+        warm(config.base_url, config.model)  # returns bool; ignore, best-effort
+
+    threading.Thread(target=_warm, name="ntake-llm-warm", daemon=True).start()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """On startup: migrate the DB to head, then seed identity from config.
@@ -94,6 +119,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             seed_from_config(session, load_config(path))
         finally:
             session.close()
+
+    _warm_local_model_in_background()
 
     yield
 

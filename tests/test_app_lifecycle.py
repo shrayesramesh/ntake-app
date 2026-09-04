@@ -94,3 +94,48 @@ def test_app_lifespan_initializes_schema_so_events_works(tmp_path, monkeypatch):
         r = client.get("/events", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
         assert r.json() == []
+
+
+# --- startup warm-ping hook (task 7 step 10) ------------------------------
+
+
+def test_warm_hook_noop_for_fake_backend(monkeypatch):
+    """Default (fake) config: the startup warm hook does nothing (no thread)."""
+    import app.assistant.local_llm.infra as infra
+    import app.main as main
+
+    called = []
+    monkeypatch.setattr(infra, "warm", lambda base_url, model: called.append(1))
+    main._warm_local_model_in_background()  # default config is fake
+    assert called == []
+
+
+def test_warm_hook_warms_for_local_backend(monkeypatch):
+    """local config: the hook warms the model in a background thread."""
+    import threading
+
+    import app.assistant.factory as factory
+    import app.assistant.local_llm.infra as infra
+    import app.main as main
+
+    monkeypatch.setattr(
+        factory,
+        "default_assistant_config",
+        lambda: factory.AssistantConfig(
+            kind="local", model="llama3.1:8b", base_url="http://localhost:8080"
+        ),
+    )
+    done = threading.Event()
+    seen: dict = {}
+
+    def _warm(base_url, model):
+        seen["base_url"] = base_url
+        seen["model"] = model
+        done.set()
+        return True
+
+    monkeypatch.setattr(infra, "warm", _warm)
+
+    main._warm_local_model_in_background()
+    assert done.wait(timeout=2.0), "warm was not called in the background"
+    assert seen == {"base_url": "http://localhost:8080", "model": "llama3.1:8b"}

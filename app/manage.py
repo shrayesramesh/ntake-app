@@ -201,6 +201,53 @@ def backup_db(session: Session, dest: Path | str) -> Path:
     return dest_path
 
 
+def _backup_dest(dest_arg: str | None) -> Path:
+    """Resolve the backup destination: the given path, or a timestamped default."""
+    if dest_arg:
+        return Path(dest_arg)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    return Path("backups") / f"ntake-{stamp}.db"
+
+
+def run_llm_command(llm_command: str, config) -> tuple[int, str]:
+    """Run an ``llm`` op (health/warm/status) over the configured model server.
+
+    Pure-ish core (like the other ``manage`` helpers): takes the resolved config,
+    returns ``(exit_code, message)`` — the CLI just prints + exits. Reads
+    ``config.base_url`` / ``config.model``. Exit code is 0 when the endpoint is
+    reachable-and-serving (health/status) or warmed (warm), else 1 — so a
+    scripted host check can gate on it. Never raises (infra degrades internally).
+    """
+    from app.assistant.local_llm.infra import check_health, warm
+
+    base_url, model = config.base_url, config.model
+
+    if llm_command == "warm":
+        ok = warm(base_url, model)
+        return (
+            (0, f"warm: ok (model {model!r} primed)")
+            if ok
+            else (
+                1,
+                f"warm: FAILED — no response from {base_url}",
+            )
+        )
+
+    # health / status both probe health; status also warms.
+    health = check_health(base_url, model)
+    lines = [f"health: {'ok' if health.model_ok else 'NOT ok'} — {health.detail}"]
+    code = 0 if health.model_ok else 1
+
+    if llm_command == "status":
+        if health.reachable:
+            warmed = warm(base_url, model)
+            lines.append(f"warm: {'ok' if warmed else 'FAILED'}")
+            code = 0 if (health.model_ok and warmed) else 1
+        else:
+            lines.append("warm: skipped (endpoint unreachable)")
+    return code, "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.manage")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -233,6 +280,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Run DB migrations to head (alembic upgrade head on CALENDAR_DB_URL)",
     )
 
+    llm = sub.add_parser(
+        "llm",
+        help="Local LLM ops over an already-running server (health/warm/status)",
+    )
+    llm.add_argument(
+        "llm_command",
+        choices=["health", "warm", "status"],
+        help="health: is the endpoint up + serving the model? "
+        "warm: prime the model into memory. status: both.",
+    )
+
     args = parser.parse_args(argv)
 
     # `migrate` is the schema path for the real DB — it must NOT go through
@@ -245,6 +303,14 @@ def main(argv: list[str] | None = None) -> int:
         upgrade_to_head(DB_URL)
         print(f"Migrated {DB_URL} to head.")
         return 0
+
+    # `llm` ops talk to the model server only — no DB. Handle before session setup.
+    if args.command == "llm":
+        from app.assistant.factory import default_assistant_config
+
+        code, message = run_llm_command(args.llm_command, default_assistant_config())
+        print(message)
+        return code
 
     # Import here so tests that only exercise the core functions don't require
     # the app DB/env to import this module.
@@ -277,12 +343,7 @@ def main(argv: list[str] | None = None) -> int:
                 kind = "all-day" if ev.all_day else "timed"
                 print(f"    [{ev.id}] {ev.title} ({kind})")
         elif args.command == "backup":
-            if args.dest:
-                dest = Path(args.dest)
-            else:
-                stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-                dest = Path("backups") / f"ntake-{stamp}.db"
-            out = backup_db(session, dest)
+            out = backup_db(session, _backup_dest(args.dest))
             print(f"Wrote snapshot: {out}")
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)

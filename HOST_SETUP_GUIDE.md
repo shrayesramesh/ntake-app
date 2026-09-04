@@ -96,6 +96,9 @@ curl http://127.0.0.1:8000/health      # -> {"status":"ok","version":"..."}
 `/events` and `/events/stream` require a device token (see §3) — a bare request
 returns `401`, which is correct.
 
+The assistant runs the deterministic `fake` backend by default (no model needed).
+To enable the **live local LLM** helper, set up a model server — see §7 (optional).
+
 ---
 
 ## 3. Enroll a device (mint a token)
@@ -225,6 +228,129 @@ does **not** exercise the PWA (that needs HTTPS, i.e. Tailscale).
 
 ---
 
+## 7. Local assistant model (optional — the propose-and-confirm helper)
+
+The app runs fine **without** a model: by default the assistant is the
+deterministic `fake` backend (keyword rules), so capture → propose → confirm
+works for testing. The **live local LLM** is what makes the assistant actually
+reason over free-text notes. It is entirely local — no cloud, no data leaves the
+machine (NFR-PRIVACY) — and it is **operator-provisioned**: the app never
+downloads the model (fetching multi-GB weights with checksum/verify is a
+subsystem we deliberately don't build; you manage the binary + weights below).
+
+> **Reference runtime: llamafile.** A single portable executable that serves an
+> OpenAI-compatible `/v1/chat/completions` on localhost with grammar/JSON-
+> constrained output. The app is runtime-agnostic — **Ollama, LM Studio, and
+> llama.cpp `llama-server` expose the same endpoint** and work by pointing the
+> config's `base_url` at them (e.g. `http://localhost:11434` for Ollama). We
+> document llamafile because it's the one we test against on both the dev Mac and
+> the host.
+
+### 7.1 Acquire the binary + a model (manual, one time)
+
+Pick **one** distribution shape:
+
+- **(a) Self-contained model-llamafile** — one executable with the weights baked
+  in (simplest; larger file). Download from the llamafile releases, `chmod +x`,
+  done.
+- **(b) Bare `llamafile` binary + a `.gguf`** — the reusable binary plus a model
+  file you point it at (lets you A/B models without re-downloading the runtime).
+
+**Reference model (this box: M4 Pro, 48 GB):** **Llama 3.1 8B Instruct**, `Q8_0`
+quant (~8.5 GB) to start. **Qwen2.5 14B Instruct** `Q4_K_M` (~9 GB) is a quality
+A/B — both fit a ~9–10 GB budget. Use a **non-thinking** instruct model (the
+prompts expect a direct JSON answer, no `<think>` blocks to strip).
+
+**On-disk location (choose one and keep it stable):**
+```
+~/.local/share/ntake/llm/          # suggested
+  llamafile                        # (b) the binary, chmod +x
+  llama-3.1-8b-instruct.Q8_0.gguf  # (b) the weights
+```
+Verify the download's checksum against the release page before trusting it. These
+files are large and **must not** go in the repo or any backup that leaves the
+machine.
+
+### 7.2 Serve it on localhost:8080
+
+The app's default `base_url` is `http://localhost:8080` (see §7.4), so serve
+there (or change the config to match your port).
+
+**Dev Mac — run it directly** (foreground; Ctrl-C to stop):
+```bash
+# shape (a), self-contained model-llamafile:
+~/.local/share/ntake/llm/llamafile --server --host 127.0.0.1 --port 8080 --nobrowser
+
+# shape (b), bare binary + gguf:
+~/.local/share/ntake/llm/llamafile --server --host 127.0.0.1 --port 8080 --nobrowser \
+  -m ~/.local/share/ntake/llm/llama-3.1-8b-instruct.Q8_0.gguf
+```
+Confirm it's up:
+```bash
+curl http://localhost:8080/v1/models      # lists the served model
+```
+
+**Host — a systemd unit** (auto-start on boot, restart on failure). This is the
+one operational cost we accepted vs. Ollama's turnkey service. Create
+`~/.config/systemd/user/ntake-llm.service`:
+```ini
+[Unit]
+Description=ntake local LLM (llamafile)
+After=network.target
+
+[Service]
+ExecStart=%h/.local/share/ntake/llm/llamafile --server --host 127.0.0.1 --port 8080 --nobrowser -m %h/.local/share/ntake/llm/llama-3.1-8b-instruct.Q8_0.gguf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now ntake-llm.service
+loginctl enable-linger "$USER"     # so it runs without you logged in
+systemctl --user status ntake-llm.service
+```
+Bind to **127.0.0.1** — the model server is local-only; nothing about it is
+exposed over Tailscale.
+
+### 7.3 Warm it + check health (from the app)
+
+Once the server is up, the app has a small operational surface over the
+*already-running* endpoint (it does **not** start/stop the model):
+```bash
+python -m app.manage llm health    # is the endpoint up + serving the expected model?
+python -m app.manage llm warm      # send a tiny priming request to load the model into RAM
+python -m app.manage llm status    # health + warmth summary
+```
+**Why warm matters (cold start):** the pipeline makes **two** sequential model
+calls per capture, and a model's *first* call after idle takes seconds to tens of
+seconds to load into memory. Run `llm warm` after (re)starting the server — and
+note the app runs a warm-ping on startup — so the first real capture isn't a cold
+miss that times out and degrades to "no suggestions." The `local` timeout default
+is large (120s) for the same reason.
+
+### 7.4 Turn the assistant on (config-in-code)
+
+The assistant backend is selected by a code value, **not an env var**:
+`AssistantConfig` in `app/assistant/factory.py` (`kind`, `model`, `base_url`,
+`timeout`). To run the live model, construct the config with `kind="local"`
+(defaults: `model="llama3.1:8b"`, `base_url="http://localhost:8080"`,
+`timeout=120.0`). Point `base_url` at another runtime (e.g. Ollama on `:11434`)
+or name a different `model` there.
+
+### 7.5 End-to-end smoke (with the model actually serving)
+
+This is the one thing the automated tests can't check — real reasoning quality:
+```bash
+make smoke        # runs the host integration smoke; --serve keeps the server up
+```
+Confirm real captures produce sane proposals; expect to **tune** prompt wording
+and the timeout against what you observe (the prompt drafts anticipate this).
+
+---
+
 ## Troubleshooting
 
 - **`/events` returns 401 with a token:** confirm `NTAKE_TOKEN_SECRET` is the
@@ -237,3 +363,11 @@ does **not** exercise the PWA (that needs HTTPS, i.e. Tailscale).
   the new member.
 - **Phone can't reach the LAN URL:** see the §5 caveats (same Wi-Fi, client
   isolation, host firewall).
+- **Captures return no suggestions with the local model on:** most often a
+  cold-start timeout — run `python -m app.manage llm warm` after (re)starting the
+  model server (§7.3), and confirm `llm health` reports the endpoint up and the
+  expected model. The app degrades to empty proposals (never errors) when the
+  model is down/slow, so an always-empty result usually means the model server
+  isn't reachable at the configured `base_url`.
+- **`llm health` says wrong/missing model:** the served model name must match the
+  config's `model`; check `curl http://localhost:8080/v1/models` against §7.4.

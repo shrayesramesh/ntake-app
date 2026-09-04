@@ -64,7 +64,7 @@ app/assistant/local_llm/
 ├── resolver.py   # LocalLlmCaptureResolver (stage 1): build_world_view + note
 │                 #   -> LINK ids -> deep_context -> FocusedContext [DONE]
 ├── prompt.py     # (or reuse app/assistant/prompts.py — already built)
-└── infra.py      # host mgmt: health check + a warm ping (see Track B)
+└── infra.py      # host mgmt: health check + a warm ping (see Track B) [DONE]
 ```
 
 **Runtime decision (resolved): llamafile is the reference runtime; the backend is
@@ -221,12 +221,17 @@ add** (additive) if the manual step proves annoying.
    helper. Host: a **systemd unit** (auto-start on boot, restart on failure) —
    this is the "one added cost vs. Ollama's turnkey service." Document in
    `HOST_SETUP_GUIDE`. *(Not app code, beyond an optional make/dev helper.)*
-10. **`infra.py` + `manage llm` (app code — TDD-able like the other `manage`
-    helpers).** The in-app operational surface over an *already-running* endpoint:
-    **health** (is `NTAKE_LOCAL_LLM_URL` up + serving the expected model?),
-    **warm** (send a tiny priming request to load the model into memory so the
-    first real capture isn't a cold miss), and **status**. Pure-ish core fns +
-    a thin CLI wrapper + a startup warm-ping hook. Test against stubbed httpx.
+10. **`infra.py` + `manage llm` (app code). DONE.** The in-app operational surface
+    over an *already-running* endpoint: `check_health` (GET `/v1/models` — reachable
+    + serving the expected model?) and `warm` (a tiny priming completion), both
+    non-raising (down/slow → `reachable=False`/`False`, never an exception). A
+    `manage llm {health,warm,status}` CLI (testable `run_llm_command` core) and a
+    **best-effort, non-blocking startup warm-ping** (`_warm_local_model_in_background`
+    — daemon thread, no-op unless `kind="local"`). Tested against stubbed httpx.
+    **Operator runbook (steps 8–9) written in `HOST_SETUP_GUIDE` §7** — acquire
+    llamafile + model, serve on :8080 (dev + systemd unit), warm/health, turn the
+    assistant on via config. *(Steps 8–9 execution — actually downloading/serving a
+    model — remain human/host work, not agent code.)*
 
 ### End-to-end smoke (after A + B)
 
