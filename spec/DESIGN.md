@@ -244,7 +244,7 @@ FocusedContext {text, timezone, now,
 - **v1 scope:** stage-1 resolution is **deterministic**, not yet an LLM call —
   `FakeCaptureResolver` uses a model-free LINK (`fake/link.py`, significant-word
   title matching) to resolve ids, then the real `deep_context`. The
-  LLM-backed `OllamaCaptureResolver` (task 7) swaps in a real LINK call (which also
+  LLM-backed `LocalLlmCaptureResolver` (task 7) swaps in a real LINK call (which also
   builds `build_world_view` for its prompt) behind the same seam. The fake's LINK
   is deterministic (title matching), so the fake now resolves existing-item
   targets too — the note-append / set-due-date paths are reachable in v1, not
@@ -253,7 +253,7 @@ FocusedContext {text, timezone, now,
   (stage 2) reasons over a hand-built `FocusedContext` with zero DB, and the
   `FakeCaptureResolver` (stage 1) produces focused contexts from seeded rows.
   Both are chosen by `NTAKE_ASSISTANT` via `app/assistant/factory.py`
-  (`get_assistant()` / `get_capture_resolver()`); the Ollama implementations
+  (`get_assistant()` / `get_capture_resolver()`); the local-LLM implementations
   (task 7) drop into the same seams behind the same switch.
 
 The rest of this section describes the confirm half of the loop.
@@ -314,7 +314,7 @@ Member enters an event capture or a work-item update (free text) in the PWA
   `create_work_item` / `create_event` proposal. Appending a `source=human` note
   to a *specific* existing item is a separate, explicit action —
   `POST /work-items/{id}/updates` — not the capture path. (Resolving a target
-  work item *from the text* is a v2/Ollama focuser capability; see §4.1a.)
+  work item *from the text* is a v2/local-LLM focuser capability; see §4.1a.)
 - **The assistant describes what it understood.** Each proposal carries, in its
   `llm_rationale`, the model's account of what it focused on / why it proposed
   this (rendered as the card's secondary line). In v1 the fake passes the focused
@@ -363,7 +363,7 @@ FocusedContext {text, tz, now, resolved_work_item_ids,
   the concrete target from the resolved ids (`primary_work_item_id` /
   `primary_event_id`). **v1:** the LINK is deterministic and model-free
   (`FakeCaptureResolver` → `fake_link`, significant-word title matching), so a
-  target *is* resolved from text without a model. The `OllamaCaptureResolver`
+  target *is* resolved from text without a model. The `LocalLlmCaptureResolver`
   (task 7) swaps in a real LINK call behind the same seam.
 - **Stage 2 `propose()`** reasons over the `FocusedContext` and emits
   `ProposedAction`s. Engine-clean; the reusable piece.
@@ -376,9 +376,10 @@ FocusedContext {text, tz, now, resolved_work_item_ids,
   the `NTAKE_ASSISTANT` switch: `get_capture_resolver()` (stage 1) and
   `get_assistant()` (stage 2), one switch driving both.
 - **Backends (parallel packages):** `app/assistant/fake/` (`FakeCaptureResolver`
-  + `FakeAssistant` — dev/tests, deterministic) and `app/assistant/ollama/`
-  (`OllamaCaptureResolver` + `OllamaAssistant` — host, task 7). They are mirror
-  images swapped by config.
+  + `FakeAssistant` — dev/tests, deterministic) and `app/assistant/local_llm/`
+  (`LocalLlmCaptureResolver` + `LocalLlmAssistant` — host, task 7; llamafile as the
+  reference runtime, any OpenAI-style localhost endpoint behind the same seam).
+  They are mirror images swapped by config.
 - **Engine — `app/routing/engine.py`** (imports NOTHING app-specific: no
   `app.models`, no `sqlalchemy`, no `fastapi`; enforced by a boundary test):
   `ProposedAction`, `AssistantClient`/`NullAssistant` (the propose contract);
@@ -425,6 +426,17 @@ second consumer appears — package-shape now, not a published package). See PLA
   purity.
 - **One switch.** `NTAKE_ASSISTANT` drives *both* stages (no separate
   `NTAKE_RESOLVER`); revisit only if we need to mix stages for debugging.
+- **Local-LLM runtime: runtime-agnostic, llamafile as reference.** The live
+  backend (`local`, task 7) is named for what it *is* — a local LLM behind an
+  OpenAI-style localhost HTTP seam (`LocalLlmClient`) — not for a specific server.
+  **llamafile** (single portable executable, OpenAI-compatible endpoint,
+  JSON/grammar-constrained output) is the reference runtime on **both** the dev
+  Mac and the host, so we test what we ship; **Ollama / LM Studio / llama.cpp
+  `llama-server` are interchangeable alternate endpoints** behind the same seam
+  (a URL/knob change in `client.py`, nothing above it). This keeps the shipped
+  assistant fully local (NFR-PRIVACY: no cloud in the data path). The only cost
+  vs. Ollama's turnkey service on the always-on host is writing a systemd unit +
+  warm ping — accepted for one runtime everywhere and zero runtime coupling.
 - **Vocabulary: actions vs tools.** "Actions" are what we *execute* (internal —
   `ActionSpec`/`ActionRegistry`/`ProposedAction`); "tools" are how those same
   actions are *presented to the LLM* (`build_tools_view`, the JSON schema). An
@@ -432,7 +444,7 @@ second consumer appears — package-shape now, not a published package). See PLA
 - **Param contract is typed data on the spec.** `ActionSpec.params: list[Param]`
   (`Param(name, datatype, required)`) + `exclusive_params` (mutually-exclusive
   groups, e.g. create_event's timed-vs-all-day); `required` is derived,
-  `prompt_line` renders the tool line, and the Ollama JSON-schema generator reads
+  `prompt_line` renders the tool line, and the local-LLM JSON-schema generator reads
   the same specs — lightest-engine / verbose-authoring, no stringly-typed markers
   or signature introspection. The registry is built from a **flat list** (no
   imperative `register()`); `ActionSpec.execute()` owns validate-then-apply.

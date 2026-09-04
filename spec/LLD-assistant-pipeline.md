@@ -76,8 +76,9 @@ return    FocusedContext(request, records)                             # focus()
   3pm" → concrete UTC) happens in param-grounding, which has `tz`/`now` via
   `FocusedContext`. Both use the same temporal frame.
 - **LLM is an injected effect, not a session.** `link` and `propose` take an
-  `LLM` (`(system, prompt, schema) -> Json` — the shared localhost-Ollama call);
-  neither takes a `Session`. The `Ollama*` classes are just these functions
+  `LLM` (`(system, prompt, schema) -> Json` — the shared localhost LLM call, an
+  OpenAI-style HTTP round trip; llamafile is the reference runtime); neither takes
+  a `Session`. The `LocalLlm*` classes are just these functions
   **partially applied to the LLM**: constructor captures the long-lived effect,
   the method takes per-call data — which re-derives the earlier decision (session
   is a method param, the client is a constructor field).
@@ -145,7 +146,7 @@ rather than hard-coding (v2 nicety; v1's six actions fetch the obvious slice).
   resolves to the real plumber item + its history. **Cost accepted for v1:** two
   sequential local-model calls in the request path (see the cold-start / timeout
   note in NEXT_SESSION — matters more now), and `focus()` is NOT deterministic
-  (`OllamaCaptureResolver` is a real LLM component in v1). This **supersedes** the
+  (`LocalLlmCaptureResolver` is a real LLM component in v1). This **supersedes** the
   earlier "deterministic v1 focus / one call" lean.
 - **OQ-2 — `WorldView` window.** Built as `window_days=7` (past window, forward
   open-ended), a parameter tunable later.
@@ -179,7 +180,7 @@ The model must cite an action **name** + its **params**. Deriving the param
 contract needs types + optionality + a cross-param one-of — more than the
 current `required: list[str]`. Decision: carry that **on `ActionSpec` as
 `list[Param]`** (single source; validation *and* the model catalog/prompt both
-derive from it), rather than a second catalog in the ollama package.
+derive from it), rather than a second catalog in the local_llm package.
 
 Authoring style chosen: **lightest engine, verbose authoring** — plain `Param`
 dataclass, no stringly-typed `!` convention, no signature introspection.
@@ -226,7 +227,7 @@ Decisions locked:
 
 - **`datatype`, not `type`** — avoids shadowing the builtin; `datatype` is used
   throughout our code. The literal JSON-Schema keyword `"type"` appears ONLY at
-  the final schema-emission step in the ollama package.
+  the final schema-emission step in the local_llm package.
 - **`name` on the spec IS the registry key.** `register(spec)` uses `spec.name`
   (drop the separate `name` arg to `register`). No duplication; `prompt_line`
   needs no argument because `self.name` is present.
@@ -235,7 +236,7 @@ Decisions locked:
 - **`required` is a derived property** (single source = `params`); `dispatch` /
   `require_params` are unchanged (they still read `spec.required`).
 - **`exclusive_params` is separate** (mutually-exclusive param *groups*, supply
-  exactly one group; references param names); the engine ignores it — the ollama
+  exactly one group; references param names); the engine ignores it — the local_llm
   schema generator turns it into JSON-Schema `oneOf`. Named for the domain
   property, not JSON Schema's keyword (same reasoning as `datatype` vs `type`).
 - **`prompt_line` lives on `ActionSpec`** (data renders itself). It formats only
@@ -280,7 +281,7 @@ participants.)
 internal domain). "Tools" are how those same actions are *presented to the LLM*.
 An action becomes a *tool* only at the model boundary; a `ProposedAction` coming
 back is a *tool call* we translate into an action to execute. So the model-facing
-renderer + JSON schema live in the ollama package under the "tools" name, while
+renderer + JSON schema live in the local_llm package under the "tools" name, while
 the engine keeps the "action" vocabulary.
 
 **Catalog / prompt** = the registry loop the model reads, exposed at the LLM
@@ -297,7 +298,7 @@ validated against each spec's `params`/`exclusive_params` **after** emission
    `register(spec)`
    keys off `spec.name`. Prove `dispatch`/validation unchanged.
 2. Migrate the six v1 specs to `params=[Param(...)]`.
-3. Catalog/prompt builder + the JSON-schema generator (ollama package).
+3. Catalog/prompt builder + the JSON-schema generator (local_llm package).
 
 ## Doc debt
 

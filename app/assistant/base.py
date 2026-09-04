@@ -1,7 +1,7 @@
 """The assistant contracts — the two swappable seams, in one place.
 
-This module homes the *interfaces* that the ``fake`` and ``ollama`` packages each
-implement, so a reader (or a new backend) has a single contract reference:
+This module homes the *interfaces* that the ``fake`` and ``local_llm`` packages
+each implement, so a reader (or a new backend) has a single contract reference:
 
 * **Stage 1 — :class:`CaptureResolver`**: resolve a raw ``CaptureRequest`` into a
   ``FocusedContext`` (the app-coupled, DB-touching stage). Defined here.
@@ -11,7 +11,7 @@ implement, so a reader (or a new backend) has a single contract reference:
   the shared value types import from one spot.
 
 The concrete backends live in parallel sub-packages selected by ``factory``:
-``app.assistant.fake`` (dev/tests) and ``app.assistant.ollama`` (host, task 7).
+``app.assistant.fake`` (dev/tests) and ``app.assistant.local_llm`` (host, task 7).
 The app-specific capture *value types* stay in ``app.assistant.capture``; this
 re-exports them too so a backend needs only ``from app.assistant.base import …``.
 """
@@ -51,7 +51,7 @@ class CaptureResolver(ABC):
     **app-coupled** seam (it touches the DB), unlike the domain-agnostic engine;
     the ``FocusedContext`` it returns is the plain, session-free value object that
     crosses into stage 2. Concrete resolvers: ``FakeCaptureResolver`` (v1,
-    deterministic) and (task 7) ``OllamaCaptureResolver`` (LLM-backed).
+    deterministic) and (task 7) ``LocalLlmCaptureResolver`` (LLM-backed).
     """
 
     @abstractmethod

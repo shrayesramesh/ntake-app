@@ -26,7 +26,7 @@ a two-stage pipeline (`CaptureResolver` → `AssistantClient`) over a reusable
 engine, with a `fake/` backend that runs the real two-call shape
 (`build_world_view` → `fake_link` → `deep_context` → `propose`). Live-surface
 hardening is done (WAL, `manage backup`, SSE reconnect re-sync, PWA). **Not built
-yet:** Phase-4 **task 7** (the live Ollama backend) and Phase 5's labor view +
+yet:** Phase-4 **task 7** (the live local-LLM backend) and Phase 5's labor view +
 grooming assist + kiosk polish (see PLAN.md).
 
 ## How to work

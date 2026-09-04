@@ -24,7 +24,7 @@ SQLite WAL + `synchronous=NORMAL`; Alembic migrations as the real-DB schema path
 
 ## Remaining larger tasks (the menu)
 
-1. **Ollama task 7 — the live local model (host-only). The last Phase-4 build.**
+1. **Local-LLM task 7 — the live local model (host-only). The last Phase-4 build.**
    Detailed below — this is the primary next task.
 2. **Labor view** (Phase 5, ASSIST-4 / R-labor) — the app's core-purpose payoff.
    **Underspecified: needs a design spike on output shape first** (recognition,
@@ -44,24 +44,38 @@ Human-only (not agent tasks): Tailscale + TLS reachability; on-device PWA-instal
 
 ---
 
-## Task 7 — the Ollama backend (host-only)
+## Task 7 — the local-LLM backend (host-only)
 
 Swap real LLM calls behind the two existing seams. **Steps 1–3 are buildable +
 TDD-able here against a stubbed httpx (no live model); the live run is host-only**
-(Ollama isn't installed on the dev Mac — install + `ollama pull llama3.1:8b` is a
-host step). Proposed layout, mirroring `fake/`:
+(no model server runs on the dev Mac by default — installing one is a host step).
+Proposed layout, mirroring `fake/`:
 
 ```
-app/assistant/ollama/
-├── client.py     # OllamaClient: httpx wrapper, format=schema JSON call;
+app/assistant/local_llm/
+├── client.py     # LocalLlmClient: httpx wrapper, JSON-constrained call;
 │                 #   holds base_url/model/timeout. No prompt/domain logic.
-├── assistant.py  # OllamaAssistant[FocusedContext] (stage 2): build prompt+schema,
+├── assistant.py  # LocalLlmAssistant[FocusedContext] (stage 2): build prompt+schema,
 │                 #   call client, parse -> [ProposedAction]
-├── resolver.py   # OllamaCaptureResolver (stage 1): build_world_view + note
+├── resolver.py   # LocalLlmCaptureResolver (stage 1): build_world_view + note
 │                 #   -> LINK ids -> deep_context -> FocusedContext
 ├── prompt.py     # (or reuse app/assistant/prompts.py — already built)
-└── infra.py      # host mgmt: health/pull + a warm ping
+└── infra.py      # host mgmt: health check + a warm ping
 ```
+
+**Runtime decision (resolved): llamafile is the reference runtime; the backend is
+runtime-agnostic.** The backend is named for what it *is* — a local LLM behind an
+OpenAI-style localhost HTTP seam — not for one server. **llamafile** (a single
+portable executable that serves an OpenAI-compatible `/v1/chat/completions` with
+grammar/JSON-constrained output) is the default on both the dev Mac and the host,
+so we test what we ship. **Ollama, LM Studio, and llama.cpp `llama-server` are
+interchangeable alternate endpoints** behind the same seam — switching is a
+URL/knob change in `client.py`, not a code change above it. On the always-on host
+the one added cost vs. Ollama's turnkey service is writing a systemd unit + warm
+ping (below); accepted, in exchange for one runtime everywhere and no
+runtime-specific coupling. Reference model on this box (M4 Pro, 48 GB): **Llama
+3.1 8B Instruct** (`Q8_0`, ~8.5 GB) to start, with Qwen2.5 14B Instruct (`Q4_K_M`,
+~9 GB) as a quality A/B — both well within a ~9–10 GB budget.
 
 **Pipeline shape (LLD OQ-1, resolved): two LLM calls.**
 `build_world_view → link(LLM) → deep_context → propose(LLM)` — broad-but-shallow
@@ -71,24 +85,29 @@ to find target ids, then narrow-but-deep to reason. Both prompt templates
 `exclusive_params`) is what the JSON-schema generator reads.
 
 **Build order** (each a `make check`-green sub-checkpoint, TDD vs. stubbed httpx):
-1. **JSON `format` schema generator** from the specs (pure fn; fully testable).
-2. **`client.py`** — the shared localhost call both LLM calls use.
-3. **propose (call 2)** `OllamaAssistant` — test against a hand-built deep
+1. **JSON schema generator** from the specs (pure fn; fully testable). Emitted as
+   the model's constrained-output contract (llamafile grammar / `response_format`;
+   the equivalent knob on any alternate endpoint).
+2. **`client.py`** — the shared localhost call both LLM calls use. This is the one
+   place the runtime (llamafile vs. Ollama vs. LM Studio) is visible.
+3. **propose (call 2)** `LocalLlmAssistant` — test against a hand-built deep
    `FocusedContext`, no link needed yet.
-4. **link (call 1)** `OllamaCaptureResolver` — `build_world_view` + note → ids →
+4. **link (call 1)** `LocalLlmCaptureResolver` — `build_world_view` + note → ids →
    `deep_context` → `FocusedContext`.
-5. **`infra.py`** + a `manage ollama` health/pull subcommand + wire the `ollama`
+5. **`infra.py`** + a `manage llm` health/warm subcommand + wire the `local`
    branch in both factory functions (they fall back to fake today).
 
-**Config:** `NTAKE_ASSISTANT=ollama`, `NTAKE_ASSISTANT_MODEL` (default
-`llama3.1:8b`), `NTAKE_OLLAMA_URL` (default `http://localhost:11434`),
+**Config:** `NTAKE_ASSISTANT=local`, `NTAKE_ASSISTANT_MODEL` (default
+`llama3.1:8b`), `NTAKE_LOCAL_LLM_URL` (default `http://localhost:8080` for
+llamafile; e.g. `http://localhost:11434` for an Ollama endpoint),
 `NTAKE_ASSISTANT_TIMEOUT` (currently 4.0 — tuned for the fake).
 
 **⚠ Cold start + two calls (decide against real host measurement):** the pipeline
 makes **two** sequential local-model calls per capture, and a model's *first* call
-after idle takes ~10–30s to load into VRAM — 4.0s would guarantee a cold-miss →
-graceful-degrade to `[]`. Give the ollama path a larger timeout and/or
-`keep_alive` + a startup warm ping. Non-thinking model → no `<think>` stripping.
+after idle takes seconds to tens of seconds to load into memory — 4.0s would
+guarantee a cold-miss → graceful-degrade to `[]`. Give the `local` path a larger
+timeout and/or a keep-warm setting + a startup warm ping. Non-thinking model → no
+`<think>` stripping.
 
 ---
 

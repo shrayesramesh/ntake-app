@@ -15,7 +15,7 @@
   `llm_rationale` text MAY change. The existing capture/confirm/proposal tests
   that assert *actions* must still pass (adjust only rationale/really-internal
   assertions).
-- Everything stays deterministic + model-free (Ollama is still task 7, separate).
+- Everything stays deterministic + model-free (the local-LLM backend is still task 7, separate).
 - `make check` (lint + mypy + ≥95% cov) green after every step; commit per step.
 
 ## Current shape (what we're changing)

@@ -5,7 +5,7 @@ NOTHING and returns ``item=null`` + proposals for the human to Confirm (ASSIST-2
 — capture never auto-applies, and bare text no longer auto-spawns a work item).
 
 Capture no longer takes a ``work_item_id``: the target (if any) lives in the text
-and is resolved by stage 1 (``focus()``) — a v2/Ollama capability, so v1 resolves
+and is resolved by stage 1 (``focus()``) — a v2/local-LLM capability, so v1 resolves
 no target and every capture is new. Explicit note-append to a specific item is a
 separate concern, covered by ``POST /work-items/{id}/updates``.
 

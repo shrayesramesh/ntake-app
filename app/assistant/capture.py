@@ -91,7 +91,8 @@ class FocusedContext(ActionContext):
         Describes back to the user what the assistant understood (text + resolved
         ids). The FakeAssistant stamps this verbatim onto each proposal's
         ``llm_rationale`` (pass-through — no intelligence); a real assistant
-        (Ollama) will instead write a genuine natural-language description there.
+        (the local LLM) will instead write a genuine natural-language description
+        there.
         """
         parts = [f"Understood: “{self.text}”"]
         if self.resolved_work_item_ids:

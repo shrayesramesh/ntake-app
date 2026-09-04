@@ -4,7 +4,7 @@ Derives proposals from keywords so the entire capture->propose->confirm flow is
 testable with no model. Deliberately dumb (substring keyword matching, canned
 timing) but **expressive**: the trigger vocabulary below can drive every v1
 action and combination, so tests/smoke can exercise each path predictably. The
-real interpretation is the OllamaAssistant's job (task 7).
+real interpretation is the LocalLlmAssistant's job (task 7).
 
 Every proposal FULLY DEFINES its operation (executable in isolation): a
 targeting action references a real ``target_id``; a creating action fully

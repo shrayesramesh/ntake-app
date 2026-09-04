@@ -37,7 +37,7 @@ tests pass, ≥95% cov; plus `make smoke`, 12 real-stack checks). What exists:
   calendar render + SSE.
 - Makefile, setup.sh, pinned requirements, ruff + mypy config.
 
-**Not yet built:** Phase-4 **task 7** (the live Ollama backend — host-only) and
+**Not yet built:** Phase-4 **task 7** (the live local-LLM backend — host-only) and
 Phase 5's **labor view** + grooming assist + kiosk polish. Smaller loose end: the
 manual board-grooming UI (the assistant `archive_work_item` action exists; the UI
 doesn't). *(Alembic migration wiring is now done — see the DB bullet above.)*
@@ -118,7 +118,7 @@ calendar mutations only on confirm.
 > the `CaptureResolver` seam (`base.py`) with `get_capture_resolver()`; stage 2 is
 > `AssistantClient` with `get_assistant()`. The two backends are **parallel
 > packages** — `app/assistant/fake/` (`FakeCaptureResolver` + `FakeAssistant`,
-> built) and `app/assistant/ollama/` (task 7, not yet built). The toolset is now
+> built) and `app/assistant/local_llm/` (task 7, not yet built). The toolset is now
 > **13 actions**: `set_due_date`, `complete_work_item`, `start_work_item`,
 > `move_to_on_deck`, `move_to_todo`, `reopen_work_item`, `assign_work_item`
 > (whitelist-validated member), `archive_work_item` (done-only), `add_checklist_items`,
@@ -127,8 +127,8 @@ calendar mutations only on confirm.
 > (`build_world_view`, `build_tools_view`). Capture is propose-only and always new
 > (`work_item_id`
 > stays `None`); proposals carry a registry-derived `action_summary` + the model's
-> `llm_rationale`. **Remaining (task 7):** the **`OllamaCaptureResolver` (stage 1)
-> + `OllamaAssistant` (stage 2)** — host-only live model. The real stage-1
+> `llm_rationale`. **Remaining (task 7):** the **`LocalLlmCaptureResolver` (stage 1)
+> + `LocalLlmAssistant` (stage 2)** — host-only live model. The real stage-1
 > text→target resolution and stage-2 reasoning drop into the seams above with no
 > architecture change.
 
@@ -175,7 +175,7 @@ survives days of uptime; labor view works; failures are visible.
 > imports no `app.models` / `sqlalchemy` / `fastapi` — is enforced by
 > `tests/test_engine.py::test_engine_does_not_import_app_specific_modules`.
 > Still package-shape inside this repo (extractable by a directory move); the
-> Ollama `format`-constrained client (below) is the remaining piece, arriving
+> local-LLM JSON-constrained client (below) is the remaining piece, arriving
 > with task 7.
 
 The Phase 4 assistant (capture → propose `{name,params}` → human confirm →
@@ -187,7 +187,7 @@ action-router) that other projects can consume. The split:
   `ProposedAction` / a generic `CaptureContext`; a generic `ActionRegistry`
   (register name → param spec + handler); validate/dispatch with a uniform error;
   the bounded-timeout + graceful-degrade wrapper; the `{actions:[{name,params}]}`
-  contract + an Ollama `format`-constrained client that builds its JSON schema
+  contract + a local-LLM JSON-constrained client that builds its JSON schema
   from the registered actions. No `Session`, no `Member`, no ORM models.
 - **Plugin (this app):** registers ntake's actions (`set_due_date`,
   `create_event`, …); each handler receives an **opaque context** the app injects

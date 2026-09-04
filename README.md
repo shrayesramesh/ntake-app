@@ -48,7 +48,9 @@ a documented host cron/systemd step); SSE re-sync on (re)connect so the wall
 display can't miss a change during a disconnect; and a PWA manifest + service
 worker for add-to-home-screen.
 
-**Next:** Phase-4 **task 7** — the live Ollama backend (host-only). Then Phase 5
+**Next:** Phase-4 **task 7** — the live local-LLM backend (host-only; llamafile as
+the reference runtime, any OpenAI-style localhost endpoint behind the same seam).
+Then Phase 5
 (labor view, grooming assist, kiosk polish), the board grooming UI, and a planned
 one-time **backfill** from Trello / Google Calendar (`manage import`, designed in
 DESIGN §6a — a fresh install starts empty otherwise). See `spec/PLAN.md` and

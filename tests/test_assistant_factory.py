@@ -29,10 +29,10 @@ def test_off_is_null(monkeypatch):
     assert a.propose(ctx) == []
 
 
-def test_ollama_falls_back_to_fake_until_implemented(monkeypatch):
+def test_local_falls_back_to_fake_until_implemented(monkeypatch):
     from app.assistant.fake import FakeAssistant as Fake
 
-    monkeypatch.setenv("NTAKE_ASSISTANT", "ollama")
+    monkeypatch.setenv("NTAKE_ASSISTANT", "local")
     assert isinstance(get_assistant(), Fake)
 
 
@@ -55,8 +55,8 @@ def test_capture_resolver_off_still_uses_fake(monkeypatch):
     assert isinstance(get_capture_resolver(), FakeCaptureResolver)
 
 
-def test_capture_resolver_ollama_falls_back_to_fake_until_implemented(monkeypatch):
-    monkeypatch.setenv("NTAKE_ASSISTANT", "ollama")
+def test_capture_resolver_local_falls_back_to_fake_until_implemented(monkeypatch):
+    monkeypatch.setenv("NTAKE_ASSISTANT", "local")
     from app.assistant.fake import FakeCaptureResolver
 
     assert isinstance(get_capture_resolver(), FakeCaptureResolver)

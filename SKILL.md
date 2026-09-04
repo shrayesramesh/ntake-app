@@ -104,7 +104,7 @@ there's a concrete reason not to; deviating is fine but call it out.
 - **Config-selected, swappable backends behind one switch.** The assistant has two
   seams (`CaptureResolver`, `AssistantClient`) chosen by `NTAKE_ASSISTANT` via
   `app/assistant/factory.py`; backends are parallel packages (`fake/`, later
-  `ollama/`). Stateless singleton strategies — request-scoped state (the DB
+  `local_llm/`). Stateless singleton strategies — request-scoped state (the DB
   `Session`) flows in as a method arg, never stored on the strategy.
 - **Test fixtures for seeding, not copied helpers.** Use the `conftest.py`
   factories (`family_factory`/`member_factory`/`work_item_factory`/`event_factory`)

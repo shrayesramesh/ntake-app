@@ -7,8 +7,8 @@ back, forward open-ended). Ids are inline (they matter for later whitelisted
 targeting); times render in the **family timezone**, start + end.
 
 No LLM here — pure DB reads + formatting. Kept LLM-agnostic (both the fake and
-Ollama paths can use it), so it lives in ``app/assistant/`` rather than the
-``ollama`` package. The query helpers and the formatter are split so each is
+local-LLM paths can use it), so it lives in ``app/assistant/`` rather than the
+``local_llm`` package. The query helpers and the formatter are split so each is
 independently testable (rows from seeded DB; text from rows).
 
 The knobs the owner chose are **parameters with defaults**, tunable later:

@@ -22,7 +22,7 @@ refers to, with a deterministic rule instead of an LLM. Matching rule
 
 Selected via ``NTAKE_ASSISTANT`` through
 ``app.assistant.factory.get_capture_resolver``. The LLM-backed sibling
-(``OllamaCaptureResolver`` — task 7) will additionally call ``build_world_view``
+(``LocalLlmCaptureResolver`` — task 7) will additionally call ``build_world_view``
 to feed its LINK *prompt*; the fake link matches the DB directly and needs no
 rendered world view, so it is not built here.
 """
