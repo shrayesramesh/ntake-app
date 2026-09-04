@@ -43,6 +43,42 @@ def test_focus_deep_context_includes_the_member_header(session, fam_member):
     assert m.display_name in ctx.deep_context
 
 
+# --- the resolver runs the real build_world_view -> fake_link -> deep_context
+
+
+def test_focus_resolves_a_work_item_target_from_the_note(
+    session, fam_member, work_item_factory
+):
+    fam, m = fam_member
+    wi = work_item_factory(fam.id, title="call plumber")
+    ctx = FakeCaptureResolver().focus(_req("the plumber is coming friday"), session, m)
+    # fake_link matched the note to the item; the resolved id flows into context.
+    assert ctx.resolved_work_item_ids == [wi.id]
+    assert ctx.primary_work_item_id == wi.id
+    # deep_context renders the linked item so PROPOSE can reason over it.
+    assert "call plumber" in ctx.deep_context
+
+
+def test_focus_resolves_an_event_target_from_the_note(
+    session, fam_member, event_factory
+):
+    fam, m = fam_member
+    ev = event_factory(fam.id, title="Soccer practice")
+    ctx = FakeCaptureResolver().focus(_req("when is soccer?"), session, m)
+    assert ctx.resolved_event_ids == [ev.id]
+    assert ctx.primary_event_id == ev.id
+
+
+def test_focus_resolves_no_ids_for_a_brand_new_capture(
+    session, fam_member, work_item_factory
+):
+    fam, m = fam_member
+    work_item_factory(fam.id, title="call plumber")
+    ctx = FakeCaptureResolver().focus(_req("buy stamps"), session, m)
+    assert ctx.resolved_work_item_ids == []
+    assert ctx.resolved_event_ids == []
+
+
 # --- the CaptureResolver seam contract ------------------------------------
 
 
