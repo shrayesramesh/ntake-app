@@ -46,21 +46,25 @@ Human-only (not agent tasks): Tailscale + TLS reachability; on-device PWA-instal
 
 ## Task 7 — the local-LLM backend (host-only)
 
-Swap real LLM calls behind the two existing seams. **Steps 1–3 are buildable +
-TDD-able here against a stubbed httpx (no live model); the live run is host-only**
-(no model server runs on the dev Mac by default — installing one is a host step).
+Swap real LLM calls behind the two existing seams. **All of Track A (the code) is
+buildable + TDD-able here against a scripted `LLM` double / stubbed httpx (no live
+model); only the final smoke needs a running model (Track B, host-only).**
 Proposed layout, mirroring `fake/`:
 
 ```
 app/assistant/local_llm/
-├── client.py     # LocalLlmClient: httpx wrapper, JSON-constrained call;
+├── seam.py       # LLM protocol: complete(system, user, schema) -> dict. The one
+│                 #   injected effect. ScriptedLLM (test double) + LocalLlmClient
+│                 #   both implement it. propose()/link() depend on THIS, not httpx.
+├── client.py     # LocalLlmClient(LLM): httpx wrapper, JSON-constrained call;
 │                 #   holds base_url/model/timeout. No prompt/domain logic.
+├── schema.py     # registry -> constrained-output JSON schema (pure fn).
 ├── assistant.py  # LocalLlmAssistant[FocusedContext] (stage 2): build prompt+schema,
-│                 #   call client, parse -> [ProposedAction]
+│                 #   call the LLM, parse -> [ProposedAction]
 ├── resolver.py   # LocalLlmCaptureResolver (stage 1): build_world_view + note
 │                 #   -> LINK ids -> deep_context -> FocusedContext
 ├── prompt.py     # (or reuse app/assistant/prompts.py — already built)
-└── infra.py      # host mgmt: health check + a warm ping
+└── infra.py      # host mgmt: health check + a warm ping (see Track B)
 ```
 
 **Runtime decision (resolved): llamafile is the reference runtime; the backend is
@@ -84,30 +88,96 @@ to find target ids, then narrow-but-deep to reason. Both prompt templates
 `build_tools_view`) already exist. The param contract on `ActionSpec` (`params` /
 `exclusive_params`) is what the JSON-schema generator reads.
 
-**Build order** (each a `make check`-green sub-checkpoint, TDD vs. stubbed httpx):
-1. **JSON schema generator** from the specs (pure fn; fully testable). Emitted as
-   the model's constrained-output contract (llamafile grammar / `response_format`;
-   the equivalent knob on any alternate endpoint).
-2. **`client.py`** — the shared localhost call both LLM calls use. This is the one
-   place the runtime (llamafile vs. Ollama vs. LM Studio) is visible.
-3. **propose (call 2)** `LocalLlmAssistant` — test against a hand-built deep
-   `FocusedContext`, no link needed yet.
-4. **link (call 1)** `LocalLlmCaptureResolver` — `build_world_view` + note → ids →
-   `deep_context` → `FocusedContext`.
-5. **`infra.py`** + a `manage llm` health/warm subcommand + wire the `local`
-   branch in both factory functions (they fall back to fake today).
+Task 7 has **two tracks**. Track A is all in-repo code, fully TDD-able **here on
+the dev Mac with no model running** (a scripted `LLM` double stands in for the
+transport). Track B is the llamafile + model runtime — acquiring it, serving it,
+and the in-app health/warm surface — needed only for the final real end-to-end
+smoke. **Build all of Track A first; stand up Track B at the end.**
+
+### Track A — the code (in-repo, `make check`-green vs. a scripted `LLM` double)
+
+Each step is its own sub-checkpoint; run `make check` and paste output.
+
+1. **`LLM` seam (`seam.py`).** Define the one injected effect —
+   `complete(system, user, schema) -> dict` — as an ABC/Protocol, plus a
+   **`ScriptedLLM`** test double that returns canned JSON keyed off the call. This
+   is the fixture every step below tests against; nothing above the seam ever
+   imports httpx. (Mirrors LLD "LLM is an injected effect, not a session.")
+2. **JSON schema generator (`schema.py`).** Pure fn: `ActionRegistry`
+   (`ActionSpec.params` / `exclusive_params`) → the constrained-output JSON schema
+   (uniform `{actions:[{name: enum[...], params: object}]}`; `exclusive_params` →
+   `oneOf`). No network; snapshot-test the emitted schema like the views.
+3. **`client.py` — `LocalLlmClient(LLM)`.** The `httpx` wrapper implementing the
+   seam: OpenAI-style `/v1/chat/completions` POST with the schema attached, holding
+   `base_url`/`model`/`timeout`. **The one place the runtime is visible.** Test
+   against a **stubbed httpx** (monkeypatched transport) — still no live model.
+4. **propose — call 2 (`assistant.py`, `LocalLlmAssistant`).** Build the propose
+   prompt + schema → call the `LLM` → parse/validate/attach → `[ProposedAction]`.
+   Test with a hand-built deep `FocusedContext` + `ScriptedLLM` (no link needed
+   yet).
+5. **link — call 1 (`resolver.py`, `LocalLlmCaptureResolver`).**
+   `build_world_view` + note → LINK call → `parse_ids` (exists) → `deep_context`
+   (exists) → `FocusedContext`. Test with `ScriptedLLM`.
+6. **Parsing / graceful-degrade hardening.** Malformed JSON, invalid/unknown tool
+   name, missing required params, wrong types, empty/timeout → **degrade to `[]`**,
+   never raise into the request path. The engine's `propose_bounded` already bounds
+   the timeout; the client + parse layer must not raise. Explicit adversarial
+   tests for each failure mode.
+7. **Wire the `local` branch + config.** Point both factory functions
+   (`get_assistant`, `get_capture_resolver`) at the real classes for
+   `NTAKE_ASSISTANT=local` (they fall back to fake today). Plumb the config knobs
+   below, incl. the larger timeout + warm behavior.
 
 **Config:** `NTAKE_ASSISTANT=local`, `NTAKE_ASSISTANT_MODEL` (default
 `llama3.1:8b`), `NTAKE_LOCAL_LLM_URL` (default `http://localhost:8080` for
 llamafile; e.g. `http://localhost:11434` for an Ollama endpoint),
-`NTAKE_ASSISTANT_TIMEOUT` (currently 4.0 — tuned for the fake).
+`NTAKE_ASSISTANT_TIMEOUT` (currently 4.0 — tuned for the fake; the `local` path
+needs a much larger value — see cold-start).
 
-**⚠ Cold start + two calls (decide against real host measurement):** the pipeline
+### Track B — the runtime + model provisioning (host / operational)
+
+Needed to actually *run* a model (final smoke + host deploy). **Decision
+(resolved): model acquisition is operator-managed, not app-downloaded, for v1.**
+The app owns only *health / warm / which-file-to-serve*; **downloading, updating,
+and removing the llamafile binary + `.gguf` are operator steps documented in
+`HOST_SETUP_GUIDE`**, not app code. Rationale: fetching multi-GB binaries with
+checksum/verify, disk management, and update semantics is a mini-subsystem that
+re-introduces a network-fetch path into an app whose ethos is "no cloud in the
+data path" (NFR-PRIVACY), and it's the kind of speculative machinery SKILL.md says
+to avoid until earned. This is the convenience we knowingly traded away by
+dropping Ollama's `pull`/registry. A `manage llm pull` remains a **possible future
+add** (additive) if the manual step proves annoying.
+
+8. **Acquire llamafile + a model (operator, manual).** Either a self-contained
+   model-llamafile (one executable, weights baked in) or the bare `llamafile`
+   binary + a downloaded `.gguf` (Llama 3.1 8B Instruct `Q8_0` to start). Decide
+   the distribution shape and the on-disk location; document both in
+   `HOST_SETUP_GUIDE`. *(Not app code.)*
+9. **Serve it (operator).** Run llamafile in server mode on a fixed localhost port
+   (matches `NTAKE_LOCAL_LLM_URL`). Dev Mac: run the binary / a small `make`
+   helper. Host: a **systemd unit** (auto-start on boot, restart on failure) —
+   this is the "one added cost vs. Ollama's turnkey service." Document in
+   `HOST_SETUP_GUIDE`. *(Not app code, beyond an optional make/dev helper.)*
+10. **`infra.py` + `manage llm` (app code — TDD-able like the other `manage`
+    helpers).** The in-app operational surface over an *already-running* endpoint:
+    **health** (is `NTAKE_LOCAL_LLM_URL` up + serving the expected model?),
+    **warm** (send a tiny priming request to load the model into memory so the
+    first real capture isn't a cold miss), and **status**. Pure-ish core fns +
+    a thin CLI wrapper + a startup warm-ping hook. Test against stubbed httpx.
+
+### End-to-end smoke (after A + B)
+
+With a model actually serving: `NTAKE_ASSISTANT=local make smoke` (or `--serve`)
+and confirm real captures produce sane proposals — the one thing the scripted
+double can't verify (reasoning quality). Tune prompt wording + timeout against
+observed behavior; the prompt drafts (`prompts.py`) explicitly expect tuning here.
+
+**⚠ Cold start + two calls (tune against real host measurement).** The pipeline
 makes **two** sequential local-model calls per capture, and a model's *first* call
-after idle takes seconds to tens of seconds to load into memory — 4.0s would
-guarantee a cold-miss → graceful-degrade to `[]`. Give the `local` path a larger
-timeout and/or a keep-warm setting + a startup warm ping. Non-thinking model → no
-`<think>` stripping.
+after idle takes seconds to tens of seconds to load into memory — the fake's 4.0s
+would guarantee a cold-miss → graceful-degrade to `[]`. Give the `local` path a
+much larger timeout and/or a keep-warm setting + the startup warm ping (task 10).
+Non-thinking model → no `<think>` stripping.
 
 ---
 
