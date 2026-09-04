@@ -138,22 +138,14 @@ def test_calendar_view_escapes_html(client, session, auth_headers, event_factory
     assert "&lt;b&gt;" in html
 
 
-# --- shell wiring ----------------------------------------------------------
+# --- shell wiring (minimal tripwire) --------------------------------------
+# One assertion that the calendar surface is wired into the shell. The BEHAVIOR
+# — capture/confirm refreshing the calendar, an event landing in /calendar/view —
+# is exercised over real HTTP by the host smoke (assistant capture->confirm +
+# standalone create_event checks), not asserted as JS strings here.
 
 
 def test_shell_wires_calendar(client):
     body = client.get("/").text
     assert "calendar-container" in body
     assert "/calendar/view" in body
-
-
-def test_shell_reloads_calendar_after_capture_and_confirm(client):
-    # Regression: capturing/confirming an event must refresh the calendar on the
-    # author's device, not just the board. Both handlers call reloadCalendar().
-    body = client.get("/").text
-    # The capture success handler reloads both surfaces.
-    assert "reloadBoard(); reloadCalendar();" in body
-    # reloadCalendar is defined and hits the fragment endpoint.
-    assert "function reloadCalendar()" in body
-    # Confirming a proposal also refreshes the calendar (create_event lands there).
-    assert body.count("reloadCalendar()") >= 3  # capture + confirm + initial/SSE

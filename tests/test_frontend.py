@@ -16,32 +16,18 @@ NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
 
 def test_index_serves_shell_without_auth(client):
+    # Minimal wiring tripwire: the shell renders unauthenticated and still wires
+    # the core surfaces (capture, board, calendar, SSE). The BEHAVIOR of those
+    # (capture->propose->confirm, calendar refresh, SSE reconnect re-sync) is
+    # exercised over real HTTP by the host smoke, not asserted as strings here.
     r = client.get("/")
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
     body = r.text
-    # Shell has the capture control, proposals surface, board container + token JS.
-    assert "Capture a note" in body
-    assert "board-container" in body
-    assert "calendar-container" in body  # skinny calendar list (task 11)
-    assert "/calendar/view" in body
-    assert "proposals" in body  # inline proposal cards render here
-    assert "/capture" in body  # capture posts to the JSON capture endpoint
-    assert "/actions/confirm" in body  # Confirm posts the action
-    assert "action_summary" in body  # card shows the registry-derived truth
-    assert "llm_rationale" in body  # ...and the model's narration as secondary
-    assert "localStorage" in body
-
-
-def test_shell_resyncs_board_and_calendar_on_sse_open(client):
-    """DISP-2/5: on SSE (re)connect the display must re-sync, so a change that
-    happened during a disconnect isn't missed. The shell wires an EventSource
-    'open' handler that reloads both views."""
-    body = client.get("/").text
-    assert "addEventListener('open'" in body
-    # The open handler re-fetches both surfaces (belt-and-suspenders over the
-    # per-'change' reloads, which don't fire for changes missed while offline).
-    assert "es.addEventListener('open'" in body
+    assert "board-container" in body  # the shell (not some other page)
+    assert "/capture" in body  # capture is wired
+    assert "/calendar/view" in body  # calendar is wired
+    assert "es.addEventListener('open'" in body  # SSE reconnect re-sync is wired
 
 
 def test_board_view_requires_auth(client):
