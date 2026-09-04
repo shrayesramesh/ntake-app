@@ -347,23 +347,24 @@ ntake-specific actions.
 CaptureRequest {text, timezone, now}
       │  [ STAGE 1 — CaptureResolver.focus() ]  app-coupled: DB lookups, entity
       ▼             resolution, param grounding.  (seam: base.py; v1: fake/resolver.py)
-FocusedContext {text, tz, now, work_item_id, item_log,
-                calendar_window: [EventSummary]}   ← resolved entities, WITH ids
+FocusedContext {text, tz, now, resolved_work_item_ids,
+                resolved_event_ids, deep_context: str}   ← LINK-resolved ids + records
       │  [ STAGE 2 — AssistantClient.propose() ]  engine-clean: no Session/ORM
       ▼
 [ ProposedAction, … ]  executable by construction (real ids + grounded params)
 ```
 
 - **Stage 1 `CaptureResolver.focus()`** turns raw text into the *focused world*
-  the action will operate on — resolving relevant entities *with real ids* and
-  grounding params. App-coupled (`focus()` takes a `Session`). `calendar_window`
-  is a typed `EventSummary` list carrying ids precisely because stage 2 needs a
-  real id to emit an executable action (e.g. `deconflict_events` targeting
-  `event_id=8`). **v1:** resolution is deterministic (`FakeCaptureResolver`) — no
-  target resolved from text, so `work_item_id` is always `None` (every capture is
-  new). The second **LLM** call (stage 1 as a query-planner reading the text to
-  decide what to fetch / which item to target) is the `OllamaCaptureResolver`
-  (task 7) behind the same seam.
+  the action will operate on: a LINK step resolves which existing entities the
+  note refers to (their real ids → `resolved_work_item_ids` / `resolved_event_ids`,
+  validated to the family), then a deterministic deep-fetch renders their full
+  records — target item(s) + full update history + linked/participated events —
+  into `deep_context`. App-coupled (`focus()` takes a `Session`); stage 2 attaches
+  the concrete target from the resolved ids (`primary_work_item_id` /
+  `primary_event_id`). **v1:** the LINK is deterministic and model-free
+  (`FakeCaptureResolver` → `fake_link`, significant-word title matching), so a
+  target *is* resolved from text without a model. The `OllamaCaptureResolver`
+  (task 7) swaps in a real LINK call behind the same seam.
 - **Stage 2 `propose()`** reasons over the `FocusedContext` and emits
   `ProposedAction`s. Engine-clean; the reusable piece.
 
@@ -406,6 +407,35 @@ FocusedContext {text, tz, now, work_item_id, item_log,
 keeps the engine extractable into its own package by a directory move (only if a
 second consumer appears — package-shape now, not a published package). See PLAN
 "reusable propose-confirm engine".
+
+**Design decisions (rationale worth keeping).**
+- **Seam naming.** Stage 1 is `CaptureResolver` (method stays `focus()`), chosen
+  over a bare `Resolver` so it won't collide with other "resolver" notions.
+- **Session is a per-call method param, not a class member.** The resolver is a
+  stateless, config-selected **singleton**; the request-scoped DB `Session` flows
+  into `focus()` per call. Rejected: session in the constructor (forces a
+  request-scoped resource onto a would-be singleton) and a per-request
+  `CaptureService` holder (a lifecycle concept not otherwise present). ("Session"
+  = the SQLAlchemy DB session; there are no web/login sessions — identity is
+  device-token → `Member`.)
+- **Reusability boundary.** Stage 2 (the assistant) is the generic piece and stays
+  session-free (the engine boundary test enforces it). Stage 1 (capture/resolver)
+  is the app-coupled seam — it's *meant* to touch the DB — so it lives in
+  `app/assistant/`, not the engine; taking a `Session` there costs no generic
+  purity.
+- **One switch.** `NTAKE_ASSISTANT` drives *both* stages (no separate
+  `NTAKE_RESOLVER`); revisit only if we need to mix stages for debugging.
+- **Vocabulary: actions vs tools.** "Actions" are what we *execute* (internal —
+  `ActionSpec`/`ActionRegistry`/`ProposedAction`); "tools" are how those same
+  actions are *presented to the LLM* (`build_tools_view`, the JSON schema). An
+  action becomes a tool only at the model boundary.
+- **Param contract is typed data on the spec.** `ActionSpec.params: list[Param]`
+  (`Param(name, datatype, required)`) + `exclusive_params` (mutually-exclusive
+  groups, e.g. create_event's timed-vs-all-day); `required` is derived,
+  `prompt_line` renders the tool line, and the Ollama JSON-schema generator reads
+  the same specs — lightest-engine / verbose-authoring, no stringly-typed markers
+  or signature introspection. The registry is built from a **flat list** (no
+  imperative `register()`); `ActionSpec.execute()` owns validate-then-apply.
 
 ### 4.2 Views over the same data
 - **Calendar:** events + due work items in a date range (filter by `family_id` +

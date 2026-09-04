@@ -1,230 +1,112 @@
-# Next session — Ollama (task 7), the last Phase-4 item
+# Next session — what's left to build
 
-> **A2 reshape is DONE** (`spec/WORKPLAN-A2-focus-reshape.md`): `FocusedContext`
-> is reshaped to the two-call target (`resolved_work_item_ids` /
-> `resolved_event_ids` + `deep_context`), the fake runs the real
-> `link → deep_fetch → propose` shape via a deterministic `fake_link`, and
-> `EventSummary` / `calendar_window` are retired. **Next: Ollama task 7** — the
-> live-model plumbing below (swap a real LINK/PROPOSE client behind the same two
-> seams; the fake proves the shape deterministically already).
->
-> Handoff for resuming Phase 4. The **fake-first assistant is complete** and both
-> capture stages sit behind swappable, config-selected seams. Both **prompt views
-> are built** (`build_world_view`, `build_tools_view`) and the toolset is a rich
-> **13 actions**. `make check` is green (300 tests, ≥95% cov; + `make smoke`, 12
-> real-stack checks). Live-surface hardening is done (WAL, `manage backup`, SSE
-> reconnect re-sync, PWA). The one remaining Phase-4 build is the **live local
-> model (Ollama)**, host-only. Read DESIGN §4.1
-> + §4.1a and `spec/LLD-assistant-pipeline.md` first — those are the source of
-> truth for the assistant architecture.
+A lean, forward brief. Depth lives in the specs; read them, don't re-derive:
+**`REQUIREMENTS.md`** (what/why), **`DESIGN.md`** (how — esp. §4.1a assistant
+architecture + design decisions, §6a backfill), **`PLAN.md`** (phases + status),
+**`LLD-assistant-pipeline.md`** (the two-call assistant), and **`SKILL.md`** at
+the repo root (how to work here + conventions).
 
-## What's built (all committed on `main`)
+## Current state (one paragraph)
 
-- **Two swappable seams, one switch.** `NTAKE_ASSISTANT` selects the backend for
-  BOTH stages via `app/assistant/factory.py`:
-  - Stage 1 — **`CaptureResolver`** (ABC in `app/assistant/base.py`),
-    `get_capture_resolver()`. `focus(request, session, member) -> FocusedContext`.
-  - Stage 2 — **`AssistantClient`** (engine contract), `get_assistant()`.
-- **Backends are parallel packages.** `app/assistant/fake/` holds
-  `FakeCaptureResolver` (`resolver.py`) + `FakeAssistant` (`assistant.py`);
-  `app/assistant/ollama/` (task 7) will mirror it. Swap = config flip.
-- **Reusable engine** (`app/routing/engine.py`): `ActionRegistry` (built from a
-  flat list of specs — no imperative registration), `ActionSpec` (typed
-  `params: list[Param]`, `exclusive_params`, derived `required`, `prompt_line`,
-  and `execute()` which owns validate+apply), `ProposedAction`, `AssistantClient`,
-  `propose_bounded`, generic `ActionContext` (PEP 695) — imports nothing
-  app-specific (boundary test). No package facade: import from
-  `app.routing.engine` directly.
-- **Plugin** (`app/assistant/actions.py`): ntake handlers via `NtakeActionContext`.
-  The toolset is now **13 actions**: `set_due_date`, `complete_work_item`,
-  `start_work_item`, `move_to_on_deck`, `move_to_todo`, `reopen_work_item`,
-  `assign_work_item` (whitelist-validated `member_id`), `archive_work_item`
-  (done-only invariant), `add_checklist_items`, `create_event`,
-  `reschedule_event` (modify-existing event), `create_work_item`, `no_action`,
-  `deconflict_events`.
-- **The two prompt views (built + full-string snapshot tested):**
-  `build_world_view(session, family_id, now, tz, *, window_days=7)`
-  (`app/assistant/world_view.py`) — "state of the world": all members, **non-archived**
-  work items (done INCLUDED, archived EXCLUDED), events in `[now − window_days, ∞)`
-  rendered in family tz (date+time, start+end), ids inline as `[m#]/[w#]/[e#]`.
-  And `build_tools_view(registry)` (`app/assistant/tools_view.py`) — the LLM tool menu,
-  one `spec.prompt_line` per action. Vocabulary: actions = execute (internal),
-  tools = present-to-LLM. (The richer `WorldView`/`FocusedContext` shapes for the
-  full pipeline are designed in the LLD, not all built yet.)
-- **Test infra:** `conftest.py` has seeding factories
-  (`family_factory`/`member_factory`/`work_item_factory`/`event_factory`) +
-  composites (`fam_member`, `fam_member_item`, `populated_family` — real seeded
-  content → real `build_world_view`). Use these, not per-file seed helpers. The
-  new actions have confirm-endpoint integration tests in `test_confirm.py`.
-- **Capture** is propose-only (never auto-applies). Stage 1 now *does* resolve a
-  target from the text — a deterministic `fake_link` (title matching) in v1, a
-  real LINK call under Ollama — so existing-item proposals are reachable. Each
-  proposal carries a registry-derived `action_summary` (ground truth) +
-  `llm_rationale` (the model's account — the fake passes the focused context
-  through via `FocusedContext.render()`, which prints the resolved ids).
-- **Events:** `seed_event` + fixtures + `python -m app.manage seed-events`; skinny
-  calendar render (`render_calendar` + `GET /calendar/view`), live via SSE.
+Phases 0–3 and the **fake-first Phase 4** are built and green (`make check` → 300
+tests, ≥95% cov; + `make smoke`, 12 real-stack checks). The app (FastAPI +
+SQLite): events, work-items + append-only update log, board, `/capture`
+(propose-only) + `/actions/confirm`, config-seeded identity + token CLI, and live
+SSE. The assistant is a reusable engine (`app/routing/`) + ntake plugin
+(`app/assistant/`) with two config-selected seams (`CaptureResolver`,
+`AssistantClient`) and a deterministic `fake/` backend that runs the **real
+two-call shape** (`build_world_view → fake_link → deep_context → propose`), so it
+resolves a target from free text with no model. **Live-surface hardening is done:**
+SQLite WAL + `synchronous=NORMAL`; Alembic migrations as the real-DB schema path
+(startup runs `upgrade head`; `python -m app.manage migrate`; tests use
+`create_all`); a `VACUUM INTO` snapshot (`manage backup`); SSE re-sync on
+(re)connect; PWA manifest + service worker.
 
-## Design decisions locked this session (were in SESSION_NOTES)
+## Remaining larger tasks (the menu)
 
-- **D1 — `CaptureResolver`** is the stage-1 seam name (method stays `focus()`),
-  chosen over `Resolver` so it won't collide with other "resolver" notions.
-- **D2 — session is a per-call method param, not a class member.** The resolver is
-  a stateless, config-selected **singleton**; the request-scoped DB `Session`
-  flows into `focus()` per call. Rejected: session in the constructor (forces a
-  request-scoped resource onto a would-be singleton) and a per-request
-  `CaptureService` holder (adds a lifecycle concept not otherwise present).
-  "Session" here = the SQLAlchemy DB session; this app has no web/login sessions
-  (identity is device-token → `Member`).
-- **D3 — reusability boundary.** The **assistant** (stage 2) is the generic piece
-  and stays session-free (engine boundary test enforces it). The
-  **capture/resolver** (stage 1) is the app-coupled seam — it's *meant* to touch
-  the DB — and lives in `app/assistant/`, not the engine, so taking a `Session`
-  costs no generic purity.
-- **Q1 — one switch.** `NTAKE_ASSISTANT` drives both stages to start (no separate
-  `NTAKE_RESOLVER`). Revisit only if we need to mix stages for debugging.
-- **Q2 — no shim.** The old module-level `focus()` was removed; callers go through
-  `get_capture_resolver().focus(...)`.
-- **Engine/vocabulary decisions (this session).** "Actions" = what we execute
-  (internal: `ActionSpec`/`ActionRegistry`/`ProposedAction`); "tools" = how they're
-  presented to the LLM (`build_tools_view`, the JSON schema). Param contract is
-  **typed data on the spec** (`list[Param]`, `datatype` not `type`,
-  `exclusive_params` not `one_of`) — lightest-engine/verbose-authoring, no
-  stringly-typed markers or introspection. `ActionRegistry` is built from a **flat
-  list** (no `register()`); `ActionSpec.execute()` owns validate+apply. Dropped the
-  `app/routing/__init__` re-export facade (import from `app.routing.engine`).
+1. **Ollama task 7 — the live local model (host-only). The last Phase-4 build.**
+   Detailed below — this is the primary next task.
+2. **Labor view** (Phase 5, ASSIST-4 / R-labor) — the app's core-purpose payoff.
+   **Underspecified: needs a design spike on output shape first** (recognition,
+   never scores), and it's LLM-coupled (reads the update log) → sequence it after
+   task 7. See DESIGN §4.2.
+3. **One-time backfill** (Trello / Google Calendar) — **designed, not built**
+   (DESIGN §6a, REQUIREMENTS INTEROP-2): a file-based `manage import` CLI, no
+   cloud in the data path, idempotent, one-time seeding (not sync). Good day-one
+   onboarding since a fresh install starts empty.
+4. **GROOM board UI** — manual archive / archive-all-Done / unarchive (GROOM-1..4).
+   The *assistant* `archive_work_item` action exists; the manual UI doesn't.
+5. **Phase-5 kiosk leftovers** — always-on soak (on-device), failure surfacing in
+   the UI, basic logging.
 
-## Deferred / considered-and-parked (don't re-debate)
-
-- **`FocusedContext.as_text` / `ActionRegistry.as_text`** (render-as-property):
-  discussed, **parked**. The registry one is entangled with the actions-vs-tools
-  boundary (the "AVAILABLE TOOLS:" header is LLM-vocab that shouldn't live on the
-  domain-agnostic engine) — revisit only if it clearly pays off.
-- **`EventSummary` / `FocusedContext.calendar_window` cleanup — DONE (A2).**
-  Retired in the WORKPLAN-A2 reshape: `EventSummary` and `calendar_window` are
-  gone; `FocusedContext` now carries `resolved_work_item_ids` /
-  `resolved_event_ids` + `deep_context`, and the fake runs the real two-call
-  shape (`fake_link → deep_context → propose`). The fake's placeholder
-  deconflict proposal was intentionally dropped (the two-call design demonstrates
-  context-flow instead); the `deconflict_events` action itself is unchanged.
-- **Checklist check/uncheck/remove/reorder** — deferred; they need by-name/by-id
-  addressing + checklist items surfaced in context. Only `add_checklist_items` is
-  built.
-- **Board grooming UI** (manual archive/unarchive) — Phase 5.
-- **`unassign_work_item`** and the other v2/deferred registry rows — pre-shaped
-  slots; add by registering a spec (no flow rework).
-
-## FakeAssistant trigger vocabulary (for smoke/manual testing)
-
-Timing needs a **weekday** word. New capture: **event word**
-(appointment/event/meeting/visit) **+ weekday** → `create_event` only; else →
-`create_work_item`. Existing item: weekday → `set_due_date` (+ linked
-`create_event` if event-ish); **done word** → `complete_work_item`. Two events in
-`calendar_window` sharing a start → `deconflict_events` (moves the later-created
-one +1 day). Full table: `app/assistant/fake/assistant.py` docstring.
+Human-only (not agent tasks): Tailscale + TLS reachability; on-device PWA-install
++ browser-reconnect verification (HOST_SETUP_GUIDE §4/§4a).
 
 ---
 
-## Task 7 — the Ollama backend (host-only, LAST)
+## Task 7 — the Ollama backend (host-only)
 
-The only remaining Phase-4 build. **Live model runs on the host** (like the
-Tailscale manual step); develop against the fakes, human runs the live test.
-Ollama is **not installed on this dev Mac** — install + `ollama pull llama3.1:8b`
-is a host step. Proposed layout, mirroring `fake/`:
+Swap real LLM calls behind the two existing seams. **Steps 1–3 are buildable +
+TDD-able here against a stubbed httpx (no live model); the live run is host-only**
+(Ollama isn't installed on the dev Mac — install + `ollama pull llama3.1:8b` is a
+host step). Proposed layout, mirroring `fake/`:
 
 ```
 app/assistant/ollama/
-├── client.py     # OllamaClient: HTTP wrapper (httpx, already a dep), format=schema
-│                 #   JSON call; holds base_url/model/timeout. Schema built FROM
-│                 #   the registered actions (names + params). No prompt/domain logic.
+├── client.py     # OllamaClient: httpx wrapper, format=schema JSON call;
+│                 #   holds base_url/model/timeout. No prompt/domain logic.
 ├── assistant.py  # OllamaAssistant[FocusedContext] (stage 2): build prompt+schema,
 │                 #   call client, parse -> [ProposedAction]
-├── resolver.py   # OllamaCaptureResolver (stage 1) — the LINK call. Shallow
-│                 #   WorldView + note -> ResolvedIds; then deterministic deep_fetch
-│                 #   pulls the FULL records (work_item_updates history, etc.) for
-│                 #   those ids -> FocusedContext. (This IS an LLM component in v1.)
-├── prompt.py     # system + context prompt templates for both calls
-└── infra.py      # host mgmt: health/pull (install stays a documented human step)
+├── resolver.py   # OllamaCaptureResolver (stage 1): build_world_view + note
+│                 #   -> LINK ids -> deep_context -> FocusedContext
+├── prompt.py     # (or reuse app/assistant/prompts.py — already built)
+└── infra.py      # host mgmt: health/pull + a warm ping
 ```
 
-> **Pipeline shape — RESOLVED (OQ-1): two LLM calls.** See
-> `spec/LLD-assistant-pipeline.md`. v1 is
-> `build_world_view → link(LLM) → deep_fetch → propose(LLM)`:
-> **(1) link** = shallow world + note → the relevant `[w#]/[e#]` ids;
-> **deep_fetch** = pull full records (a work item's entire update history, etc.)
-> for just those ids; **(2) propose** = tools view + note + that deep/narrow
-> context → `[ProposedAction]`. Broad-but-shallow to find targets, then
-> narrow-but-deep to reason. This **supersedes** the earlier "deterministic v1 /
-> one call" lean — `focus()` IS an LLM component in v1, and there are two
-> sequential local-model calls in the request path (see the cold-start note).
+**Pipeline shape (LLD OQ-1, resolved): two LLM calls.**
+`build_world_view → link(LLM) → deep_context → propose(LLM)` — broad-but-shallow
+to find target ids, then narrow-but-deep to reason. Both prompt templates
+(`build_link_prompt`, `build_propose_prompt`) and both views (`build_world_view`,
+`build_tools_view`) already exist. The param contract on `ActionSpec` (`params` /
+`exclusive_params`) is what the JSON-schema generator reads.
 
-- **Config:** `NTAKE_ASSISTANT=ollama`, `NTAKE_ASSISTANT_MODEL` (default
-  `llama3.1:8b`), `NTAKE_OLLAMA_URL` (default `http://localhost:11434`),
-  `NTAKE_ASSISTANT_TIMEOUT` (currently 4.0 — set for the fake). Wire the `ollama`
-  branch in both factory functions (currently both fall back to the fake).
-  **⚠ Cold start + two calls:** the pipeline now makes **two** sequential
-  local-model calls per capture (link, then propose), so latency is ~2× a single
-  call — and a model's *first* call after idle takes ~10–30s to load into VRAM;
-  4.0s would guarantee a cold-miss → graceful-degrade to `[]`. Give the ollama
-  path its own larger timeout, and/or `keep_alive` + a startup warm ping in
-  `infra.py`. Decide the value against real host measurement.
-- **Prompt:** system (role + available actions/params, "propose only from these;
-  use no_action; dates in family tz") + context (now, tz, item log, calendar
-  window) + raw text. Non-thinking model → no `<think>` stripping.
-- **Build order (each a sub-checkpoint, `make check` green, TDD vs. a stubbed
-  httpx — no live model needed):** (1) the JSON `format` **schema generator** from
-  the specs (`ActionSpec.params`/`exclusive_params` are already there — see the
-  resolved decision below); (2) `client.py` (`OllamaClient`) — the shared
-  localhost call both LLM calls use; (3) **propose (call 2)** `OllamaAssistant`:
-  prompt = `build_tools_view` + deep context + note, parse → `[ProposedAction]`
-  (test against a hand-built deep `FocusedContext` — no link needed yet);
-  (4) **link + deep_fetch (call 1)** `OllamaCaptureResolver`: `build_world_view` +
-  note → `ResolvedIds`, then deterministic `deep_fetch` → `FocusedContext`;
-  (5) `infra.py` + a `manage ollama` health/pull subcommand. Building propose
-  before link lets each LLM call be TDD'd in isolation against stubbed httpx.
+**Build order** (each a `make check`-green sub-checkpoint, TDD vs. stubbed httpx):
+1. **JSON `format` schema generator** from the specs (pure fn; fully testable).
+2. **`client.py`** — the shared localhost call both LLM calls use.
+3. **propose (call 2)** `OllamaAssistant` — test against a hand-built deep
+   `FocusedContext`, no link needed yet.
+4. **link (call 1)** `OllamaCaptureResolver` — `build_world_view` + note → ids →
+   `deep_context` → `FocusedContext`.
+5. **`infra.py`** + a `manage ollama` health/pull subcommand + wire the `ollama`
+   branch in both factory functions (they fall back to fake today).
 
-### Resolved: action param schema (was OQ-5 → option B)
+**Config:** `NTAKE_ASSISTANT=ollama`, `NTAKE_ASSISTANT_MODEL` (default
+`llama3.1:8b`), `NTAKE_OLLAMA_URL` (default `http://localhost:11434`),
+`NTAKE_ASSISTANT_TIMEOUT` (currently 4.0 — tuned for the fake).
 
-The param contract lives **on `ActionSpec`** as `list[Param]`
-(`Param(name, datatype, required)`) + `exclusive_params` (mutually-exclusive
-groups, e.g. create_event's timed-vs-all-day). `required` derives from `params`;
-`prompt_line` renders each action for the tool menu; the JSON schema generator
-(step 1 above) reads the same specs. Output shape is the uniform option-A
-`{actions: [{name, params}]}`, with params validated against each spec **after**
-emission (graceful-degrade). See `spec/LLD-assistant-pipeline.md` for the full
-functional design + open questions (incl. OQ-1 pipeline shape / the 2-call goal).
+**⚠ Cold start + two calls (decide against real host measurement):** the pipeline
+makes **two** sequential local-model calls per capture, and a model's *first* call
+after idle takes ~10–30s to load into VRAM — 4.0s would guarantee a cold-miss →
+graceful-degrade to `[]`. Give the ollama path a larger timeout and/or
+`keep_alive` + a startup warm ping. Non-thinking model → no `<think>` stripping.
 
-## Polish / gaps (lower priority)
+---
 
-- **Live-surface hardening — DONE (this session).** WAL + `synchronous=NORMAL`;
-  `VACUUM INTO` snapshot via `python -m app.manage backup` (weekly scheduling is a
-  documented host cron/systemd step, HOST_SETUP_GUIDE §6); SSE re-sync on
-  (re)connect (DISP-2/5); PWA manifest + pass-through service worker
-  (installability verified on-device over HTTPS — HOST_SETUP_GUIDE §4a). Also a
-  fake **reschedule_event** trigger so event-move is exercisable in the UI.
-- **Integration coverage (real-stack).** `make smoke` (12 checks) covers, over
-  real HTTP against the fake: assistant **capture→propose→confirm** (stage-1
-  `fake_link` resolves the target from the note text — no `work_item_id` param),
-  a **standalone `create_event`**, **`deconflict_events`** end-to-end,
-  **`reschedule_event`** via capture, and **SSE reconnect re-sync**. Remaining
-  gap: an SSE-triggered **calendar** refresh in the *browser* (server side + the
-  generic SSE frame are covered; browser reconnect is the on-device HTTPS smoke).
-- **Double-confirm semantics:** proposals aren't persisted, so confirming twice
-  re-applies (deconflict → +2 days). Accepted for v1; document if it surfaces.
-- **GROOM board UI** — the board is read-only today (no archive/unarchive UI).
-  Note the *assistant* `archive_work_item` action IS built (done-only invariant);
-  it's the board's manual grooming UI that's still Phase-5.
-- **`item_log`** is `[]` until a target is resolved (arrives with OllamaCaptureResolver).
-- **Alembic migration wiring — DONE.** Wrapped in `app.manage` (no ini/CLI):
-  startup runs `upgrade head` (`app/migrations.py` → `alembic/`), `python -m
-  app.manage migrate` for the manual path; the baseline is autogenerated from the
-  models and `tests/test_migrations.py` guards migrated-schema == `create_all`
-  schema. Tests still build schema via `create_all` for speed; the host smoke
-  e2e now runs on the migrated DB.
+## FakeAssistant trigger vocabulary (smoke / manual testing)
 
-## House rules (unchanged)
+Timing needs a **weekday** word. New capture: **event word**
+(appointment/event/meeting/visit) **+ weekday** → `create_event` only; else →
+`create_work_item`. Existing item (resolved by `fake_link` from the note text):
+weekday → `set_due_date` (+ linked `create_event` if event-ish); **done word** →
+`complete_work_item`. Resolved **event** + a **reschedule/move word** + weekday →
+`reschedule_event`. (The `deconflict_events` *action* exists and is
+confirm/apply-tested, but the fake no longer *proposes* it.) Full table:
+`app/assistant/fake/assistant.py` docstring.
 
-TDD; `make check` (lint + mypy + ≥95% cov) before any task is done. `make smoke`
-for the host integration smoke; `--serve` keeps the server up + prints a token
-for a browser check. Do NOT do Tailscale/device/deploy steps (human-only). Do NOT
-`git push`.
+## House rules
+
+TDD; **`make check`** (lint + mypy + ≥95% cov) is the gate before any task is
+done — paste real output. **`make smoke`** for the host integration smoke;
+`--serve` keeps the server up + prints a token for a browser check. Small,
+verified steps; update the relevant `spec/` docs in the same change. Do NOT do
+Tailscale/device/deploy steps (human-only). Do NOT `git push`.
