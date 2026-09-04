@@ -150,6 +150,20 @@ def test_main_list_and_revoke(cli_db, capsys):
     assert session.get(DeviceToken, dt_id).revoked_at is not None
 
 
+def test_main_backup_default_dest(cli_db, tmp_path, monkeypatch, capsys):
+    # No --dest -> a timestamped file under ./backups/. Run in a temp cwd so the
+    # backups/ dir doesn't land in the repo.
+    from app.manage import main
+
+    monkeypatch.chdir(tmp_path)
+    rc = main(["backup"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "backups" in out
+    written = list((tmp_path / "backups").glob("ntake-*.db"))
+    assert len(written) == 1
+
+
 def test_main_backup_writes_snapshot(cli_db, tmp_path, capsys):
     from sqlalchemy import select
 

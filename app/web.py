@@ -20,6 +20,46 @@ from html import escape
 
 from app.models import WORK_ITEM_STATUSES, Event, WorkItem
 
+# --- PWA installability (DISP): manifest + minimal service worker ---------
+
+# The web app manifest (served as JSON at /manifest.webmanifest). Enough for a
+# browser to offer "add to home screen" for the phones + the wall tablet (§3).
+MANIFEST: dict = {
+    "name": "Family Board",
+    "short_name": "Family",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#2563eb",
+    "icons": [
+        {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+    ],
+}
+
+# A minimal, single-color app icon (SVG scales to any size the installer wants).
+APP_ICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">'
+    '<rect width="128" height="128" rx="24" fill="#2563eb"/>'
+    '<rect x="28" y="34" width="72" height="16" rx="4" fill="#fff"/>'
+    '<rect x="28" y="58" width="72" height="12" rx="4" fill="#bfdbfe"/>'
+    '<rect x="28" y="78" width="48" height="12" rx="4" fill="#bfdbfe"/>'
+    "</svg>"
+)
+
+# The service worker (served as JS at /sw.js, root scope so it covers the app).
+# v1 is DELIBERATELY pass-through: no precache, no runtime cache. The app is a
+# live server (SSE-driven board/calendar) — caching the shell would risk serving
+# stale UI. The SW exists so the app is installable (a registered SW is required
+# for the PWA install prompt), not for offline use (offline is a non-goal: the
+# app is useless without the server). ``claim`` so it controls open pages at once.
+SERVICE_WORKER = """\
+// v1 pass-through service worker — installability only, NO caching.
+self.addEventListener('install', (e) => { self.skipWaiting(); });
+self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); });
+// No 'fetch' handler: requests go straight to network (never a stale shell).
+"""
+
 # Column order = the canonical domain status codes (single source of truth in
 # models). Labels are the UI-layer display names, keyed off those codes.
 COLUMN_ORDER = list(WORK_ITEM_STATUSES)
@@ -118,6 +158,8 @@ SHELL_PAGE = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="manifest" href="/manifest.webmanifest">
   <title>Family Board</title>
   <style>
     body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; }
@@ -178,6 +220,14 @@ SHELL_PAGE = """<!doctype html>
   <div id="calendar-container">Enter your device token to load the calendar.</div>
 
   <script>
+    // Register the service worker so the app is installable (add to home
+    // screen) on phones + the wall tablet. Pass-through SW (no caching); needs a
+    // secure context (HTTPS via Tailscale, or localhost).
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
     function getToken() { return localStorage.getItem('ntake_token') || ''; }
     function authHeaders(json) {
       const h = { 'Authorization': 'Bearer ' + getToken() };

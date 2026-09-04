@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
@@ -57,7 +57,14 @@ from app.schemas import (
     WorkItemUpdateCreate,
     WorkItemUpdateRead,
 )
-from app.web import SHELL_PAGE, render_board, render_calendar
+from app.web import (
+    APP_ICON_SVG,
+    MANIFEST,
+    SERVICE_WORKER,
+    SHELL_PAGE,
+    render_board,
+    render_calendar,
+)
 
 
 @asynccontextmanager
@@ -312,6 +319,30 @@ def get_board(
 def index() -> str:
     """The shell page: token entry + free-text capture + board container."""
     return SHELL_PAGE
+
+
+# --- PWA installability (DISP): served from the app origin ----------------
+# Unauthenticated on purpose: the manifest/SW/icon carry no family data and a
+# browser fetches them before any token exists (they're what make the app
+# installable on phones + the wall tablet). All app data stays auth-protected.
+
+
+@app.get("/manifest.webmanifest")
+def manifest() -> JSONResponse:
+    """The web app manifest (installability metadata)."""
+    return JSONResponse(MANIFEST, media_type="application/manifest+json")
+
+
+@app.get("/sw.js")
+def service_worker() -> Response:
+    """The service worker (pass-through; installability only, no caching)."""
+    return Response(SERVICE_WORKER, media_type="text/javascript")
+
+
+@app.get("/icon.svg")
+def app_icon() -> Response:
+    """The app icon referenced by the manifest."""
+    return Response(APP_ICON_SVG, media_type="image/svg+xml")
 
 
 @app.get("/board/view", response_class=HTMLResponse)
