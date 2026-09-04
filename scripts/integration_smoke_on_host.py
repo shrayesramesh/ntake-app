@@ -178,6 +178,57 @@ def run_checks(base: str, token: str) -> bool:
         assert "error" not in result, result.get("error")
         assert result.get("frame"), "no SSE frame received"
 
+    def sse_resync_after_reconnect():
+        # DISP-2/5, server side: a client that drops its SSE stream and reconnects
+        # must be able to re-sync to CURRENT state — including a change that
+        # happened WHILE it was disconnected (which is never delivered as a live
+        # frame). This is what the shell's EventSource 'open' handler triggers
+        # (reload board+calendar on reconnect). We prove the server supports it:
+        #   1) open a stream and CLOSE it (disconnect)
+        #   2) make a change while disconnected
+        #   3) open a FRESH stream (re-subscribe works)
+        #   4) a fragment fetch reflects the offline change
+        # NOTE: the BROWSER's automatic EventSource reconnect + open-handler firing
+        # is a browser behavior verified on-device (HTTPS/Tailscale), not here.
+        title = f"{created_title}-reconnect"
+
+        # 1) open + immediately close a stream (a clean disconnect).
+        resp = _get(f"{base}/events/stream?token={token}", timeout=10)
+        resp.close()
+        time.sleep(0.5)  # let the server run the generator's finally/unsubscribe
+
+        # 2) change while "disconnected".
+        r = _post_json(f"{base}/work-items", {"title": title}, token)
+        assert r.status == 201
+
+        # 3) a fresh stream must subscribe and (4) deliver a subsequent change,
+        # proving re-subscribe works after a reconnect.
+        result: dict[str, object] = {}
+
+        def reader():
+            try:
+                s = _get(f"{base}/events/stream?token={token}", timeout=10)
+                for raw in s:
+                    line = raw.decode().strip()
+                    if line.startswith("data:"):
+                        result["frame"] = json.loads(line[len("data:") :].strip())
+                        break
+            except Exception as e:  # noqa: BLE001
+                result["error"] = repr(e)
+
+        t = threading.Thread(target=reader, daemon=True)
+        t.start()
+        time.sleep(1.0)  # ensure re-subscribed
+        _post_json(f"{base}/work-items", {"title": f"{title}-2"}, token)
+        t.join(timeout=10)
+        assert "error" not in result, result.get("error")
+        assert result.get("frame"), "fresh stream did not re-subscribe after reconnect"
+
+        # 4) the re-sync fetch (what the 'open' handler does) shows the change
+        # made while disconnected — the missed-change gap is closed by re-fetching.
+        board = _get(f"{base}/board/view", token=token).read().decode()
+        assert title in board, "offline change not visible on reconnect re-sync"
+
     def assistant_capture_propose_confirm():
         # New-item capture is propose-only AND executable-only: nothing saved,
         # item is null, and the assistant proposes create_work_item (a
@@ -383,6 +434,7 @@ def run_checks(base: str, token: str) -> bool:
         ("authenticated create (201)", create_item),
         ("board fragment shows created item", board_shows_item),
         ("SSE delivers a change frame", sse_delivers_change),
+        ("SSE re-syncs after reconnect", sse_resync_after_reconnect),
         ("assistant capture->propose->confirm", assistant_capture_propose_confirm),
         ("standalone create_event via capture", standalone_create_event_via_capture),
         ("deconflict_events end-to-end", deconflict_events_end_to_end),

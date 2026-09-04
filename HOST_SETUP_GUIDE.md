@@ -133,6 +133,28 @@ python -m app.manage revoke 3             # revoke token id 3 (e.g. lost phone)
 4. Put that `https://…ts.net` URL into `USER_SETUP_GUIDE.md` (the `<FILL IN>`
    URL) before sharing it with the family.
 
+### 4a. Verify the PWA installs (HTTPS-only — the second smoke)
+
+The `make smoke` script runs over **HTTP** and covers the API, live-sync, and
+SSE **reconnect re-sync** (server side). It deliberately does **not** cover the
+PWA: install + service-worker registration require a **secure context (HTTPS)**,
+so this is a separate, **on-device** smoke you run once TLS is up (§4). Do it in
+a browser on a device that's on the tailnet, against the `https://…ts.net` URL:
+
+1. **Assets serve:** open `…/manifest.webmanifest` (JSON loads), `…/sw.js` (JS
+   loads), `…/icon.svg` (renders). Over HTTP these are already smoke-checked; the
+   point here is they resolve under the real HTTPS origin.
+2. **Service worker registers:** open the app, then DevTools → Application →
+   Service Workers → expect `sw.js` **activated and running** (no HTTPS = no
+   registration, so this only works via Tailscale).
+3. **Installable:** the browser offers **Add to Home Screen / Install**; install
+   it and confirm it launches standalone (no browser chrome) from the home
+   screen — the phone + wall-tablet path (§3, DISP).
+4. **Live reconnect (browser side):** with the installed PWA open, briefly drop
+   Wi-Fi (or sleep/wake the tablet); on reconnect the board/calendar should
+   re-sync automatically (the `EventSource` `open` handler). The *server* support
+   for this is smoke-tested; this step confirms the *browser* behavior end-to-end.
+
 > **Privacy note (CT logs):** the Let's Encrypt cert publishes
 > `<host>.<tailnet>.ts.net` in public Certificate Transparency logs. It grants no
 > access (you still need to be on the tailnet), but if the host/tailnet names are
