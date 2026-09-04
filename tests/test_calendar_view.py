@@ -136,4 +136,7 @@ def test_calendar_view_escapes_html(client, session, auth_headers, event_factory
 def test_shell_wires_calendar(client):
     body = client.get("/").text
     assert "calendar-container" in body
-    assert "/calendar/view" in body
+    assert "calendar-grid" in body
+    assert "EventCalendar.create" in body
+    assert "fetch('/events'" in body
+    assert "calendar.refetchEvents()" in body

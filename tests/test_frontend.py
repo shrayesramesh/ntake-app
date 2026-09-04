@@ -26,7 +26,8 @@ def test_index_serves_shell_without_auth(client):
     body = r.text
     assert "board-container" in body  # the shell (not some other page)
     assert "/capture" in body  # capture is wired
-    assert "/calendar/view" in body  # calendar is wired
+    assert "EventCalendar.create" in body  # calendar grid is wired
+    assert "/static/event-calendar/event-calendar.min.js" in body
     assert "es.addEventListener('open'" in body  # SSE reconnect re-sync is wired
 
 

@@ -27,6 +27,10 @@ class EventRead(BaseModel):
     end_at: datetime | None = None
     start_date: date | None = None
     end_date: date | None = None
+    participants: list[dict] = []
+    # Resolved by the authenticated API handler from member ids/free-text names;
+    # clients should display this instead of raw participant member ids.
+    participant_names: list[str] = []
 
 
 class WorkItemCreate(BaseModel):

@@ -244,6 +244,7 @@ SHELL_PAGE = """<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/event-calendar/event-calendar.min.css">
   <title>Family Board</title>
   <style>
     body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; }
@@ -266,6 +267,14 @@ SHELL_PAGE = """<!doctype html>
            border-radius: 4px; padding: 0 .35rem; margin-left: .35rem; }
     .empty { color: #a1a1aa; text-align: center; }
     .calendar { margin-top: 1rem; }
+    /* Stable kiosk region: does not change when month/week/day changes. */
+    #calendar-container { height: clamp(32rem, 62vh, 48rem); min-height: 0; }
+    #calendar-grid { height: 100%; min-height: 0; }
+    .calendar-event-content { min-width: 0; overflow: hidden; line-height: 1.2; }
+    .calendar-event-title { font-weight: 650; overflow: hidden; text-overflow: ellipsis;
+                            white-space: nowrap; }
+    .calendar-event-meta { font-size: .72rem; opacity: .88; overflow: hidden;
+                           text-overflow: ellipsis; white-space: nowrap; }
     .calendar .events { list-style: none; margin: 0; padding: 0; }
     .event-card { background: #fff; border: 1px solid #e4e4e7; border-radius: 6px;
                   padding: .5rem .6rem; margin-bottom: .4rem; }
@@ -330,8 +339,12 @@ SHELL_PAGE = """<!doctype html>
   <div id="board-container">Enter your device token to load the board.</div>
 
   <h2 style="font-size:1rem;margin:1rem 0 .5rem;">Calendar</h2>
-  <div id="calendar-container">Enter your device token to load the calendar.</div>
+  <div id="calendar-container">
+    <div id="calendar-grid" aria-label="Family calendar"></div>
+  </div>
 
+  <!-- Locally vendored EventCalendar standalone bundle (no public CDN). -->
+  <script src="/static/event-calendar/event-calendar.min.js"></script>
   <script>
     // Register the service worker so the app is installable (add to home
     // screen) on phones + the wall tablet. Pass-through SW (no caching); needs a
@@ -351,7 +364,7 @@ SHELL_PAGE = """<!doctype html>
       const t = document.getElementById('token').value.trim();
       if (t) { localStorage.setItem('ntake_token', t);
                document.getElementById('token-status').textContent = 'saved';
-               startSSE(); reloadBoard(); reloadCalendar(); }
+               startSSE(); reloadBoard(); initCalendar(); }
     }
 
     // Capture: POST free text to /capture (JSON) -> {item, proposals}. Save the
@@ -368,7 +381,7 @@ SHELL_PAGE = """<!doctype html>
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
         .then(data => { input.value = ''; renderProposals(data.proposals || []);
                         renderDebug(data.debug || null);
-                        reloadBoard(); reloadCalendar(); })
+                        reloadBoard(); refreshCalendar(); })
         .catch(() => { document.getElementById('proposals').textContent =
                        'Capture failed (check your token).'; });
       return false;
@@ -486,7 +499,7 @@ SHELL_PAGE = """<!doctype html>
                                target_id: p.target_id, target_type: p.target_type })
       })
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
-        .then(() => { card.remove(); reloadBoard(); reloadCalendar(); })
+        .then(() => { card.remove(); reloadBoard(); refreshCalendar(); })
         .catch(() => { card.querySelector('.action-summary').textContent +=
                        ' (failed)'; });
     }
@@ -499,14 +512,119 @@ SHELL_PAGE = """<!doctype html>
         .catch(() => { document.getElementById('board-container').textContent =
                        'Could not load board (check your token).'; });
     }
-    function reloadCalendar() {
-      const t = getToken(); if (!t) return;
-      fetch('/calendar/view', { headers: authHeaders(false) })
-        .then(r => r.ok ? r.text() : Promise.reject(r.status))
-        .then(html => {
-          document.getElementById('calendar-container').innerHTML = html; })
-        .catch(() => { document.getElementById('calendar-container').textContent =
-                       'Could not load calendar (check your token).'; });
+    // EventCalendar (locally vendored) — month grid by default, week/day
+    // optional, read-only. Its event source fetches the existing authenticated
+    // /events feed and adapts app DTOs to calendar events.
+    let calendar = null;
+
+    // App all-day end_date is INCLUSIVE; EventCalendar's all-day end is
+    // EXCLUSIVE. Shift an inclusive YYYY-MM-DD end forward by one day.
+    function addOneDay(isoDate) {
+      const d = new Date(isoDate + 'T00:00:00');
+      d.setDate(d.getDate() + 1);
+      return d.toISOString().slice(0, 10);
+    }
+
+    // SQLite returns stored UTC timestamps without an offset; make UTC explicit
+    // before EventCalendar/browser parsing so a local display converts correctly.
+    function utcIso(value) {
+      if (!value) return value;
+      return /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : value + 'Z';
+    }
+
+    // Map an app Event DTO -> an EventCalendar event object.
+    function toCalendarEvent(e) {
+      if (e.all_day) {
+        const end = e.end_date || e.start_date;
+        return {
+          id: String(e.id),
+          title: e.title,
+          allDay: true,
+          start: e.start_date,
+          end: end ? addOneDay(end) : undefined,
+          extendedProps: {
+            location: e.location,
+            description: e.description,
+            participantNames: e.participant_names || []
+          }
+        };
+      }
+      return {
+        id: String(e.id),
+        title: e.title,
+        allDay: false,
+        start: utcIso(e.start_at),
+        end: utcIso(e.end_at || e.start_at),
+        extendedProps: {
+          location: e.location,
+          description: e.description,
+          participantNames: e.participant_names || []
+        }
+      };
+    }
+
+    // EventCalendar default content leads with time and omits the context the
+    // former agenda cards showed. Return DOM nodes (not unsafe HTML) so each grid
+    // event leads with title, then compact metadata: time, participants, location.
+    function calendarEventContent(info) {
+      const root = document.createElement('div');
+      root.className = 'calendar-event-content';
+
+      const title = document.createElement('div');
+      title.className = 'calendar-event-title';
+      title.textContent = info.event.title;
+      root.appendChild(title);
+
+      const props = info.event.extendedProps || {};
+      const bits = [];
+      if (info.timeText) bits.push(info.timeText);
+      if (Array.isArray(props.participantNames) && props.participantNames.length) {
+        bits.push(props.participantNames.join(', '));
+      }
+      if (props.location) bits.push('@ ' + props.location);
+      if (bits.length) {
+        const meta = document.createElement('div');
+        meta.className = 'calendar-event-meta';
+        meta.textContent = bits.join(' · ');
+        root.appendChild(meta);
+      }
+      return { domNodes: [root] };
+    }
+
+    // Authenticated custom event source: fetch /events with the bearer token
+    // and return adapted events (a Promise, per EventCalendar's fetch contract).
+    function fetchCalendarEvents(fetchInfo, successCallback, failureCallback) {
+      if (!getToken()) { successCallback([]); return; }
+      fetch('/events', { headers: authHeaders(false) })
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(list => successCallback((list || []).map(toCalendarEvent)))
+        .catch(err => failureCallback && failureCallback(err));
+    }
+
+    function initCalendar() {
+      const el = document.getElementById('calendar-grid');
+      if (!el || typeof EventCalendar === 'undefined') return;
+      if (calendar) { refreshCalendar(); return; }
+      calendar = EventCalendar.create(el, {
+        view: 'dayGridMonth',
+        height: '100%',
+        headerToolbar: {
+          start: 'title',
+          center: '',
+          end: 'dayGridMonth,timeGridWeek,timeGridDay today prev,next'
+        },
+        // Read-only first slice: no drag/drop/resize/direct editing.
+        editable: false,
+        eventStartEditable: false,
+        eventDurationEditable: false,
+        eventContent: calendarEventContent,
+        eventSources: [{ events: fetchCalendarEvents }]
+      });
+    }
+
+    // Refresh the mounted grid from the server (used on capture + SSE change).
+    function refreshCalendar() {
+      if (calendar) { calendar.refetchEvents(); } else { initCalendar(); }
     }
     let es = null;
     function startSSE() {
@@ -519,13 +637,13 @@ SHELL_PAGE = """<!doctype html>
       // stale until the next change. Re-fetching on 'open' closes that gap
       // (DISP-2/5: stays correct across sleep/wake for days).
       es.addEventListener('open', reloadBoard);
-      es.addEventListener('open', reloadCalendar);
+      es.addEventListener('open', refreshCalendar);
       es.addEventListener('change', reloadBoard);
-      es.addEventListener('change', reloadCalendar);
+      es.addEventListener('change', refreshCalendar);
     }
     // On load, if a token is already saved, go.
     if (getToken()) { document.getElementById('token-status').textContent = 'saved';
-                      startSSE(); reloadBoard(); reloadCalendar(); }
+                      startSSE(); reloadBoard(); initCalendar(); }
   </script>
 </body>
 </html>

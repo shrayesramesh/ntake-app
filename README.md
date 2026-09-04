@@ -45,7 +45,10 @@ backend**, a 15-action toolset, and the two prompt views (`build_world_view`,
 `build_tools_view`). The two-call pipeline links work items, events, **and
 members** from free text (`{work_item_ids, event_ids, member_ids}`) and folds each
 linked member's workload into the PROPOSE context; proposal cards render verbose,
-id-resolved detail via each action's own `ActionSpec.render_card`.
+id-resolved detail via each action's own `ActionSpec.render_card`. The calendar is
+a locally served **EventCalendar** grid (month default; week/day optional) backed
+by authenticated `/events`, with SSE-driven `refetchEvents()`; it remains
+read-only so mutations stay propose-and-confirm.
 
 **Live-surface hardening (done):** SQLite WAL + `synchronous=NORMAL`
 (crash-safety); Alembic **migrations** as the real-DB schema path (startup runs

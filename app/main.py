@@ -20,9 +20,11 @@ import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
@@ -124,6 +126,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Family Calendar", lifespan=lifespan)
+# Locally vendored browser assets (currently EventCalendar). Never a public CDN:
+# the self-hosted app serves these from its own origin.
+app.mount(
+    "/static",
+    StaticFiles(directory=Path(__file__).parent / "static"),
+    name="static",
+)
 
 # The single live-sync emitter. Bound to the session factory so every committed
 # write (from any session it makes) publishes a change event.
@@ -140,15 +149,46 @@ def health() -> dict:
 @app.get("/events", response_model=list[EventRead])
 def list_events(
     session: Session = Depends(get_session),
-    _member: Member = Depends(current_member),
-) -> list[Event]:
-    """Return all persisted events as JSON (checkpoint 1c).
+    member: Member = Depends(current_member),
+) -> list[EventRead]:
+    """Return this family's persisted events as JSON (checkpoint 1c).
 
-    Requires a valid device token (ACCESS-2). Ordered by start time; FastAPI
-    serializes each ORM Event via EventRead (from_attributes).
+    Requires a valid device token (ACCESS-2). Ordered by start time. The response
+    includes raw ``participants`` plus server-resolved ``participant_names`` so
+    browser calendar cards never need to render raw member ids.
     """
-    stmt = select(Event).order_by(Event.start_at)
-    return list(session.scalars(stmt).all())
+    events = list(
+        session.scalars(
+            select(Event)
+            .where(Event.family_id == member.family_id)
+            .order_by(Event.start_at)
+        ).all()
+    )
+    member_names = {
+        m.id: m.display_name
+        for m in session.scalars(
+            select(Member).where(Member.family_id == member.family_id)
+        ).all()
+    }
+    return [_event_read(event, member_names) for event in events]
+
+
+def _event_read(event: Event, member_names: dict[int, str]) -> EventRead:
+    """Map an Event to the API DTO with human participant names resolved."""
+    dto = EventRead.model_validate(event)
+    dto.participants = event.participants or []
+    names: list[str] = []
+    for participant in dto.participants:
+        explicit = participant.get("name")
+        member_id = participant.get("member_id")
+        resolved = member_names.get(member_id) if isinstance(member_id, int) else None
+        label = (
+            explicit or resolved or (f"m{member_id}" if member_id is not None else None)
+        )
+        if label:
+            names.append(str(label))
+    dto.participant_names = names
+    return dto
 
 
 def _format_change(entity: str, entity_id: int, op: str) -> dict:
