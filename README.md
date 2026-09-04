@@ -13,6 +13,12 @@ household/emotional labor **visible for recognition and fairness**.
 - **Running the code:** `make setup` (creates venv, installs, runs tests), then
   `make check` (lint + types + tests) and `make run` (dev server on 127.0.0.1).
   Needs Python 3.12+ (Pop!_OS: `sudo apt install python3-venv` if venv errors).
+- **Local assistant model (optional, dev):** with a llamafile model acquired
+  (see `HOST_SETUP_GUIDE.md` §7), `make llm-up` / `make llm-status` / `make llm-down`
+  bring the local model server up/down on `127.0.0.1:8080`, and
+  `python scripts/live_local_llm_smoke.py` drives real captures against it and
+  **prints** the assistant's proposals (reasoning quality is eyeballed, not
+  asserted). All localhost — no Tailscale needed to exercise the assistant.
 
 ## Repo map
 
