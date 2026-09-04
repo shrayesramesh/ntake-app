@@ -83,6 +83,59 @@ def test_attaches_event_target_for_an_event_action():
     assert out[0].target_id == 42
 
 
+def test_create_event_is_a_creator_passing_event_params_through_no_target():
+    # create_event does NOT operate on an existing entity — the event it creates
+    # is fully specified by its params (title + a timing one-of), not a target.
+    # So the assistant passes the params through and attaches NO target, even
+    # when the context has a resolved work item (a creator never auto-attaches).
+    a = _assistant(
+        [
+            {
+                "name": "create_event",
+                "params": {
+                    "title": "Dentist",
+                    "start_at": "2026-09-05T19:00:00Z",
+                    "end_at": "2026-09-05T20:00:00Z",
+                },
+            }
+        ]
+    )
+    out = a.propose(_ctx("dentist appointment friday", work_item_id=9))
+    assert len(out) == 1
+    p = out[0]
+    assert p.name == "create_event"
+    # The event timing params the model supplied flow through unchanged…
+    assert p.params == {
+        "title": "Dentist",
+        "start_at": "2026-09-05T19:00:00Z",
+        "end_at": "2026-09-05T20:00:00Z",
+    }
+    # …and no target is attached (creator), despite the resolved work item.
+    assert p.target_id is None
+    assert p.target_type is None
+
+
+def test_create_event_timing_contract_is_expressed_in_the_tools_schema():
+    # How the model is TOLD it must supply an event's timing when it picks
+    # create_event: via the action's params one-of in the constrained schema
+    # (not via target_type). Pin that linkage here.
+    from app.assistant.actions import REGISTRY
+    from app.assistant.local_llm.tools_schema import build_tools_schema
+
+    schema = build_tools_schema(REGISTRY)
+    create_event = next(
+        b
+        for b in schema["properties"]["actions"]["items"]["oneOf"]
+        if b["properties"]["name"]["const"] == "create_event"
+    )
+    params = create_event["properties"]["params"]
+    assert params["required"] == ["title"]
+    assert params["oneOf"] == [
+        {"required": ["title", "start_at", "end_at"]},
+        {"required": ["title", "start_date", "end_date"]},
+    ]
+
+
 def test_builds_prompt_and_schema_and_sends_them_to_the_llm():
     llm = ScriptedLLM(default={"actions": []})
     LocalLlmAssistant(llm).propose(_ctx("the note text", deep="DEEP CONTEXT HERE"))
