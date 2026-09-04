@@ -166,10 +166,13 @@ Each step is its own sub-checkpoint; run `make check` and paste output.
    most malformed output. Deferred to the Track B end-to-end smoke, where the real
    malformed-rate is observable; if worth it, add as a `RetryingLLM(LLM)` decorator
    at the seam (config-gated, off by default) so the parse layer stays oblivious.)*
-7. **Wire the `local` branch + config.** Point both factory functions
-   (`get_assistant`, `get_capture_resolver`) at the real classes for
-   `NTAKE_ASSISTANT=local` (they fall back to fake today). Plumb the config knobs
-   below, incl. the larger timeout + warm behavior.
+7. **Wire the `local` branch + config. DONE.** `get_assistant` /
+   `get_capture_resolver` now take an **`AssistantConfig`** and return the real
+   `LocalLlmAssistant` / `LocalLlmCaptureResolver` (over one `LocalLlmClient` built
+   from the config) for `kind="local"`, `NullAssistant`+fake resolver for `off`,
+   fake for `fake`. `main.py` threads the config in via a `get_assistant_config`
+   FastAPI dependency (overridable in tests); the bounded-propose timeout is
+   `config.timeout`. **Config is a code value, not env vars/globals** — see below.
 
 **Planned follow-up (after 5–7, once the shape has settled): reorganize the
 local_llm package to mirror the data flow.** The pipeline is an alternating
@@ -182,11 +185,17 @@ into one stage unit — e.g. a `link` unit owning `build_link_prompt` + `_LINK_S
 `build_link → parse_link → build_propose → parse_propose → act`. Deferred to avoid
 reorganizing twice while steps 5–7 are still landing.
 
-**Config:** `NTAKE_ASSISTANT=local`, `NTAKE_ASSISTANT_MODEL` (default
-`llama3.1:8b`), `NTAKE_LOCAL_LLM_URL` (default `http://localhost:8080` for
-llamafile; e.g. `http://localhost:11434` for an Ollama endpoint),
-`NTAKE_ASSISTANT_TIMEOUT` (currently 4.0 — tuned for the fake; the `local` path
-needs a much larger value — see cold-start).
+**Config (config-in-code, not env/globals):** the assistant's infra config is a
+frozen `AssistantConfig` in `app/assistant/factory.py`, constructed in code and
+passed IN to the factory — deliberately separate from `FamilyConfig` (the
+out-of-repo `family.toml` household PII). Fields: `kind` (`fake` | `off` |
+`local`), `model` (default `llama3.1:8b`), `base_url` (default
+`http://localhost:8080` for llamafile; e.g. `http://localhost:11434` for Ollama),
+`timeout` (default `120.0` — the `local` path is two sequential calls + a
+cold-start load, so it needs a much larger bound than the fake's old 4.0). The old
+`NTAKE_ASSISTANT*` / `NTAKE_ASSISTANT_TIMEOUT` env reads are removed. *(Follow-up:
+`db_url` / `config_path` still read ad-hoc from env; `NTAKE_TOKEN_SECRET` stays an
+env secret. Fold the non-secret ones into config later if desired.)*
 
 ### Track B — the runtime + model provisioning (host / operational)
 

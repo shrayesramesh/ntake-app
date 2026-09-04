@@ -2,7 +2,7 @@
 
 Parallel to the ``fake`` package: both implement the two seams from
 ``app.assistant.base`` (:class:`CaptureResolver`, :class:`AssistantClient`) and
-are selected by ``NTAKE_ASSISTANT`` via ``app.assistant.factory``. This backend
+are selected by ``AssistantConfig.kind`` via ``app.assistant.factory``. This backend
 talks to a localhost model server over an OpenAI-style JSON HTTP call (llamafile
 is the reference runtime; Ollama / LM Studio / llama-server expose the same seam).
 

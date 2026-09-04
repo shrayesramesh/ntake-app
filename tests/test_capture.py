@@ -69,7 +69,7 @@ def test_capture_degrades_gracefully_when_assistant_fails(
         def propose(self, ctx):
             raise RuntimeError("model exploded")
 
-    monkeypatch.setattr(main, "get_assistant", lambda: BoomAssistant())
+    monkeypatch.setattr(main, "get_assistant", lambda config: BoomAssistant())
 
     r = client.post(
         "/capture", json={"text": "call plumber friday"}, headers=auth_headers

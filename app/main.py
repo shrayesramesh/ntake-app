@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -30,7 +29,12 @@ import app.db as db
 from app import __version__
 from app.assistant.actions import REGISTRY, ActionError, apply_action
 from app.assistant.capture import CaptureRequest, FocusedContext
-from app.assistant.factory import get_assistant, get_capture_resolver
+from app.assistant.factory import (
+    AssistantConfig,
+    default_assistant_config,
+    get_assistant,
+    get_capture_resolver,
+)
 from app.auth import current_member, current_member_stream
 from app.config import config_path, load_config, seed_from_config
 from app.db import SessionLocal, get_session, register_change_events
@@ -402,19 +406,28 @@ def _to_proposal_read(
     )
 
 
+def get_assistant_config() -> AssistantConfig:
+    """FastAPI dependency: the assistant's runtime config (config-in-code).
+
+    Returns the in-code default; tests override via ``app.dependency_overrides``
+    (no env vars, no globals). One value threaded into the capture endpoints and
+    passed to the factory + the bounded-propose timeout.
+    """
+    return default_assistant_config()
+
+
 def _propose_bounded(
-    ctx: FocusedContext, target_label: str | None
+    ctx: FocusedContext, target_label: str | None, config: AssistantConfig
 ) -> list[ProposalRead]:
     """Get proposals from the configured assistant (bounded; degrade to []) and
     map them to the app DTO.
 
     Orchestration only: the bounded-timeout + graceful-degrade wrapper is the
-    engine's ``propose_bounded``; the per-action mapping is the pure
-    :func:`_to_proposal_read`. ``target_label`` is echoed onto each proposal so
-    the confirm card shows context.
+    engine's ``propose_bounded`` (the per-call bound is ``config.timeout``); the
+    per-action mapping is the pure :func:`_to_proposal_read`. ``target_label`` is
+    echoed onto each proposal so the confirm card shows context.
     """
-    timeout = float(os.environ.get("NTAKE_ASSISTANT_TIMEOUT", "4.0"))
-    actions = propose_bounded(get_assistant(), ctx, timeout)
+    actions = propose_bounded(get_assistant(config), ctx, config.timeout)
     return [
         _to_proposal_read(a, i, target_label) for i, a in enumerate(actions, start=1)
     ]
@@ -425,6 +438,7 @@ def capture_with_proposals(
     payload: CaptureCreate,
     session: Session = Depends(get_session),
     member: Member = Depends(current_member),
+    config: AssistantConfig = Depends(get_assistant_config),
 ) -> CaptureResponse:
     """Propose changes for a capture; apply nothing without Confirm (ASSIST-2).
 
@@ -433,6 +447,9 @@ def capture_with_proposals(
     is always a NEW capture); stage 2 ``propose()`` returns proposals. Nothing is
     persisted — the human confirms via /actions/confirm. Explicit note-append to
     an existing item is POST /work-items/{id}/updates, not here.
+
+    Both stages use the config-selected backend (``config.kind``): the fake
+    (default) or the live local LLM.
     """
     now = datetime.now(UTC)
     fam = session.get(Family, member.family_id)
@@ -441,8 +458,8 @@ def capture_with_proposals(
         timezone=fam.timezone if fam else "UTC",
         now=now,
     )
-    ctx = get_capture_resolver().focus(request, session, member)
-    proposals = _propose_bounded(ctx, target_label=None)
+    ctx = get_capture_resolver(config).focus(request, session, member)
+    proposals = _propose_bounded(ctx, target_label=None, config=config)
     return CaptureResponse(item=None, proposals=proposals)
 
 

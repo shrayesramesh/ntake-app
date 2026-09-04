@@ -20,9 +20,9 @@ refers to, with a deterministic rule instead of an LLM. Matching rule
 * Return matched ids deduped + id-ordered (work items and events separately) —
   the ``(work_item_ids, event_ids)`` shape ``deep_context`` consumes.
 
-Selected via ``NTAKE_ASSISTANT`` through
+Selected via ``AssistantConfig.kind`` through
 ``app.assistant.factory.get_capture_resolver``. The LLM-backed sibling
-(``LocalLlmCaptureResolver`` — task 7) will additionally call ``build_world_view``
+(``LocalLlmCaptureResolver`` — task 7, built) additionally calls ``build_world_view``
 to feed its LINK *prompt*; the fake link matches the DB directly and needs no
 rendered world view, so it is not built here.
 """
