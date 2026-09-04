@@ -57,7 +57,7 @@ app/assistant/local_llm/
 │                 #   injected effect. ScriptedLLM (test double) + LocalLlmClient
 │                 #   both implement it. propose()/link() depend on THIS, not httpx. [DONE]
 ├── client.py     # LocalLlmClient(LLM): httpx wrapper, JSON-constrained call;
-│                 #   holds base_url/model/timeout. No prompt/domain logic.
+│                 #   holds base_url/model/timeout. No prompt/domain logic. [DONE]
 ├── tools_schema.py  # registry -> constrained-output JSON schema (pure fn). [DONE]
 ├── assistant.py  # LocalLlmAssistant[FocusedContext] (stage 2): build prompt+schema,
 │                 #   call the LLM, parse -> [ProposedAction]
@@ -118,10 +118,16 @@ Each step is its own sub-checkpoint; run `make check` and paste output.
    `human_token` (tools view) and `json_schema` (tools schema), so the two renders
    share one source and can't desync; `build_tools_schema` just assembles the
    fragments.
-3. **`client.py` — `LocalLlmClient(LLM)`.** The `httpx` wrapper implementing the
-   seam: OpenAI-style `/v1/chat/completions` POST with the schema attached, holding
-   `base_url`/`model`/`timeout`. **The one place the runtime is visible.** Test
-   against a **stubbed httpx** (monkeypatched transport) — still no live model.
+3. **`client.py` — `LocalLlmClient(LLM)`. DONE.** The `httpx` wrapper implementing
+   the seam: OpenAI-style `/v1/chat/completions` POST holding
+   `base_url`/`model`/`timeout`, with the schema attached at
+   **`response_format.schema`** — the llama.cpp/llamafile shape (verified against
+   its server README; the OpenAI-cloud `json_schema`+`strict` nesting is rejected
+   by llama.cpp, issues #11847/#11988). **The one place the runtime is visible**
+   and the only file importing httpx. Tested against a **stubbed httpx**
+   (`httpx.MockTransport`) — the transport shape + happy path + a minimal
+   "don't raise on a junk body → `{}`" posture; full adversarial/timeout
+   hardening is step 6. `transport=` is an injection seam for tests.
 4. **propose — call 2 (`assistant.py`, `LocalLlmAssistant`).** Build the propose
    prompt + schema → call the `LLM` → parse/validate/attach → `[ProposedAction]`.
    Test with a hand-built deep `FocusedContext` + `ScriptedLLM` (no link needed

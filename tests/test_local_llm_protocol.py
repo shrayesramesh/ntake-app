@@ -92,13 +92,26 @@ def test_calls_are_recorded_for_assertions():
 
 
 def test_protocol_module_does_not_import_httpx():
-    # The boundary the whole backend rests on: nothing above client.py may import
-    # the transport. If this fails, an httpx dependency leaked into the protocol.
+    # The boundary the whole backend rests on: importing the protocol must not
+    # pull in the transport. Measured by a CLEAN re-import (like test_engine's
+    # boundary test) — checking global sys.modules would be polluted by other
+    # tests that legitimately import the client.
+    import importlib
     import sys
 
-    import app.assistant.local_llm.protocol as protocol_mod
+    # Drop the local_llm modules so we measure THIS import in isolation.
+    for name in list(sys.modules):
+        if name == "app.assistant.local_llm" or name.startswith(
+            "app.assistant.local_llm."
+        ):
+            del sys.modules[name]
 
+    before = set(sys.modules)
+    protocol_mod = importlib.import_module("app.assistant.local_llm.protocol")
+    newly = set(sys.modules) - before
+
+    # The protocol file itself references no transport…
     assert "httpx" not in protocol_mod.__dict__
-    # And importing the protocol must not have pulled httpx into the process on
-    # its account (defensive: the file has no transport import at all).
-    assert "app.assistant.local_llm.client" not in sys.modules
+    # …and importing it pulls in neither httpx nor the client module.
+    assert "httpx" not in newly
+    assert "app.assistant.local_llm.client" not in newly
