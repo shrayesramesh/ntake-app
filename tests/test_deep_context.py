@@ -32,13 +32,20 @@ def _wi(session, family_id, title, **kw):
     return wi
 
 
-def _update(session, work_item_id, author_id, body, source="human"):
+def _update(
+    session,
+    work_item_id,
+    author_id,
+    body,
+    source="human",
+    created_at=NOW,
+):
     u = WorkItemUpdate(
         work_item_id=work_item_id,
         author_id=author_id,
         source=source,
         body=body,
-        created_at=NOW,
+        created_at=created_at,
     )
     session.add(u)
     session.commit()
@@ -197,6 +204,62 @@ def test_deep_context_renders_full_update_history(session, fam_member):
     out = deep_context(session, m, [wi.id], [])
     assert "left a voicemail" in out
     assert "they will call back" in out  # the WHOLE log, both sources
+
+
+def test_deep_context_renders_ordered_checklist_before_timestamped_updates(
+    session, fam_member
+):
+    from app.models import ChecklistItem
+
+    fam, m = fam_member
+    wi = _wi(session, fam.id, "Pittsburgh Planning", assigned_to=m.id)
+    session.add_all(
+        [
+            ChecklistItem(work_item_id=wi.id, text="pack clothes", position=2),
+            ChecklistItem(work_item_id=wi.id, text="book hotel", position=1),
+            ChecklistItem(
+                work_item_id=wi.id,
+                text="arrange pet care",
+                checked=True,
+                position=3,
+            ),
+        ]
+    )
+    session.commit()
+    _update(
+        session,
+        wi.id,
+        m.id,
+        "Created work item: Pittsburgh Planning with 3 checklist item(s)",
+        source="assistant",
+        created_at=datetime(2026, 9, 4, 21, 15, tzinfo=UTC),
+    )
+
+    out = deep_context(session, m, [wi.id], [])
+
+    assert "    CHECKLIST:" in out
+    assert "    · [ ] book hotel" in out
+    assert "    · [ ] pack clothes" in out
+    assert "    · [x] arrange pet care" in out
+    assert (
+        out.index("book hotel")
+        < out.index("pack clothes")
+        < out.index("arrange pet care")
+    )
+    assert "    UPDATES:" in out
+    assert "[assistant · Fri Sep 4, 5:15 PM]" in out
+    assert out.index("CHECKLIST:") < out.index("UPDATES:")
+
+
+def test_deep_context_omits_empty_checklist_and_updates_headings(session, fam_member):
+    fam, m = fam_member
+    wi = _wi(session, fam.id, "Empty item", assigned_to=m.id)
+
+    out = deep_context(session, m, [wi.id], [])
+
+    assert "CHECKLIST:" not in out
+    assert "UPDATES:" not in out
+    assert "(no updates yet)" not in out
 
 
 def test_deep_context_renders_linked_events(session, fam_member):

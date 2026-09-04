@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Event, Family, Member, WorkItem, WorkItemUpdate
+from app.models import ChecklistItem, Event, Family, Member, WorkItem, WorkItemUpdate
 
 _DATETIME_FMT = "%a %b %-d, %-I:%M %p"
 _DATE_FMT = "%a %b %-d"
@@ -290,6 +290,15 @@ def _item_updates(session: Session, work_item_id: int) -> list[WorkItemUpdate]:
     return list(session.scalars(stmt).all())
 
 
+def _item_checklist(session: Session, work_item_id: int) -> list[ChecklistItem]:
+    stmt = (
+        select(ChecklistItem)
+        .where(ChecklistItem.work_item_id == work_item_id)
+        .order_by(ChecklistItem.position, ChecklistItem.id)
+    )
+    return list(session.scalars(stmt).all())
+
+
 def _render(
     session: Session,
     member: Member,
@@ -323,11 +332,20 @@ def _render_work_item_context(
     for wi in items:
         due = f", due {_fmt_dt(wi.due_at, zone)}" if wi.due_at else ""
         lines.append(f"- [w{wi.id}] {wi.title} ({wi.status}{due})")
+
+        checklist = _item_checklist(session, wi.id)
+        if checklist:
+            lines.append("    CHECKLIST:")
+            for item in checklist:
+                mark = "x" if item.checked else " "
+                lines.append(f"    · [{mark}] {item.text}")
+
         updates = _item_updates(session, wi.id)
-        for update in updates:
-            lines.append(f"    · [{update.source}] {update.body}")
-        if not updates:
-            lines.append("    · (no updates yet)")
+        if updates:
+            lines.append("    UPDATES:")
+            for update in updates:
+                timestamp = _fmt_dt(update.created_at, zone)
+                lines.append(f"    · [{update.source} · {timestamp}] {update.body}")
     return [*lines, ""]
 
 

@@ -354,6 +354,36 @@ three live captures to verify the model follows the strengthened prompt.
 
 ---
 
+### BUG-008 — deep context omitted full checklists and update timestamps — fixed (test-verified; live retest pending)
+
+**Class:** code / prompt-context completeness
+**Severity:** medium (the model could not reason over checklist state or update
+recency for an existing work item)
+
+**Reproduction**
+
+A newly created `Pittsburgh Planning` item with three checklist entries rendered
+only its assistant summary update:
+
+```text
+RELEVANT WORK ITEMS:
+- [w1] Pittsburgh Planning (todo)
+    · [assistant] Created work item: Pittsburgh Planning with 3 checklist item(s)
+```
+
+The actual checklist rows, their checked state, position, and the update's native
+`created_at` value were missing from the model context.
+
+**Fix (2026-09-04)**
+
+Deep context now renders each item's full checklist in `position` order before
+its updates, using `[ ]` and `[x]` state markers. It renders every update's native
+`created_at` in the family timezone (`[source · local timestamp]`) and omits
+empty `CHECKLIST:` / `UPDATES:` headings. Regression tests cover order, state,
+localized timestamps, section order, and empty items.
+
+---
+
 ## Fixed
 
 ### BUG-000 — constrained JSON schema was silently ignored by llamafile — fixed
