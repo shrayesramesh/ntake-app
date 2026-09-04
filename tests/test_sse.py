@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 import uvicorn
 
-from app.db import Base, SessionLocal, engine
+from app.db import SessionLocal
 from app.event_emitter import InProcessEmitter
 from app.main import _format_change, app, subscribe
 from app.models import Family
@@ -98,13 +98,36 @@ def live_server(monkeypatch):
     from app.models import DeviceToken, Member
     from app.tokens import generate_token, hash_token
 
-    # Ensure schema exists on the app's own engine (the one SessionLocal uses).
-    Base.metadata.create_all(engine)
-
     secret = "test-token-secret"
     monkeypatch.setenv("NTAKE_TOKEN_SECRET", secret)
 
-    # Enroll a family/member/token so the auth-protected stream accepts us.
+    # Start from a clean DB file: this test runs the REAL app against the real
+    # persistent calendar.db, and the app's startup now migrates (upgrade head),
+    # which is not idempotent against a stale, unstamped create_all-era file.
+    # Removing it lets the app's own lifespan create + stamp the schema.
+    for suffix in ("", "-wal", "-shm"):
+        p = Path(f"calendar.db{suffix}")
+        if p.exists():
+            p.unlink()
+
+    port = _free_port()
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    # Bounded wait for readiness. Starting the server runs the app lifespan, which
+    # migrates the DB to head — so the schema comes from the REAL app path (not a
+    # test create_all), exactly like production. Every other test still uses the
+    # fast create_all in-memory fixtures; only this real-app socket test does.
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline and not server.started:
+        time.sleep(0.05)
+    if not server.started:
+        server.should_exit = True
+        raise RuntimeError("uvicorn did not start in time")
+
+    # Enroll a family/member/token AFTER startup (schema now exists + is stamped).
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
     setup = SessionLocal()
     fam = Family(name="LiveFam", timezone="America/New_York")
@@ -126,30 +149,17 @@ def live_server(monkeypatch):
     fam_id = fam.id
     setup.close()
 
-    port = _free_port()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-
-    # Bounded wait for readiness.
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline and not server.started:
-        time.sleep(0.05)
-    if not server.started:
-        server.should_exit = True
-        raise RuntimeError("uvicorn did not start in time")
-
     try:
         yield port, {"Authorization": f"Bearer {token}"}, fam_id
     finally:
         server.should_exit = True
         thread.join(timeout=5)
         # This test exercises the app's real engine (calendar.db). Remove the
-        # runtime file so the test leaves no repo artifact (make clean also does).
-        db_path = Path("calendar.db")
-        if db_path.exists():
-            db_path.unlink()
+        # runtime file (+ WAL sidecars) so the test leaves no repo artifact.
+        for suffix in ("", "-wal", "-shm"):
+            p = Path(f"calendar.db{suffix}")
+            if p.exists():
+                p.unlink()
 
 
 def test_committed_write_delivered_over_real_socket(live_server):

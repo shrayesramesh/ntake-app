@@ -33,8 +33,9 @@ from app.assistant.capture import CaptureRequest, FocusedContext
 from app.assistant.factory import get_assistant, get_capture_resolver
 from app.auth import current_member, current_member_stream
 from app.config import config_path, load_config, seed_from_config
-from app.db import SessionLocal, get_session, init_schema, register_change_events
+from app.db import SessionLocal, get_session, register_change_events
 from app.event_emitter import InProcessEmitter
+from app.migrations import upgrade_to_head
 from app.models import (
     WORK_ITEM_STATUSES,
     ChecklistItem,
@@ -69,15 +70,18 @@ from app.web import (
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """On startup: ensure the schema exists, then seed identity from config.
+    """On startup: migrate the DB to head, then seed identity from config.
 
-    Schema init is unconditional (a real server needs its tables — the LAN smoke
-    500'd on ``no such table`` before this existed). Config seeding is conditional
-    on the file existing, so tests that boot the app without ``NTAKE_CONFIG`` set
-    don't fail; a real deployment points ``NTAKE_CONFIG`` at its out-of-repo file.
-    Reads ``db.engine`` at runtime so a rebound engine (tests) is honored.
+    Migrations are the schema path for the real DB (``alembic upgrade head`` via
+    ``app.migrations``): on a fresh DB this creates every table *via the baseline
+    migration* and stamps it at head, so the deployed schema is always
+    Alembic-managed (no create_all/migration drift). Tests build their schema
+    from the ORM metadata (``init_schema``) for speed — this migrate path is the
+    real-server one. Config seeding is conditional on the file existing, so tests
+    that boot without ``NTAKE_CONFIG`` set don't fail. Reads ``db.engine`` at
+    runtime so a rebound engine (tests) is honored.
     """
-    init_schema(db.engine)
+    upgrade_to_head(str(db.engine.url))
 
     path = config_path()
     if path.exists():

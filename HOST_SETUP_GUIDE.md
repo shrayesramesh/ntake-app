@@ -80,8 +80,14 @@ make run        # dev server on http://127.0.0.1:8000
 ```
 
 - Binds to **127.0.0.1** by design — Tailscale fronts it for real access (§4).
-- On first run it creates the SQLite database (`calendar.db`) and seeds the
-  household from your config. No manual database step is needed.
+- On first run it **migrates the database to head** (creating `calendar.db` and
+  all tables via Alembic) and seeds the household from your config. No manual
+  database step is needed — startup runs the migrations for you.
+- To run migrations **without** starting the server (e.g. after pulling a release
+  that adds a migration): `python -m app.manage migrate` (this is
+  `alembic upgrade head` on `CALENDAR_DB_URL`; safe to re-run — a DB already at
+  head is a no-op). Migrations are the schema path for the real DB; the test
+  suite builds its schema from the ORM models directly (fast, isolated).
 
 **Quick local check (on the host itself):**
 ```bash

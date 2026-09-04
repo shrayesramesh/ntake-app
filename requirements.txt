@@ -7,7 +7,7 @@ starlette==1.6.0
 
 # Data
 SQLAlchemy==2.0.52
-# alembic==1.19.1   # add at checkpoint 1b when wiring migrations
+alembic==1.19.1   # DB migrations (wrapped in app.manage; see app/migrations.py)
 
 # SSE (checkpoint 1e)
 sse-starlette==3.4.8

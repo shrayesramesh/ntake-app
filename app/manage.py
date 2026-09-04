@@ -228,7 +228,23 @@ def main(argv: list[str] | None = None) -> int:
         help="Destination file (default: ./backups/ntake-YYYYMMDD-HHMMSS.db)",
     )
 
+    sub.add_parser(
+        "migrate",
+        help="Run DB migrations to head (alembic upgrade head on CALENDAR_DB_URL)",
+    )
+
     args = parser.parse_args(argv)
+
+    # `migrate` is the schema path for the real DB — it must NOT go through
+    # init_schema (create_all), which would create tables outside Alembic's
+    # tracking. Handle it first, before the create_all + session setup below.
+    if args.command == "migrate":
+        from app.db import DB_URL
+        from app.migrations import upgrade_to_head
+
+        upgrade_to_head(DB_URL)
+        print(f"Migrated {DB_URL} to head.")
+        return 0
 
     # Import here so tests that only exercise the core functions don't require
     # the app DB/env to import this module.

@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import uvicorn  # noqa: E402
 
-from app.db import SessionLocal, engine, init_schema  # noqa: E402
+from app.db import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.manage import gen_token_for, seed_sample_events  # noqa: E402
 from app.models import Family, Member  # noqa: E402
@@ -63,8 +63,12 @@ def _free_port() -> int:
 
 
 def _seed_and_mint() -> str:
-    """Create schema + a family/member, mint a device token; return plaintext."""
-    init_schema(engine)
+    """Seed a family/member + mint a device token; return plaintext.
+
+    Schema is NOT created here — the server's startup lifespan migrates the DB to
+    head (upgrade head) before this runs, so the smoke exercises the real migrated
+    schema. Called after _start_server.
+    """
     now = datetime.now(UTC)
     s = SessionLocal()
     try:
@@ -484,9 +488,12 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, _on_signal)
 
     try:
-        token = _seed_and_mint()
+        # Start the server FIRST: the app's lifespan migrates the (isolated temp)
+        # DB to head — so the e2e smoke runs against the REAL migrated schema, the
+        # same path production uses. THEN seed + mint against that live schema.
         port = args.port or _free_port()
         server = _start_server(args.host, port)
+        token = _seed_and_mint()
         base = f"http://127.0.0.1:{port}"
 
         print(f"\nHost smoke against {base} (temp DB: {_TMP})\n")
