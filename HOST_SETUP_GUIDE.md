@@ -46,7 +46,7 @@ overwriting an existing one) and prints the environment variables to set. Then:
    ```
    ```toml
    [family]
-   name = "Ramesh"
+   name = "Example Household"
    timezone = "America/New_York"   # IANA name, required
 
    [[members]]
