@@ -1,12 +1,12 @@
 # Assistant Actions — the LLM capability registry
 
 > **Status:** BUILT (both fake + live local-LLM backends). The v1 toolset was
-> seeded at 6 actions then **expanded to 15** for richer LLM context (status
+> seeded at 6 actions then **expanded to 16** for richer LLM context (status
 > lifecycle, assignment, reschedule, archive, checklist, delete). Current v1 set:
 > `set_due_date`, `complete_work_item`, `start_work_item`, `move_to_on_deck`,
 > `move_to_todo`, `reopen_work_item`, `assign_work_item`, `archive_work_item`,
 > `add_checklist_items`, `create_event`, `reschedule_event`, `delete_event`,
-> `create_work_item`, `no_action`, `deconflict_events`. Each row's scope column
+> `create_work_item`, `append_update`, `no_action`, `deconflict_events`. Each row's scope column
 > below is the source of truth for what's built (**v1**) vs. backlog (v2 /
 > deferred). This file remains the registry + scope reference; the live contract
 > lives in `app/assistant/actions.py` (`ActionSpec.params`). Each spec also carries
@@ -98,8 +98,8 @@ no cleaner verb.
 
 | key | params | applies to | grounds | scope |
 |---|---|---|---|---|
-| `create_work_item` | `title`, `description?`, `tags?: [str]`, `assigned_to?` | inserts `work_items` (status `todo`) | WORKITEM-1 (capture may be a *new* item) | **v1** |
-| `append_update` | `work_item_id`, `body: str` (**assistant-composed** text) | appends a `work_item_updates` row (`source=assistant`) with NO other field change | WORKITEM-3/5 (record a blocker/observation as prose — the only in-model way, no column) | v2 |
+| `create_work_item` | `title`, `description?`, `tags?: [str]`, `checklist_items?: [str]` | inserts `work_items` (status `todo`) and atomically seeds checklist rows when supplied | WORKITEM-1 / WORKITEM-6 (capture may be a new task or list) | **v1** |
+| `append_update` | `work_item_id`, `body: str` (**assistant-composed** text) | appends a `work_item_updates` row (`source=assistant`) with NO other field change | WORKITEM-3/5 (record a blocker/observation as prose — the only in-model way, no column) | **v1** |
 
 > **`add_note` vs. `append_update` — the `source` axis (WORKITEM-3):**
 > - **`add_note`** = a **human-written** note — the casual thing a person does
@@ -110,10 +110,10 @@ no cleaner verb.
 > - **`append_update`** = the **assistant-composed**, log-style entry the human
 >   confirms. Its body is *LLM-generated*, `source=assistant`, `author=confirmer`.
 >   It records an assistant-driven outcome, NOT human-authored effort.
-> - Note that **every** confirmed action already appends a `source=assistant`
->   narration (universal rule), so `append_update` is the degenerate action whose
->   *only* effect is that narration (a standalone assistant observation, no
->   mutation). Hence v2, not v1.
+> - `append_update` is the degenerate action whose *only* effect is an
+>   assistant-sourced narration (a standalone assistant observation, no other
+>   mutation). It is v1 because it preserves useful context without inventing a
+>   new structured field.
 
 ### C. Checklist (grocery-list use case, WORKITEM-6) — full verb set
 
@@ -187,12 +187,12 @@ Excluded write actions (would violate a design stance):
 
 ## v1 cut — LOCKED
 
-## v1 cut — the built toolset (seeded at 6, expanded to 13)
+## v1 cut — the built toolset (seeded at 6, now 16)
 
 The v1 was **seeded** with the 6 below (the minimal architecture-proving set),
-then **expanded to 13** once the flow was solid, to give the LLM richer context
-to reason over. Everything still-unbuilt in the registry is a pre-shaped slot
-(add later by registering the entry — no rework of the flow).
+then expanded to its current **16 actions** as richer prompt context and explicit
+confirmable mutations proved useful. Everything still-unbuilt in the registry is
+a pre-shaped slot (add later by registering the entry — no rework of the flow).
 
 **Seed 6 (the original locked cut):**
 
@@ -208,7 +208,7 @@ to reason over. Everything still-unbuilt in the registry is a pre-shaped slot
    by +1 day.
 6. **`no_action`** — reliability primitive so a small model can say "nothing."
 
-**Expansion +7 (richer context for prompt engineering):**
+**Subsequent additions (richer context for prompt engineering):**
 
 7. **`start_work_item` / `move_to_on_deck` / `move_to_todo` / `reopen_work_item`**
    — the rest of the status lifecycle, so the model reasons over the whole 4-state
@@ -222,6 +222,11 @@ to reason over. Everything still-unbuilt in the registry is a pre-shaped slot
     assistant action is built; the board's manual grooming UI is Phase 5.
 11. **`add_checklist_items`** — the easy grocery-list slice (`items: [str]`);
     check/uncheck/remove deferred (they need by-name/by-id addressing).
+12. **`delete_event`** — explicit event-only cancellation/deletion, kept separate
+    from work-item log attribution.
+13. **`append_update`** — assistant-composed context for an existing resolved
+    work item; it records an observation without changing status, due date, or
+    checklist state.
 
 **v1 boundaries (explicit):**
 - Capture targets an **explicit work item** for item-scoped actions — assistant
@@ -272,12 +277,15 @@ to reason over. Everything still-unbuilt in the registry is a pre-shaped slot
     generic engine behavior and belongs with the propose-confirm engine
     extraction, not the ntake plugin. `target_ref` is reserved in the shape now
     and MUST be None in v1.
-- **OQ-A2** How `create_work_item` vs. `append_update` routing is decided in the
-  capture flow (assistant-decided vs. UI-explicit-target) — affects whether
-  capture is one endpoint or two.
+- **OQ-A2 — resolved (2026-09-04).** The assistant chooses
+  `create_work_item` for a new task/list and `append_update` only when LINK
+  resolved an existing work item. The proposal parser enforces that every
+  target-required action has a concrete resolved target, so an unexecutable
+  modifier never reaches the card UI.
 - **OQ-A3** Param validation strictness for a small local model — lightweight
   checks against the registry entry's expected keys (a plain dict, not a schema
   framework); on failure, drop the action (don't fail the whole capture).
-- **OQ-A4** Whether `append_update` (an assistant-composed `source=assistant`
-  note as its own confirmable action) is worth having, given that every confirmed
-  action already appends a `source=assistant` narration.
+- **OQ-A4 — resolved (2026-09-04).** `append_update` is a built
+  assistant-composed, independently confirmable log-only action. It remains
+  distinct from every other action's outcome narration because it records useful
+  context without another field or row mutation.

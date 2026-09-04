@@ -94,6 +94,15 @@ Rules:
 - Do NOT include any entity id in params — the item/event being acted on is
   already known from CONTEXT and is attached for you. Only supply the payload
   params a tool lists.
+- Create versus modify: use a work-item modifier (for example,
+  `add_checklist_items`, `append_update`, or `move_to_on_deck`) only when
+  CONTEXT contains its existing resolved work item. If no relevant work item is
+  in CONTEXT, use `create_work_item` for a new task/list or `no_action`; never
+  propose a work-item modifier without that existing target. `create_work_item`
+  needs only a title; include optional `checklist_items` only when the note
+  supplies concrete entries.
+  Similarly, use an event modifier only for an existing resolved event; use
+  `create_event` for a new event.
 - Calendar frame: the family timezone is {timezone}; its current local date and
   time is {local_now} ({local_weekday}). A bare weekday means its next occurrence
   after the current local date.

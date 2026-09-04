@@ -78,6 +78,26 @@ def test_confirm_set_due_date_applies(client, session, auth_headers):
     assert session.get(WorkItem, wid).due_at is not None
 
 
+def test_confirm_append_update_adds_assistant_context(client, session, auth_headers):
+    wid = _create(session)
+    r = client.post(
+        "/actions/confirm",
+        json={
+            "name": "append_update",
+            "params": {"body": "Vendor confirmed the delay."},
+            "target_id": wid,
+        },
+        headers=auth_headers,
+    )
+
+    assert r.status_code == 200
+    session.expire_all()
+    update = session.query(WorkItemUpdate).one()
+    assert update.work_item_id == wid
+    assert update.source == "assistant"
+    assert update.body == "Vendor confirmed the delay."
+
+
 def test_confirm_create_event_applies(client, session, auth_headers):
     wid = _create(session)
     start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC).isoformat()

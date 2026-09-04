@@ -19,6 +19,11 @@ def test_tools_view_full_render_over_the_real_registry():
     # change to the tool contract — update the snapshot on purpose.
     expected = (
         "AVAILABLE TOOLS:\n"
+        "- create_work_item: Create a new work item (a task/todo). — params: "
+        "title: string, description: string?, tags: array<string>?, "
+        "checklist_items: array<string>?\n"
+        "- append_update: Append assistant context to an existing work item. — params: "
+        "body: string\n"
         "- set_due_date: Set a work item's due date. — params: due_at: datetime\n"
         "- complete_work_item: Mark a work item done. — params: (no params)\n"
         "- start_work_item: Start work on an item (move it to Doing). — params: "
@@ -44,11 +49,9 @@ def test_tools_view_full_render_over_the_real_registry():
         "(exactly one of: {start_at, end_at} OR {start_date, end_date})\n"
         "- delete_event: Delete an existing event (e.g. it was cancelled). — "
         "params: (no params)\n"
-        "- create_work_item: Create a new work item (a task/todo). — params: "
-        "title: string, description: string?, tags: array<string>?\n"
-        "- no_action: Nothing to suggest. — params: (no params)\n"
         "- deconflict_events: Move an event to the next day to resolve a "
-        "same-time conflict. — params: (no params)"
+        "same-time conflict. — params: (no params)\n"
+        "- no_action: Nothing to suggest. — params: (no params)"
     )
     assert build_tools_view(REGISTRY) == expected
 

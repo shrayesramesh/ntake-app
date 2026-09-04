@@ -74,6 +74,22 @@ def test_attaches_work_item_target_for_a_targeting_action():
     assert out[0].target_id == 7
 
 
+def test_append_update_targets_the_resolved_work_item():
+    a = _assistant(
+        [
+            {
+                "name": "append_update",
+                "params": {"body": "Vendor confirmed delivery is delayed."},
+            }
+        ]
+    )
+
+    out = a.propose(_ctx("vendor called", work_item_id=7))
+
+    assert [proposal.name for proposal in out] == ["append_update"]
+    assert out[0].target_type == "work_item" and out[0].target_id == 7
+
+
 def test_attaches_event_target_for_an_event_action():
     a = _assistant(
         [{"name": "reschedule_event", "params": {"start_at": "2026-09-05T19:00:00Z"}}]
@@ -81,6 +97,21 @@ def test_attaches_event_target_for_an_event_action():
     out = a.propose(_ctx("move it", event_id=42))
     assert out[0].target_type == "event"
     assert out[0].target_id == 42
+
+
+def test_drops_target_required_actions_without_a_resolved_target():
+    a = _assistant(
+        [
+            {"name": "add_checklist_items", "params": {"items": ["dress"]}},
+            {"name": "move_to_on_deck", "params": {}},
+            {"name": "create_work_item", "params": {"title": "Get the dress"}},
+        ]
+    )
+
+    out = a.propose(_ctx("alex is getting the dress tomorrow"))
+
+    assert [proposal.name for proposal in out] == ["create_work_item"]
+    assert out[0].target_id is None and out[0].target_type is None
 
 
 def test_create_event_is_a_creator_passing_event_params_through_no_target():

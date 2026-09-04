@@ -32,11 +32,22 @@ def test_registry_has_v1_actions():
         "archive_work_item",
         "add_checklist_items",
         "create_work_item",
+        "append_update",
         "reschedule_event",
         "no_action",
         "deconflict_events",
         "delete_event",
     }
+
+
+def test_registry_orders_work_item_event_and_meta_domains():
+    from app.assistant.actions import EVENT_ACTIONS, META_ACTIONS, WORK_ITEM_ACTIONS
+
+    assert list(ACTIONS) == [
+        *WORK_ITEM_ACTIONS,
+        *EVENT_ACTIONS,
+        *META_ACTIONS,
+    ]
 
 
 def test_every_action_has_a_describe():
@@ -243,6 +254,69 @@ def test_create_work_item_inserts_new_item(session, fam_member_item):
     assert new.family_id == m.family_id
     assert new.status == "todo"
     assert new.tags == ["errand"]
+
+
+def test_create_work_item_can_atomically_seed_a_checklist(session, fam_member):
+    from app.models import ChecklistItem
+
+    _fam, m = fam_member
+    apply_action(
+        session,
+        m,
+        "create_work_item",
+        None,
+        {
+            "title": "Grocery list",
+            "checklist_items": ["milk", "eggs", "bread"],
+        },
+    )
+
+    session.expire_all()
+    work_item = session.query(WorkItem).filter_by(title="Grocery list").one()
+    checklist = (
+        session.query(ChecklistItem)
+        .filter_by(work_item_id=work_item.id)
+        .order_by(ChecklistItem.position)
+        .all()
+    )
+    assert [item.text for item in checklist] == ["milk", "eggs", "bread"]
+    assert [item.position for item in checklist] == [1, 2, 3]
+
+
+def test_create_work_item_rejects_an_empty_checklist(session, fam_member):
+    _fam, m = fam_member
+
+    with pytest.raises(ActionError):
+        apply_action(
+            session,
+            m,
+            "create_work_item",
+            None,
+            {"title": "Grocery list", "checklist_items": []},
+        )
+
+
+def test_append_update_writes_assistant_context_without_other_mutation(
+    session, fam_member_item
+):
+    _fam, m, wi = fam_member_item
+    original_status = wi.status
+    original_due_at = wi.due_at
+
+    apply_action(
+        session,
+        m,
+        "append_update",
+        wi.id,
+        {"body": "Vendor confirmed delivery is delayed until Friday."},
+    )
+
+    session.expire_all()
+    updated = session.get(WorkItem, wi.id)
+    entry = session.query(WorkItemUpdate).one()
+    assert updated.status == original_status and updated.due_at == original_due_at
+    assert entry.source == "assistant" and entry.author_id == m.id
+    assert entry.body == "Vendor confirmed delivery is delayed until Friday."
 
 
 def test_no_action_does_nothing(session, fam_member_item):
@@ -528,6 +602,22 @@ def test_render_card_create_event_shows_title_and_when():
     assert "Soccer" in text and "2026-09-10" in text
 
 
+def test_render_card_create_work_item_shows_seed_checklist_items():
+    lines = _card(
+        "create_work_item",
+        {"title": "Grocery list", "checklist_items": ["milk", "eggs"]},
+    )
+
+    assert "Grocery list" in " ".join(lines)
+    assert "milk, eggs" in " ".join(lines)
+
+
+def test_render_card_append_update_shows_body():
+    lines = _card("append_update", {"body": "Vendor confirmed the delay."})
+
+    assert "Vendor confirmed the delay." in " ".join(lines)
+
+
 def test_render_card_tolerates_empty_params():
     # Runs on unconfirmed proposals — must never raise on missing params.
     for name in (
@@ -536,6 +626,7 @@ def test_render_card_tolerates_empty_params():
         "reschedule_event",
         "create_event",
         "create_work_item",
+        "append_update",
         "add_checklist_items",
     ):
         spec = ACTIONS[name]

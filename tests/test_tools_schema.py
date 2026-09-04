@@ -183,6 +183,19 @@ def test_full_schema_snapshot_over_the_real_registry():
                 "items": {
                     "oneOf": [
                         action(
+                            "create_work_item",
+                            obj(
+                                {
+                                    "title": s,
+                                    "description": s,
+                                    "tags": arr_s,
+                                    "checklist_items": arr_s,
+                                },
+                                required=["title"],
+                            ),
+                        ),
+                        action("append_update", obj({"body": s}, required=["body"])),
+                        action(
                             "set_due_date",
                             obj({"due_at": dt}, required=["due_at"]),
                         ),
@@ -236,19 +249,8 @@ def test_full_schema_snapshot_over_the_real_registry():
                             ),
                         ),
                         action("delete_event", empty_params),
-                        action(
-                            "create_work_item",
-                            obj(
-                                {
-                                    "title": s,
-                                    "description": s,
-                                    "tags": arr_s,
-                                },
-                                required=["title"],
-                            ),
-                        ),
-                        action("no_action", empty_params),
                         action("deconflict_events", empty_params),
+                        action("no_action", empty_params),
                     ]
                 },
             }

@@ -1,4 +1,6 @@
 AVAILABLE TOOLS:
+- create_work_item: Create a new work item (a task/todo). — params: title: string, description: string?, tags: array<string>?, checklist_items: array<string>?
+- append_update: Append assistant context to an existing work item. — params: body: string
 - set_due_date: Set a work item's due date. — params: due_at: datetime
 - complete_work_item: Mark a work item done. — params: (no params)
 - start_work_item: Start work on an item (move it to Doing). — params: (no params)
@@ -11,9 +13,8 @@ AVAILABLE TOOLS:
 - create_event: Create a calendar event (timed OR all-day). — params: title: string, description: string?, location: string?, start_at: datetime?, end_at: datetime?, start_date: date?, end_date: date?, participants: object?  (exactly one of: {start_at, end_at} OR {start_date, end_date})
 - reschedule_event: Move an existing event to new timing (timed OR all-day). — params: start_at: datetime?, end_at: datetime?, start_date: date?, end_date: date?  (exactly one of: {start_at, end_at} OR {start_date, end_date})
 - delete_event: Delete an existing event (e.g. it was cancelled). — params: (no params)
-- create_work_item: Create a new work item (a task/todo). — params: title: string, description: string?, tags: array<string>?
-- no_action: Nothing to suggest. — params: (no params)
 - deconflict_events: Move an event to the next day to resolve a same-time conflict. — params: (no params)
+- no_action: Nothing to suggest. — params: (no params)
 
 CONTEXT:
 NOTE FROM: [m1] Alex (adult)

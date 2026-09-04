@@ -268,7 +268,7 @@ duration before Confirm.
 
 ---
 
-### BUG-007 — targetless checklist/status proposals render but cannot confirm — open
+### BUG-007 — targetless checklist/status proposals render but cannot confirm — fixed (test-verified; live retest pending)
 
 **Class:** code / prompt-contract integration
 **Severity:** medium (Confirm rejects the change before persistence, but presents a
@@ -336,17 +336,21 @@ Multiple cards remain valid only when they are independent. Do not emit
 has no real target until the first card is confirmed. The deferred `target_ref`
 dependency-chaining design is the future option if that workflow is desired.
 
-**Implementation direction**
+**Fix (2026-09-04)**
 
-Make proposal construction drop any `ActionSpec.needs_target` action when no
-same-type resolved id is available, and add a regression test for a local-LLM
-reply containing checklist/status actions with no resolved work item. Extend the
-`create_work_item` schema, handler, card renderer, action documentation, and
-prompt contract with optional `checklist_items`, validating a non-empty string
-list when it is supplied. Keep the Confirm-time rejection as defense in depth.
-Prompt tuning should choose the composite create action only when the note
-supplies actual entries; otherwise it should propose a work item without a
-checklist.
+The local proposal parser now drops every action whose `ActionSpec.needs_target`
+is true but has no same-type resolved target id. The PROPOSE prompt explicitly
+separates creation from modification: a note with no relevant work item may use
+`create_work_item` (or `no_action`), never a work-item modifier; event modifiers
+likewise require an existing resolved event.
+
+`create_work_item` now accepts optional `checklist_items`. One Confirm atomically
+creates the standalone work item and its initial checklist rows; a title alone
+still creates an ordinary task with no checklist. The action schema, tool view,
+proposal card, and action reference document this contract. Regression tests cover
+targetless checklist/status actions being dropped, the complete create-with-list
+path, empty-list rejection, the prompt rule, and the rendered card. Re-run the
+three live captures to verify the model follows the strengthened prompt.
 
 ---
 

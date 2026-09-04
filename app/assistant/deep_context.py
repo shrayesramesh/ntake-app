@@ -145,23 +145,43 @@ def deep_context(
     # linked (deduped, capturing member first).
     footprint_members = _dedup_members([member, *linked_members])
 
-    # Work items: linked (validated to family) ∪ every footprint member's
-    # assigned items, deduped.
-    linked_items = _load_family_items(session, fam_id, work_item_ids)
-    footprint_items: list[WorkItem] = []
-    for fm in footprint_members:
-        footprint_items += _load_assigned_items(session, fam_id, fm.id)
-    items = _dedup_by_id(linked_items + footprint_items)
-
-    # Events: the linked ones (validated to family) ∪ every footprint member's
-    # participated events, deduped.
-    linked_events = _load_family_events(session, fam_id, event_ids)
-    participated: list[Event] = []
-    for fm in footprint_members:
-        participated += _load_participated_events(session, fam_id, fm.id)
-    events = _dedup_events(linked_events + participated)
+    items = _resolve_work_item_context(
+        session, fam_id, work_item_ids, footprint_members
+    )
+    events = _resolve_event_context(session, fam_id, event_ids, footprint_members)
 
     return _render(session, member, items, events, linked_members, zone)
+
+
+# --- domain context: resolve work items and events independently -----------
+
+
+def _resolve_work_item_context(
+    session: Session,
+    family_id: int,
+    linked_ids: list[int],
+    footprint_members: list[Member],
+) -> list[WorkItem]:
+    """Linked work items plus every footprint member's assigned work."""
+    linked_items = _load_family_items(session, family_id, linked_ids)
+    assigned_items: list[WorkItem] = []
+    for member in footprint_members:
+        assigned_items += _load_assigned_items(session, family_id, member.id)
+    return _dedup_by_id(linked_items + assigned_items)
+
+
+def _resolve_event_context(
+    session: Session,
+    family_id: int,
+    linked_ids: list[int],
+    footprint_members: list[Member],
+) -> list[Event]:
+    """Linked events plus every footprint member's participated events."""
+    linked_events = _load_family_events(session, family_id, linked_ids)
+    participated_events: list[Event] = []
+    for member in footprint_members:
+        participated_events += _load_participated_events(session, family_id, member.id)
+    return _dedup_events(linked_events + participated_events)
 
 
 # --- loads (all scoped to family = the whitelist) -------------------------
@@ -288,22 +308,34 @@ def _render(
         lines.append(f"ALSO ABOUT: {who}")
     lines.append("")
 
-    lines.append("RELEVANT WORK ITEMS:")
-    if items:
-        for wi in items:
-            due = f", due {_fmt_dt(wi.due_at, zone)}" if wi.due_at else ""
-            lines.append(f"- [w{wi.id}] {wi.title} ({wi.status}{due})")
-            updates = _item_updates(session, wi.id)
-            for u in updates:
-                lines.append(f"    · [{u.source}] {u.body}")
-            if not updates:
-                lines.append("    · (no updates yet)")
-    else:
-        lines.append("- (none)")
-
-    lines += ["", "RELEVANT EVENTS:"]
-    lines += [_fmt_event(ev, zone) for ev in events] or ["- (none)"]
+    lines += _render_work_item_context(session, items, zone)
+    lines += _render_event_context(events, zone)
     return "\n".join(lines)
+
+
+def _render_work_item_context(
+    session: Session, items: list[WorkItem], zone: ZoneInfo
+) -> list[str]:
+    """Render all work-item state and update history before event context."""
+    lines = ["RELEVANT WORK ITEMS:"]
+    if not items:
+        return [*lines, "- (none)", ""]
+    for wi in items:
+        due = f", due {_fmt_dt(wi.due_at, zone)}" if wi.due_at else ""
+        lines.append(f"- [w{wi.id}] {wi.title} ({wi.status}{due})")
+        updates = _item_updates(session, wi.id)
+        for update in updates:
+            lines.append(f"    · [{update.source}] {update.body}")
+        if not updates:
+            lines.append("    · (no updates yet)")
+    return [*lines, ""]
+
+
+def _render_event_context(events: list[Event], zone: ZoneInfo) -> list[str]:
+    """Render all event state after the work-item context section."""
+    if not events:
+        return ["RELEVANT EVENTS:", "- (none)"]
+    return ["RELEVANT EVENTS:", *[_fmt_event(event, zone) for event in events]]
 
 
 def _fmt_event(ev: Event, zone: ZoneInfo) -> str:

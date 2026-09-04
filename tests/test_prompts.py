@@ -92,6 +92,18 @@ def test_propose_prompt_states_a_local_clock_and_explicit_time_check():
     assert "verify it" in system.lower()
 
 
+def test_propose_prompt_states_create_vs_modify_contract():
+    system, _ = build_propose_prompt(
+        tools_view="x", deep_context="y", note="z", now=NOW, timezone=TZ
+    )
+
+    assert "no relevant work item" in system.lower()
+    assert "create_work_item" in system
+    assert "checklist_items" in system
+    assert "append_update" in system
+    assert "existing resolved event" in system.lower()
+
+
 # --- integration: the REAL assembled prompts over populated_family --------
 # Full-text golden-file snapshots of both calls, assembled from build_world_view
 # / build_tools_view / deep_context. The .txt files under tests/expectations/ are

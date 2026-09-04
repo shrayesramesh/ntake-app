@@ -206,6 +206,18 @@ def test_deep_context_renders_linked_events(session, fam_member):
     assert "Dentist" in out
 
 
+def test_deep_context_keeps_work_item_context_before_event_context(session, fam_member):
+    fam, m = fam_member
+    wi = _wi(session, fam.id, "Call plumber", assigned_to=m.id)
+    _update(session, wi.id, m.id, "Left a voicemail")
+    ev = _event(session, fam.id, "Dentist")
+
+    out = deep_context(session, m, [wi.id], [ev.id])
+
+    assert out.index("RELEVANT WORK ITEMS:") < out.index("RELEVANT EVENTS:")
+    assert out.index("Left a voicemail") < out.index("Dentist")
+
+
 def test_deep_context_includes_member_participated_events(session, fam_member):
     fam, m = fam_member
     # member participates (linked member_id) -> included in footprint even though

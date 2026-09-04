@@ -212,7 +212,10 @@ class LocalLlmAssistant(AssistantClient[FocusedContext]):
                 or not _matches_explicit_event_timing(call["name"], call["params"], ctx)
             ):
                 continue
-            proposals.append(self._attach(call, ctx))
+            proposal = self._attach(call, ctx)
+            if spec.needs_target and proposal.target_id is None:
+                continue
+            proposals.append(proposal)
         return proposals
 
     def _attach(self, call: dict, ctx: FocusedContext) -> ProposedAction:

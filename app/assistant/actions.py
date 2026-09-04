@@ -174,6 +174,15 @@ def _apply_assign(ctx: NtakeActionContext, params: dict) -> str:
     return note
 
 
+def _apply_append_update(ctx: NtakeActionContext, params: dict) -> str:
+    """Append assistant-composed context to an existing work item's log only."""
+    require_params(params, ["body"])
+    wi = _load_item(ctx.session, ctx.target_id)
+    body = params["body"]
+    _append_assistant_update(ctx.session, ctx.member, wi.id, body)
+    return "Appended work-item update"
+
+
 def _apply_reschedule_event(ctx: NtakeActionContext, params: dict) -> str:
     """Move an existing event to new timing (modify-existing; event-only).
 
@@ -215,6 +224,17 @@ def _apply_archive_work_item(ctx: NtakeActionContext, params: dict) -> str:
     return "Archived"
 
 
+def _validated_checklist_items(value: object) -> list[str]:
+    """Return a non-empty list of non-blank checklist strings or raise."""
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(not isinstance(text, str) or not text.strip() for text in value)
+    ):
+        raise ActionError("items must be a non-empty list of strings")
+    return value
+
+
 def _apply_add_checklist_items(ctx: NtakeActionContext, params: dict) -> str:
     """Insert checklist items (grocery-list style) onto the target work item.
 
@@ -223,9 +243,7 @@ def _apply_add_checklist_items(ctx: NtakeActionContext, params: dict) -> str:
     deferred.)
     """
     require_params(params, ["items"])
-    items = params["items"]
-    if not isinstance(items, list) or not items:
-        raise ActionError("items must be a non-empty list of strings")
+    items = _validated_checklist_items(params["items"])
     wi = _load_item(ctx.session, ctx.target_id)
     start_pos = (
         ctx.session.query(func.max(ChecklistItem.position))
@@ -306,7 +324,13 @@ def _apply_create_event(ctx: NtakeActionContext, params: dict) -> str:
 
 
 def _apply_create_work_item(ctx: NtakeActionContext, params: dict) -> str:
+    """Create a standalone work item, optionally with its initial checklist."""
     require_params(params, ["title"])
+    checklist_items = (
+        _validated_checklist_items(params["checklist_items"])
+        if "checklist_items" in params
+        else []
+    )
     now = datetime.now(UTC)
     wi = WorkItem(
         family_id=ctx.member.family_id,
@@ -319,10 +343,14 @@ def _apply_create_work_item(ctx: NtakeActionContext, params: dict) -> str:
     )
     ctx.session.add(wi)
     ctx.session.flush()
-    _append_assistant_update(
-        ctx.session, ctx.member, wi.id, f"Created work item: {params['title']}"
-    )
-    return f"Created work item: {params['title']}"
+    for position, text in enumerate(checklist_items, start=1):
+        ctx.session.add(ChecklistItem(work_item_id=wi.id, text=text, position=position))
+
+    note = f"Created work item: {params['title']}"
+    if checklist_items:
+        note += f" with {len(checklist_items)} checklist item(s)"
+    _append_assistant_update(ctx.session, ctx.member, wi.id, note)
+    return note
 
 
 def _apply_no_action(ctx: NtakeActionContext, params: dict) -> str:
@@ -399,6 +427,11 @@ def _describe_reopen(params: dict) -> str:
 def _describe_assign(params: dict) -> str:
     mid = params.get("member_id")
     return f"Assign the item to member {mid}" if mid else "Assign the item"
+
+
+def _describe_append_update(params: dict) -> str:
+    body = params.get("body")
+    return f"Append update: {body}" if body else "Append a work-item update"
 
 
 def _describe_reschedule_event(params: dict) -> str:
@@ -506,7 +539,15 @@ def _render_create_work_item(params: dict, resolved: dict) -> list[str]:
     tags = params.get("tags")
     if isinstance(tags, list) and tags:
         lines.append(f"Tags: {', '.join(str(t) for t in tags)}")
+    checklist_items = params.get("checklist_items")
+    if isinstance(checklist_items, list) and checklist_items:
+        lines.append(f"Checklist: {', '.join(str(item) for item in checklist_items)}")
     return lines
+
+
+def _render_append_update(params: dict, resolved: dict) -> list[str]:
+    body = params.get("body")
+    return [f"Update: {body}"] if body else []
 
 
 def _render_add_checklist_items(params: dict, resolved: dict) -> list[str]:
@@ -522,7 +563,7 @@ def _render_add_checklist_items(params: dict, resolved: dict) -> list[str]:
 # from its values (the flat spec list is the config — no imperative registration).
 # Each spec's ``name`` is the identifier the model emits and the registry keys on;
 # the dict key mirrors it for lookup ergonomics.
-ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
+_ACTION_SPECS: dict[str, ActionSpec[NtakeActionContext]] = {
     "set_due_date": ActionSpec(
         name="set_due_date",
         description="Set a work item's due date.",
@@ -575,6 +616,15 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         apply=_apply_assign,
         describe=_describe_assign,
         render_card=_render_assign,
+    ),
+    "append_update": ActionSpec(
+        name="append_update",
+        description="Append assistant context to an existing work item.",
+        params=[Param("body", DataType.STRING, required=True)],
+        target_type=TargetType.WORK_ITEM,
+        apply=_apply_append_update,
+        describe=_describe_append_update,
+        render_card=_render_append_update,
     ),
     "archive_work_item": ActionSpec(
         name="archive_work_item",
@@ -647,6 +697,7 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
             Param("title", DataType.STRING, required=True),
             Param("description", DataType.STRING),
             Param("tags", DataType.ARRAY_STRING),
+            Param("checklist_items", DataType.ARRAY_STRING),
         ],
         target_type=None,
         apply=_apply_create_work_item,
@@ -670,6 +721,42 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         apply=_apply_deconflict_events,
         describe=_describe_deconflict,
     ),
+}
+
+# Domain groups define the prompt and schema order. Keep the public flat ACTIONS
+# mapping for endpoint/tests, but author its order by what each action operates on.
+WORK_ITEM_ACTIONS = {
+    name: _ACTION_SPECS[name]
+    for name in (
+        "create_work_item",
+        "append_update",
+        "set_due_date",
+        "complete_work_item",
+        "start_work_item",
+        "move_to_on_deck",
+        "move_to_todo",
+        "reopen_work_item",
+        "assign_work_item",
+        "archive_work_item",
+        "add_checklist_items",
+    )
+}
+EVENT_ACTIONS = {
+    name: _ACTION_SPECS[name]
+    for name in (
+        "create_event",
+        "reschedule_event",
+        "delete_event",
+        "deconflict_events",
+    )
+}
+META_ACTIONS = {"no_action": _ACTION_SPECS["no_action"]}
+
+# Public compatibility surface: a stable flat name→spec mapping in grouped order.
+ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
+    **WORK_ITEM_ACTIONS,
+    **EVENT_ACTIONS,
+    **META_ACTIONS,
 }
 
 # The engine registry the app dispatches through — built from the flat spec list.
