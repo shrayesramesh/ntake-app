@@ -1,4 +1,8 @@
-"""resolve.py — turn the LINK call's ids into the PROPOSE call's deep context.
+"""deep_context.py — turn the LINK call's ids into the PROPOSE call's deep context.
+
+Named for its output (the ``deep_context`` string) and to avoid colliding with the
+``CaptureResolver`` seam impl in ``fake/resolver.py`` — this module is the shared
+deep-fetch *stage* between the two LLM calls, not a seam.
 
 Stage between the two LLM calls (see spec/LLD-assistant-pipeline.md):
 

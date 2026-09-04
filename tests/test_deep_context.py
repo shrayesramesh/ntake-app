@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.assistant.resolve import deep_context, parse_ids
+from app.assistant.deep_context import deep_context, parse_ids
 from app.models import Event, WorkItem, WorkItemUpdate
 
 NOW = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)

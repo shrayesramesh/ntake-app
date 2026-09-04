@@ -18,7 +18,7 @@ refers to, with a deterministic rule instead of an LLM. Matching rule
   of length ≥ 3 that are not common stopwords, so shared filler ("the", "is",
   "and") never triggers a match.
 * Return matched ids deduped + id-ordered (work items and events separately) —
-  the ``(work_item_ids, event_ids)`` shape ``resolve.deep_context`` consumes.
+  the ``(work_item_ids, event_ids)`` shape ``deep_context`` consumes.
 
 Selected via ``NTAKE_ASSISTANT`` through
 ``app.assistant.factory.get_capture_resolver``. The LLM-backed sibling
@@ -36,7 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.assistant.base import CaptureRequest, CaptureResolver, FocusedContext
-from app.assistant.resolve import deep_context
+from app.assistant.deep_context import deep_context
 from app.models import Event, Member, WorkItem
 
 

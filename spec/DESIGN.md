@@ -243,7 +243,7 @@ FocusedContext {text, timezone, now,
   fully defines its operation and is confirmable as-is.
 - **v1 scope:** stage-1 resolution is **deterministic**, not yet an LLM call —
   `FakeCaptureResolver` uses a model-free LINK (`fake/link.py`, significant-word
-  title matching) to resolve ids, then the real `resolve.deep_context`. The
+  title matching) to resolve ids, then the real `deep_context`. The
   LLM-backed `OllamaCaptureResolver` (task 7) swaps in a real LINK call (which also
   builds `build_world_view` for its prompt) behind the same seam. The fake's LINK
   is deterministic (title matching), so the fake now resolves existing-item

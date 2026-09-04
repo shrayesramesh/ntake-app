@@ -54,7 +54,7 @@ class FocusedContext(ActionContext):
     Produced by ``focus()`` (stage 1) as the two-call pipeline's hand-off: it
     carries the ids the LINK call resolved (``resolved_work_item_ids`` /
     ``resolved_event_ids`` — validated to the family) plus ``deep_context``, the
-    fully-rendered records string ``resolve.deep_context`` builds for those ids
+    fully-rendered records string ``deep_context`` builds for those ids
     (target item(s) + full update history + linked/participated events). Stage 2
     proposes over this; the server attaches the concrete target from the resolved
     ids (see ``primary_work_item_id`` / ``primary_event_id``).

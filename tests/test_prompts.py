@@ -103,7 +103,7 @@ def test_assembled_link_prompt_over_populated_family(session, populated_family):
 
 def test_assembled_propose_prompt_over_populated_family(session, populated_family):
     from app.assistant.actions import REGISTRY
-    from app.assistant.resolve import deep_context
+    from app.assistant.deep_context import deep_context
     from app.assistant.tools import build_tools_view
     from app.models import Member
     from tests.expectations import assert_matches_expectation
