@@ -34,10 +34,11 @@ from app.models import Member
 _LINK_SCHEMA: dict = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["work_item_ids", "event_ids"],
+    "required": ["work_item_ids", "event_ids", "member_ids"],
     "properties": {
         "work_item_ids": {"type": "array", "items": {"type": "integer"}},
         "event_ids": {"type": "array", "items": {"type": "integer"}},
+        "member_ids": {"type": "array", "items": {"type": "integer"}},
     },
 }
 
@@ -61,12 +62,14 @@ class LocalLlmCaptureResolver(CaptureResolver):
             timezone=request.timezone,
         )
         link_json = self._llm.complete(system=system, user=user, schema=_LINK_SCHEMA)
-        raw_wi_ids, raw_ev_ids = parse_ids(link_json)
+        raw_wi_ids, raw_ev_ids, raw_mem_ids = parse_ids(link_json)
         # Validate-don't-trust: whitelist the model's ids to the member's family
         # BEFORE they reach the context (they become attachable targets), so a
         # hallucinated/foreign id is dropped everywhere — not just in rendering.
-        wi_ids, ev_ids = resolve_ids(session, member, raw_wi_ids, raw_ev_ids)
-        dc = deep_context(session, member, wi_ids, ev_ids)
+        wi_ids, ev_ids, mem_ids = resolve_ids(
+            session, member, raw_wi_ids, raw_ev_ids, raw_mem_ids
+        )
+        dc = deep_context(session, member, wi_ids, ev_ids, mem_ids)
         return FocusedContext(
             text=request.text,
             timezone=request.timezone,
@@ -74,4 +77,5 @@ class LocalLlmCaptureResolver(CaptureResolver):
             deep_context=dc,
             resolved_work_item_ids=wi_ids,
             resolved_event_ids=ev_ids,
+            resolved_member_ids=mem_ids,
         )

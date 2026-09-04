@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -32,7 +33,6 @@ from app.assistant.actions import REGISTRY, ActionError, apply_action
 from app.assistant.capture import CaptureRequest, FocusedContext
 from app.assistant.factory import (
     AssistantConfig,
-    default_assistant_config,
     get_assistant,
     get_capture_resolver,
 )
@@ -83,9 +83,7 @@ def _warm_local_model_in_background() -> None:
     request path already degrades gracefully if the model is cold/down). No-op
     unless ``kind == "local"``.
     """
-    from app.assistant.factory import default_assistant_config
-
-    config = default_assistant_config()
+    config = get_assistant_config()
     if config.kind != "local":
         return
 
@@ -385,8 +383,21 @@ def board_view(
     session: Session = Depends(get_session),
     _member: Member = Depends(current_member),
 ) -> str:
-    """Read-only board as an HTML fragment (HTMX swaps it; SSE triggers reload)."""
-    return render_board(_board_columns(session))
+    """Read-only board as an HTML fragment (HTMX swaps it; SSE triggers reload).
+
+    Attaches each work item's update log as a transient ``.updates`` attribute so
+    the richer card (app/web.py) can show a log summary. Not persisted — just
+    decorating the ORM objects for this render.
+    """
+    columns = _board_columns(session)
+    for items in columns.values():
+        for wi in items:
+            wi.updates = session.scalars(  # type: ignore[attr-defined]
+                select(WorkItemUpdate)
+                .where(WorkItemUpdate.work_item_id == wi.id)
+                .order_by(WorkItemUpdate.created_at, WorkItemUpdate.id)
+            ).all()
+    return render_board(columns)
 
 
 @app.get("/calendar/view", response_class=HTMLResponse)
@@ -405,46 +416,132 @@ def calendar_view(
             select(Event).order_by(Event.start_at, Event.start_date, Event.id)
         ).all()
     )
-    return render_calendar(events)
+    # Member id -> display name, so participant member links render as names.
+    member_names = {
+        m.id: m.display_name
+        for m in session.scalars(
+            select(Member).where(Member.family_id == _member.family_id)
+        ).all()
+    }
+    return render_calendar(events, member_names)
 
 
 # --- Capture with proposals (Phase 4, task 4) ----------------------------
 
 
 def _to_proposal_read(
-    action: ProposedAction, index: int, target_label: str | None
+    action: ProposedAction,
+    index: int,
+    target_label: str | None,
+    member_names: dict[int, str] | None = None,
+    labels: dict[str, dict[int, str]] | None = None,
 ) -> ProposalRead:
     """Pure map: an engine ProposedAction -> the app's ProposalRead DTO.
 
     Assigns a batch-local proposal_id from ``index`` (unless the action already
     carries one) and derives ``action_summary`` from the registry (ground truth,
-    NOT the model's text). No I/O — unit-testable in isolation.
+    NOT the model's text). If the action's params carry a ``member_id`` and
+    ``member_names`` resolves it, the summary is enriched with the member's name
+    (so a card reads "…to Sam", not "…to member 2") — the describe fns stay pure
+    (no session); the session-derived name map is applied here. No I/O.
     """
+    summary = REGISTRY.describe(action.name, action.params)
+    names = member_names or {}
+    # Resolve the target's title from the per-type label map if not passed in.
+    if target_label is None and action.target_id is not None and action.target_type:
+        label_maps = labels or {}
+        target_label = (label_maps.get(action.target_type) or {}).get(action.target_id)
+    mid = action.params.get("member_id")
+    if isinstance(mid, int) and mid in names:
+        summary = f"{summary} ({names[mid]})"
+
+    # Verbose, id-resolved card body: the action's OWN render_card (pure), given a
+    # resolved bag built from the ALREADY-existing member-name map + target_label
+    # (DRY — no new resolution here). None ⇒ no extra lines.
+    spec = REGISTRY.get(action.name)
+    detail_lines: list[str] = []
+    if spec is not None and spec.render_card is not None:
+        resolved = {"member_names": names, "target_label": target_label}
+        detail_lines = spec.render_card(action.params, resolved)
+
     return ProposalRead(
         name=action.name,
         params=action.params,
-        action_summary=REGISTRY.describe(action.name, action.params),
+        action_summary=summary,
         llm_rationale=action.llm_rationale,
         target_id=action.target_id,
         target_type=action.target_type,
         proposal_id=action.proposal_id or f"p{index}",
         target_ref=action.target_ref,
         target_label=target_label,
+        detail_lines=detail_lines,
     )
 
 
 def get_assistant_config() -> AssistantConfig:
     """FastAPI dependency: the assistant's runtime config (config-in-code).
 
-    Returns the in-code default; tests override via ``app.dependency_overrides``
-    (no env vars, no globals). One value threaded into the capture endpoints and
-    passed to the factory + the bounded-propose timeout.
+    Defaults to the in-code default (``fake``); tests override via
+    ``app.dependency_overrides`` (no env needed) and get the fake backend.
+
+    OPT-IN LIVE-LLM (dev/UI testing): if ``NTAKE_ASSISTANT_KIND=local`` is set in
+    the environment, return a ``local`` config built from the ``NTAKE_LLM_*`` env
+    vars (with the committed defaults). This keeps the *committed default* fake —
+    so the test suite is unaffected — while making the live backend a single
+    env-var flip that ``scripts/live_llm_ui.sh`` sets. Not a persistent code edit.
     """
-    return default_assistant_config()
+    from app.assistant.factory import default_assistant_config
+
+    if os.environ.get("NTAKE_ASSISTANT_KIND", "").strip().lower() != "local":
+        return default_assistant_config()
+
+    base = AssistantConfig()  # committed defaults for model/base_url/timeout
+    return AssistantConfig(
+        kind="local",
+        model=os.environ.get("NTAKE_LLM_MODEL", base.model),
+        base_url=os.environ.get("NTAKE_LLM_BASE_URL", base.base_url),
+        timeout=float(os.environ.get("NTAKE_LLM_TIMEOUT", base.timeout)),
+    )
+
+
+def _family_member_names(session: Session, family_id: int) -> dict[int, str]:
+    """Member id -> display name for a family (for enriching proposal summaries
+    like assign_work_item, and any other member-id-bearing render)."""
+    return {
+        m.id: m.display_name
+        for m in session.scalars(
+            select(Member).where(Member.family_id == family_id)
+        ).all()
+    }
+
+
+def _family_target_labels(
+    session: Session, family_id: int
+) -> dict[str, dict[int, str]]:
+    """Per-type id -> title maps for resolving a proposal's target_label on the
+    card: ``{"work_item": {id: title}, "event": {id: title}}``. Reused (DRY) by
+    _to_proposal_read to name the target of reschedule/assign/etc."""
+    wi = {
+        w.id: w.title
+        for w in session.scalars(
+            select(WorkItem).where(WorkItem.family_id == family_id)
+        ).all()
+    }
+    ev = {
+        e.id: e.title
+        for e in session.scalars(
+            select(Event).where(Event.family_id == family_id)
+        ).all()
+    }
+    return {"work_item": wi, "event": ev}
 
 
 def _propose_bounded(
-    ctx: FocusedContext, target_label: str | None, config: AssistantConfig
+    ctx: FocusedContext,
+    target_label: str | None,
+    config: AssistantConfig,
+    member_names: dict[int, str] | None = None,
+    labels: dict[str, dict[int, str]] | None = None,
 ) -> list[ProposalRead]:
     """Get proposals from the configured assistant (bounded; degrade to []) and
     map them to the app DTO.
@@ -452,11 +549,13 @@ def _propose_bounded(
     Orchestration only: the bounded-timeout + graceful-degrade wrapper is the
     engine's ``propose_bounded`` (the per-call bound is ``config.timeout``); the
     per-action mapping is the pure :func:`_to_proposal_read`. ``target_label`` is
-    echoed onto each proposal so the confirm card shows context.
+    echoed onto each proposal so the confirm card shows context; ``member_names``
+    resolves member ids and ``labels`` resolves the target's title.
     """
     actions = propose_bounded(get_assistant(config), ctx, config.timeout)
     return [
-        _to_proposal_read(a, i, target_label) for i, a in enumerate(actions, start=1)
+        _to_proposal_read(a, i, target_label, member_names, labels)
+        for i, a in enumerate(actions, start=1)
     ]
 
 
@@ -485,8 +584,37 @@ def capture_with_proposals(
         timezone=fam.timezone if fam else "UTC",
         now=now,
     )
+
+    # DEBUG PATH (local backend only, uncommitted): run the same two stages with
+    # a recording wrapper around the model seam so the UI can show the exact
+    # prompts + raw model replies + resolved ids. Behavior is identical to the
+    # normal path below; this only observes.
+    if config.kind == "local":
+        from app.assistant.debug_capture import run_capture_with_debug
+        from app.assistant.local_llm.client import LocalLlmClient
+
+        inner = LocalLlmClient(
+            base_url=config.base_url, model=config.model, timeout=config.timeout
+        )
+        ctx, actions, dbg = run_capture_with_debug(inner, request, session, member)
+        member_names = _family_member_names(session, member.family_id)
+        labels = _family_target_labels(session, member.family_id)
+        proposals = [
+            _to_proposal_read(a, i, None, member_names, labels)
+            for i, a in enumerate(actions, start=1)
+        ]
+        return CaptureResponse(item=None, proposals=proposals, debug=vars(dbg))
+
     ctx = get_capture_resolver(config).focus(request, session, member)
-    proposals = _propose_bounded(ctx, target_label=None, config=config)
+    member_names = _family_member_names(session, member.family_id)
+    labels = _family_target_labels(session, member.family_id)
+    proposals = _propose_bounded(
+        ctx,
+        target_label=None,
+        config=config,
+        member_names=member_names,
+        labels=labels,
+    )
     return CaptureResponse(item=None, proposals=proposals)
 
 

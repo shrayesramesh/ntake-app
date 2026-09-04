@@ -34,17 +34,18 @@ household/emotional labor **visible for recognition and fairness**.
 
 ## Current status
 
-Phases 0–3 and the **fake-first Phase 4** are built and passing (`make check` →
-300 tests green, ≥95% cov; plus a real-stack `make smoke`, 12 checks): FastAPI
-app; `/health`, `/events`, the work-item + board read/append paths, `/capture`
-(propose-only) and `/actions/confirm`; config-seeded identity + token CLI;
-change-event seam → SSE live sync; and the assistant as a reusable engine
-(`app/routing/`) + ntake plugin (`app/assistant/`) with two swappable seams
-(`CaptureResolver`, `AssistantClient`), a `fake/` backend, a 13-action toolset,
-and the two prompt views (`build_world_view`, `build_tools_view`). The two-call
-pipeline shape is wired: the fake resolves a target from free text
-deterministically (`fake_link` → `deep_context`), so existing-item and
-event-reschedule proposals are reachable without a model.
+Phases 0–3 and **Phase 4 including the live local-LLM backend** are built and
+passing (`make check` → 408 tests green, ≥95% cov; plus a real-stack `make smoke`,
+12 checks): FastAPI app; `/health`, `/events`, the work-item + board read/append
+paths, `/capture` (propose-only) and `/actions/confirm`; config-seeded identity +
+token CLI; change-event seam → SSE live sync; and the assistant as a reusable
+engine (`app/routing/`) + ntake plugin (`app/assistant/`) with two swappable seams
+(`CaptureResolver`, `AssistantClient`), **both a `fake/` and a live `local_llm/`
+backend**, a 15-action toolset, and the two prompt views (`build_world_view`,
+`build_tools_view`). The two-call pipeline links work items, events, **and
+members** from free text (`{work_item_ids, event_ids, member_ids}`) and folds each
+linked member's workload into the PROPOSE context; proposal cards render verbose,
+id-resolved detail via each action's own `ActionSpec.render_card`.
 
 **Live-surface hardening (done):** SQLite WAL + `synchronous=NORMAL`
 (crash-safety); Alembic **migrations** as the real-DB schema path (startup runs
@@ -54,10 +55,20 @@ a documented host cron/systemd step); SSE re-sync on (re)connect so the wall
 display can't miss a change during a disconnect; and a PWA manifest + service
 worker for add-to-home-screen.
 
-**Next:** Phase-4 **task 7** — the live local-LLM backend (host-only; llamafile as
-the reference runtime, any OpenAI-style localhost endpoint behind the same seam).
-Then Phase 5
-(labor view, grooming assist, kiosk polish), the board grooming UI, and a planned
+**Live local LLM (done):** the `local_llm/` backend runs against llamafile (or any
+OpenAI-style localhost endpoint) and is verified end-to-end. For hands-on browser
+testing: **`make llm-up` then `make ui-live`** brings the app up on the live model
+with the real household, a persistent DB, sample data, a minted token, and an
+in-UI debug panel showing the exact LINK/PROPOSE prompts + raw model replies +
+resolved ids (see `HOST_SETUP_GUIDE` §7.4/§7.6). The backend selection stays
+config-in-code (`AssistantConfig`); `make ui-live` flips it via the opt-in
+`NTAKE_ASSISTANT_KIND=local` env override so the committed default (and the tests)
+stay on `fake`.
+
+**Next:** Phase 5 — the **labor view** (needs a design spike on output shape),
+**on-demand grooming assist**, the **manual board-grooming UI** (the
+`archive_work_item` / `delete_event` *actions* exist; no manual UI yet), and
+**kiosk hardening** (always-on soak, failure surfacing, logging). Plus the planned
 one-time **backfill** from Trello / Google Calendar (`manage import`, designed in
 DESIGN §6a — a fresh install starts empty otherwise). See `spec/PLAN.md` and
 `spec/NEXT_SESSION.md`.

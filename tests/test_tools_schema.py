@@ -235,6 +235,7 @@ def test_full_schema_snapshot_over_the_real_registry():
                                 one_of=reschedule_oneof,
                             ),
                         ),
+                        action("delete_event", empty_params),
                         action(
                             "create_work_item",
                             obj(

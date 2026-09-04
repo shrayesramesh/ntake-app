@@ -72,12 +72,13 @@ def test_complete_posts_openai_shape_and_returns_parsed_content():
         {"role": "system", "content": "SYS"},
         {"role": "user", "content": "the plumber note"},
     ]
-    # The schema is attached as constrained output. llama.cpp/llamafile shape:
-    # response_format.schema directly (no json_schema wrapper, no strict/name).
+    # The schema is attached as constrained output in the canonical OpenAI/
+    # llamafile form: response_format.json_schema.{name, schema}. The flat
+    # response_format.schema form is silently ignored by this llamafile build.
     assert body["response_format"]["type"] == "json_schema"
-    assert body["response_format"]["schema"] == schema
-    assert "json_schema" not in body["response_format"]
-    assert "strict" not in body["response_format"]
+    assert body["response_format"]["json_schema"]["schema"] == schema
+    assert body["response_format"]["json_schema"]["name"]  # a non-empty name
+    assert "schema" not in body["response_format"]  # not the flat form
 
 
 def test_base_url_trailing_slash_is_normalized():

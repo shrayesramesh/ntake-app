@@ -251,6 +251,13 @@ def _apply_create_event(ctx: NtakeActionContext, params: dict) -> str:
       part of the labor log, so NO work_item_update is appended (WORKITEM-3).
     """
     require_params(params, ["title"])
+    # Timing is required: exactly the propose-side contract (accepts() demands one
+    # exclusive group). Enforce it here too so the confirm path can't persist a
+    # timing-less event (all_day would be False + start_at None → a junk row).
+    if not params.get("start_at") and not params.get("start_date"):
+        raise ActionError(
+            "create_event requires a timed (start_at) or all-day (start_date) timing"
+        )
     now = datetime.now(UTC)
 
     source_update_id = None
@@ -272,6 +279,23 @@ def _apply_create_event(ctx: NtakeActionContext, params: dict) -> str:
         all_day=all_day,
         start_at=_parse_dt(params["start_at"]) if params.get("start_at") else None,
         end_at=_parse_dt(params["end_at"]) if params.get("end_at") else None,
+        # All-day date fields — mirror the timed pair above. Without these an
+        # all-day event would persist with all_day=True but start_date=None
+        # (renders "all-day · ?"); default end_date to start_date (single day).
+        start_date=(
+            date.fromisoformat(params["start_date"])
+            if params.get("start_date")
+            else None
+        ),
+        end_date=(
+            date.fromisoformat(params["end_date"])
+            if params.get("end_date")
+            else (
+                date.fromisoformat(params["start_date"])
+                if params.get("start_date")
+                else None
+            )
+        ),
         participants=params.get("participants") or [],
         source_update_id=source_update_id,
         created_at=now,
@@ -303,6 +327,19 @@ def _apply_create_work_item(ctx: NtakeActionContext, params: dict) -> str:
 
 def _apply_no_action(ctx: NtakeActionContext, params: dict) -> str:
     return "No action"
+
+
+def _apply_delete_event(ctx: NtakeActionContext, params: dict) -> str:
+    """Delete an existing event (event-only; appends NO work-item update).
+
+    Removes the resolved target event. Like the other event-only actions
+    (reschedule/deconflict) it is not part of the labor log. A missing target is
+    an ActionError via ``_load_event``.
+    """
+    ev = _load_event(ctx.session, ctx.target_id)
+    title = ev.title
+    ctx.session.delete(ev)
+    return f"Deleted event “{title}”"
 
 
 def _apply_deconflict_events(ctx: NtakeActionContext, params: dict) -> str:
@@ -399,8 +436,84 @@ def _describe_no_action(params: dict) -> str:
     return "No action"
 
 
+def _describe_delete_event(params: dict) -> str:
+    return "Delete the event"
+
+
 def _describe_deconflict(params: dict) -> str:
     return "Move the event to the next day (deconflict)"
+
+
+# --- render_card fns: (params, resolved) -> verbose card detail lines -------
+# Pure; read pre-resolved values from ``resolved`` (the app fills it from the
+# EXISTING member-name map + target_label — no new resolution). Must tolerate
+# missing/partial params + resolved (runs on unconfirmed proposals); never raise.
+
+
+def _member_label(resolved: dict, member_id: object) -> str:
+    """Resolve a member id to its name via the app-supplied map, else an id token."""
+    names = resolved.get("member_names") or {}
+    if isinstance(member_id, int) and member_id in names:
+        return str(names[member_id])
+    return f"member {member_id}"
+
+
+def _when(params: dict) -> str | None:
+    """A readable timing string from timed/all-day params, or None."""
+    return params.get("start_at") or params.get("start_date") or None
+
+
+def _render_assign(params: dict, resolved: dict) -> list[str]:
+    return [f"Assign to: {_member_label(resolved, params.get('member_id'))}"]
+
+
+def _render_set_due_date(params: dict, resolved: dict) -> list[str]:
+    due = params.get("due_at")
+    return [f"Due: {due}"] if due else []
+
+
+def _render_reschedule(params: dict, resolved: dict) -> list[str]:
+    lines: list[str] = []
+    label = resolved.get("target_label")
+    if label:
+        lines.append(f"Event: {label}")
+    when = _when(params)
+    if when:
+        lines.append(f"New time: {when}")
+    return lines
+
+
+def _render_create_event(params: dict, resolved: dict) -> list[str]:
+    lines: list[str] = []
+    if params.get("title"):
+        lines.append(f"Title: {params['title']}")
+    when = _when(params)
+    if when:
+        lines.append(f"When: {when}")
+    if params.get("location"):
+        lines.append(f"Location: {params['location']}")
+    if params.get("description"):
+        lines.append(f"Notes: {params['description']}")
+    return lines
+
+
+def _render_create_work_item(params: dict, resolved: dict) -> list[str]:
+    lines: list[str] = []
+    if params.get("title"):
+        lines.append(f"Title: {params['title']}")
+    if params.get("description"):
+        lines.append(f"Notes: {params['description']}")
+    tags = params.get("tags")
+    if isinstance(tags, list) and tags:
+        lines.append(f"Tags: {', '.join(str(t) for t in tags)}")
+    return lines
+
+
+def _render_add_checklist_items(params: dict, resolved: dict) -> list[str]:
+    items = params.get("items")
+    if isinstance(items, list) and items:
+        return [f"Items: {', '.join(str(i) for i in items)}"]
+    return []
 
 
 # The ntake action set (spec/ASSISTANT_ACTIONS.md, v1). A plain dict of engine
@@ -417,6 +530,7 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         target_type=TargetType.WORK_ITEM,
         apply=_apply_set_due_date,
         describe=_describe_set_due_date,
+        render_card=_render_set_due_date,
     ),
     "complete_work_item": ActionSpec(
         name="complete_work_item",
@@ -460,6 +574,7 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         target_type=TargetType.WORK_ITEM,
         apply=_apply_assign,
         describe=_describe_assign,
+        render_card=_render_assign,
     ),
     "archive_work_item": ActionSpec(
         name="archive_work_item",
@@ -475,6 +590,7 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         target_type=TargetType.WORK_ITEM,
         apply=_apply_add_checklist_items,
         describe=_describe_add_checklist_items,
+        render_card=_render_add_checklist_items,
     ),
     "create_event": ActionSpec(
         name="create_event",
@@ -496,6 +612,7 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         target_type=None,
         apply=_apply_create_event,
         describe=_describe_create_event,
+        render_card=_render_create_event,
     ),
     "reschedule_event": ActionSpec(
         name="reschedule_event",
@@ -512,6 +629,16 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         logs=False,
         apply=_apply_reschedule_event,
         describe=_describe_reschedule_event,
+        render_card=_render_reschedule,
+    ),
+    "delete_event": ActionSpec(
+        name="delete_event",
+        description="Delete an existing event (e.g. it was cancelled).",
+        # Targets an existing event; event-only so it appends NO work-item update.
+        target_type=TargetType.EVENT,
+        logs=False,
+        apply=_apply_delete_event,
+        describe=_describe_delete_event,
     ),
     "create_work_item": ActionSpec(
         name="create_work_item",
@@ -524,6 +651,7 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         target_type=None,
         apply=_apply_create_work_item,
         describe=_describe_create_work_item,
+        render_card=_render_create_work_item,
     ),
     "no_action": ActionSpec(
         name="no_action",

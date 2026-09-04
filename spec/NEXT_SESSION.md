@@ -8,70 +8,73 @@ the repo root (how to work here + conventions).
 
 ## Current state (one paragraph)
 
-Phases 0–3 and the **fake-first Phase 4** are built and green (`make check` → 300
-tests, ≥95% cov; + `make smoke`, 12 real-stack checks). The app (FastAPI +
-SQLite): events, work-items + append-only update log, board, `/capture`
-(propose-only) + `/actions/confirm`, config-seeded identity + token CLI, and live
-SSE. The assistant is a reusable engine (`app/routing/`) + ntake plugin
-(`app/assistant/`) with two config-selected seams (`CaptureResolver`,
-`AssistantClient`) and a deterministic `fake/` backend that runs the **real
-two-call shape** (`build_world_view → fake_link → deep_context → propose`), so it
-resolves a target from free text with no model. **Live-surface hardening is done:**
-SQLite WAL + `synchronous=NORMAL`; Alembic migrations as the real-DB schema path
-(startup runs `upgrade head`; `python -m app.manage migrate`; tests use
-`create_all`); a `VACUUM INTO` snapshot (`manage backup`); SSE re-sync on
-(re)connect; PWA manifest + service worker.
+Phases 0–3 and **Phase 4 including the live local-LLM backend** are built and
+green (`make check` → 408 tests, ≥95% cov; + `make smoke`, 12 real-stack checks).
+The app (FastAPI + SQLite): events, work-items + append-only update log, board,
+`/capture` (propose-only) + `/actions/confirm`, config-seeded identity + token
+CLI, and live SSE. The assistant is a reusable engine (`app/routing/`) + ntake
+plugin (`app/assistant/`) with two config-selected seams (`CaptureResolver`,
+`AssistantClient`) and **both backends built** — a deterministic `fake/` and a
+live `local_llm/` (llamafile / any OpenAI-style localhost endpoint, **verified
+end-to-end** against Llama 3.1 8B on `localhost:8080`, no Tailscale). The two-call
+pipeline links work items, events, **and members** (`{work_item_ids, event_ids,
+member_ids}`) and folds each linked member's workload footprint into the PROPOSE
+context; proposals render verbose, id-resolved cards via each action's
+`ActionSpec.render_card`. **Dev bring-up for live UI testing:** `make llm-up` +
+`make ui-live` (real household + persistent DB + seeded data + token + an in-UI
+debug panel showing the LINK/PROPOSE prompts + raw model replies + resolved ids).
+**Live-surface hardening is done:** SQLite WAL + `synchronous=NORMAL`; Alembic
+migrations as the real-DB schema path; a `VACUUM INTO` snapshot (`manage backup`);
+SSE re-sync on (re)connect; PWA manifest + service worker.
 
-## ⇒ START HERE (task 7 status — updated this session)
+## ⇒ START HERE (task 7 DONE — what actually remains)
 
-**Task 7 Track A (all in-repo code) is BUILT + `make check` green (382 tests,
-≥97% cov).** Steps 1–7 done: the `LLM` protocol seam + `ScriptedLLM`
-(`protocol.py`), `build_tools_schema`, `LocalLlmClient` (httpx), `LocalLlmAssistant`
-(propose), `LocalLlmCaptureResolver` (link + `resolve_ids` family-whitelist),
-graceful-degrade hardening (`ActionSpec.accepts` + client never raises), and the
-config-in-code wiring (`AssistantConfig`, `get_assistant(config)` /
-`get_capture_resolver(config)`, factory pure). Two refactors landed too:
-`Param.datatype` is a `DataType` enum (view + schema derive from one source), and
-the action target category is `ActionSpec.target_type` (`TargetType` StrEnum in
-the data model; `needs_target` derived; engine default `None`). Track B step 10
-(`infra.py` health/warm + `manage llm` + startup warm-ping) is built + tested;
-the operator runbook is in `HOST_SETUP_GUIDE` §7.
+**Task 7 (the live local-LLM backend) is DONE and verified end-to-end**, not just
+"built vs. a scripted double." The `local_llm/` backend (`LocalLlmClient`,
+`LocalLlmCaptureResolver`, `LocalLlmAssistant`) runs against llamafile/Llama 3.1
+8B on `localhost:8080` and produces correct proposals through the browser.
 
-**The live model has been run end-to-end on the dev Mac (llamafile, Llama 3.1 8B
-Instruct Q8_0, `localhost:8080`) — no Tailscale.** Dev tooling landed:
-`scripts/llm.sh {up,down,status}` + `make llm-up/llm-down/llm-status` (lifecycle
-verified on the Mac), and `scripts/live_local_llm_smoke.py` (points the app at the
-live model via `kind="local"` and **prints** proposals; `--debug` runs the
-pipeline in-process and prints raw LINK/PROPOSE JSON). The pipeline works: correct
-action choice on `create_work_item` / `create_event` / `complete_work_item` /
-`reschedule_event`, ~3–4s per capture.
+**The key fix this session:** `LocalLlmClient` was sending the constrained-output
+schema as `response_format.schema` (flat) — which **this llamafile build silently
+ignores**, so the model returned `{}` / free-form and LINK never resolved a
+target (reschedules degraded to creates). Switching to the canonical
+`response_format.json_schema.{name, schema}` form (llamafile enforces it) fixed
+LINK reliability across the board. *(The old code comment claiming llama.cpp
+rejects the nested form was wrong for this build — verified by live test.)*
 
-**Open threads for the next session (priority order):**
-1. **LINK id format (parse fix landed; now tune the prompt).** The 8B model echoes
-   the world-view *tokens* (`"e1"`/`"w3"`, often as strings) or resolves nothing,
-   run-to-run. `parse_ids` now **coerces** int / numeric-string / matching
-   `w<n>`/`e<n>` token → int (committed, unit-tested), so a `"e1"` reply resolves
-   the target. BUT live runs also show LINK frequently returning `{}` (no link)
-   for "move the piano recital to saturday" → `reschedule_event` with
-   `target_id=None`. That's **model/prompt quality**, not parsing: tune
-   `LINK_SYSTEM` / `build_link_prompt` (get a reliable id back — consider showing
-   bare ids or instructing "return the integer after the letter"), then re-run
-   `live_local_llm_smoke.py --debug`.
-2. **`reschedule_event` timing.** Model emits `start_at == end_at` at midnight UTC
-   — prompt-tune `build_propose_prompt` for sensible times in the family tz.
-3. **`health` model-name mismatch.** llamafile reports the served id as the *gguf
-   path* (`./llama-3.1-8b-instruct.Q8_0.gguf`), not `llama3.1:8b`, so
-   `manage llm health` says "NOT ok" even when serving (completions still work —
-   llamafile ignores the `model` field). Reconcile: default `AssistantConfig.model`
-   to the served id, relax the health name check, or set llamafile `--alias`.
-4. **`HOST_SETUP_GUIDE` §7.2 `--nobrowser` bug** (llamafile 0.10.5+ rejects it) — a
-   concurrent doc edit was in flight; confirm it landed + add a `make llm-up`
-   reference to §7.2 (README already lists the dev commands).
-5. **Deferred (unchanged):** the `build→parse` reorg of `local_llm/`, and an
-   optional `RetryingLLM` decorator — both best decided from more live runs.
+**Also landed this session (all `make check`-green, uncommitted):**
+- **Member linking end-to-end** — LINK schema/prompt gained `member_ids`;
+  `parse_ids`→3-tuple, `resolve_ids` family-whitelists members, `FocusedContext`
+  carries `resolved_member_ids`/`primary_member_id`, `deep_context` folds each
+  linked member's workload footprint in (`ALSO ABOUT:` header).
+- **`delete_event`** action (toolset now 15); **`create_event` timing guard**
+  (rejects timing-less; removed the dead `?`/`unscheduled` render fallbacks).
+- **`ActionSpec.render_card`** — pure per-action verbose card renderer; app
+  resolves ids (member names, target labels) into a `resolved` bag; cards show
+  `detail_lines` + humanized dates (client-side).
+- **Debug UI (kept):** `app/assistant/debug_capture.py` (`RecordingLLM` +
+  `run_capture_with_debug`) + a local-only `/capture` `debug` block + a collapsible
+  in-UI panel (both prompts, raw replies, resolved ids). One-command bring-up:
+  **`make ui-live`** (`scripts/live_llm_ui.sh`).
+- Idempotent + participant-attaching `seed_sample_events`; calendar resolves
+  participant member ids → names.
 
-**To resume:** `make llm-up`, then `python scripts/live_local_llm_smoke.py`
-(eyeball) or `--debug` (raw LINK/PROPOSE JSON). All localhost.
+**Remaining now is prompt-quality tuning + Phase 5, not the build:**
+1. **Prompt/behavior tuning against the live 8B** — date arithmetic (it picks the
+   wrong weekday by a day sometimes), occasional over-/under-linking, occasional
+   empty PROPOSE. Model-quality, defended by validate-don't-trust; tune
+   `LINK_SYSTEM` / `build_propose_prompt`. **Running finds tracked in
+   `spec/UI_TESTING_BACKLOG.md`** (e.g. deep-context tags; first-person "I" →
+   capturing member).
+2. **`manage llm health` model-name mismatch** — llamafile reports the served id
+   as the gguf *path*; `make ui-live` already sets `NTAKE_LLM_MODEL` to the served
+   id so the app path is green, but the standalone CLI still uses the fake default
+   name. Cosmetic; reconcile if it annoys.
+3. **Phase 5** — labor view (design spike first), on-demand grooming assist,
+   manual board-grooming UI, kiosk soak/failure-surfacing/logging.
+
+**To resume live testing:** `make llm-up`, then `make ui-live` (prints URL +
+token), open the browser, expand a proposal's "LLM debug trace". All localhost.
 
 ## Remaining larger tasks (the menu)
 

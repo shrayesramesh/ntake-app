@@ -38,22 +38,19 @@ _DATETIME_FMT = "%a %b %-d, %-I:%M %p"
 _DATE_FMT = "%a %b %-d"
 
 
-def parse_ids(link_json: dict) -> tuple[list[int], list[int]]:
-    """Parse the LINK call's JSON into (work_item_ids, event_ids).
+def parse_ids(link_json: dict) -> tuple[list[int], list[int], list[int]]:
+    """Parse the LINK call's JSON into (work_item_ids, event_ids, member_ids).
 
     Tolerant of untrusted model output: missing keys → empty; non-list values →
-    empty. Each entry is coerced to the entity's **integer** id — the type the
-    whole chain wants (``resolve_ids`` → ``FocusedContext.resolved_*_ids`` →
-    ``ProposedAction.target_id`` → ``session.get(Model, id)``). A small model
-    tends to echo the world-view TOKENS it was shown (``w3``/``e8``), often as
-    strings, rather than bare ints, so we accept an int, a numeric string, or the
-    matching-prefix token (``w`` for work items, ``e`` for events,
-    case-insensitive); anything else (wrong prefix, non-numeric, ``bool``,
-    ``float``, ``None``) is dropped.
+    empty. Each entry is coerced to the entity's **integer** id (see
+    ``_coerce_ids``): an int, a numeric string, or the matching-prefix token
+    (``w`` for work items, ``e`` for events, ``m`` for members,
+    case-insensitive); anything else is dropped.
     """
     return (
         _coerce_ids(link_json.get("work_item_ids"), "w"),
         _coerce_ids(link_json.get("event_ids"), "e"),
+        _coerce_ids(link_json.get("member_ids"), "m"),
     )
 
 
@@ -93,13 +90,15 @@ def resolve_ids(
     member: Member,
     work_item_ids: list[int],
     event_ids: list[int],
-) -> tuple[list[int], list[int]]:
+    member_ids: list[int],
+) -> tuple[list[int], list[int], list[int]]:
     """Whitelist untrusted linked ids to ``member``'s family (validate-don't-trust).
 
     The LINK call's ids are well-formed but untrusted (a model may hallucinate or
     name another family's entity). This drops any id that doesn't exist in the
     capturing member's family, so ONLY validated ids reach ``FocusedContext``
-    (and thus become attachable targets). Input order is preserved.
+    (and thus become attachable targets). Input order is preserved. Applies to
+    work items, events, AND members (the note may name a person to attribute).
 
     The counterpart to ``deep_context`` (same family whitelist): the resolver
     calls this for the ids it stores on the context, and ``deep_context`` for the
@@ -108,9 +107,11 @@ def resolve_ids(
     fam_id = member.family_id
     valid_wi = {wi.id for wi in _load_family_items(session, fam_id, work_item_ids)}
     valid_ev = {ev.id for ev in _load_family_events(session, fam_id, event_ids)}
+    valid_mem = {mm.id for mm in _load_family_members(session, fam_id, member_ids)}
     return (
         [i for i in work_item_ids if i in valid_wi],
         [i for i in event_ids if i in valid_ev],
+        [i for i in member_ids if i in valid_mem],
     )
 
 
@@ -119,27 +120,45 @@ def deep_context(
     member: Member,
     work_item_ids: list[int],
     event_ids: list[int],
+    member_ids: list[int] | None = None,
 ) -> str:
     """Render the deep, narrow context for the PROPOSE call.
 
-    Validates the linked ids to ``member``'s family, unions in the member's
-    assigned work items, and renders a member header + each work item with its
-    FULL update history + the linked events. Session in, string out.
+    Validates the linked ids to ``member``'s family and renders a member header +
+    each relevant work item with its FULL update history + the relevant events.
+    The footprint (assigned work items + participated events) of BOTH the
+    capturing member AND any ``member_ids`` the LINK step resolved (people the
+    note names) is folded in — so the LLM can judge each named person's workload
+    when deciding what to do (e.g. "Alex day off Monday" → see what Alex already
+    has). Session in, string out.
     """
     fam_id = member.family_id
 
-    # Work items: linked (validated to family) ∪ the member's assigned items, deduped.
+    # Linked members (people the note names): validated to family. Their full
+    # footprint is folded in below so the LLM can judge each person's workload.
+    linked_members = _load_family_members(session, fam_id, member_ids or [])
+
+    # The members whose footprint we render: the capturing member + any the note
+    # linked (deduped, capturing member first).
+    footprint_members = _dedup_members([member, *linked_members])
+
+    # Work items: linked (validated to family) ∪ every footprint member's
+    # assigned items, deduped.
     linked_items = _load_family_items(session, fam_id, work_item_ids)
-    footprint_items = _load_assigned_items(session, fam_id, member.id)
+    footprint_items: list[WorkItem] = []
+    for fm in footprint_members:
+        footprint_items += _load_assigned_items(session, fam_id, fm.id)
     items = _dedup_by_id(linked_items + footprint_items)
 
-    # Events: the linked ones (validated to family) ∪ events the member
-    # participates in (participants list contains their member_id), deduped.
+    # Events: the linked ones (validated to family) ∪ every footprint member's
+    # participated events, deduped.
     linked_events = _load_family_events(session, fam_id, event_ids)
-    participated = _load_participated_events(session, fam_id, member.id)
+    participated: list[Event] = []
+    for fm in footprint_members:
+        participated += _load_participated_events(session, fam_id, fm.id)
     events = _dedup_events(linked_events + participated)
 
-    return _render(session, member, items, events)
+    return _render(session, member, items, events, linked_members)
 
 
 # --- loads (all scoped to family = the whitelist) -------------------------
@@ -172,6 +191,18 @@ def _load_family_events(
         return []
     stmt = select(Event).where(Event.family_id == family_id, Event.id.in_(ids))
     return list(session.scalars(stmt).all())
+
+
+def _load_family_members(
+    session: Session, family_id: int, ids: list[int]
+) -> list[Member]:
+    """Members in this family whose ids are in ``ids`` (the LINK-named people),
+    preserving the given order. The member whitelist (validate-don't-trust)."""
+    if not ids:
+        return []
+    stmt = select(Member).where(Member.family_id == family_id, Member.id.in_(ids))
+    by_id = {mm.id: mm for mm in session.scalars(stmt).all()}
+    return [by_id[i] for i in ids if i in by_id]
 
 
 def _load_participated_events(
@@ -214,6 +245,16 @@ def _dedup_by_id(items: list[WorkItem]) -> list[WorkItem]:
     return out
 
 
+def _dedup_members(members: list[Member]) -> list[Member]:
+    seen: set[int] = set()
+    out: list[Member] = []
+    for mm in members:
+        if mm.id not in seen:
+            seen.add(mm.id)
+            out.append(mm)
+    return out
+
+
 # --- render (plain text for the prompt) -----------------------------------
 
 
@@ -227,9 +268,21 @@ def _item_updates(session: Session, work_item_id: int) -> list[WorkItemUpdate]:
 
 
 def _render(
-    session: Session, member: Member, items: list[WorkItem], events: list[Event]
+    session: Session,
+    member: Member,
+    items: list[WorkItem],
+    events: list[Event],
+    linked_members: list[Member],
 ) -> str:
-    lines = [f"NOTE FROM: [m{member.id}] {member.display_name} ({member.role})", ""]
+    lines = [f"NOTE FROM: [m{member.id}] {member.display_name} ({member.role})"]
+
+    # People the note is about (beyond the author) — their workload/events are
+    # folded into the sections below so the model can judge what to do for them.
+    others = [lm for lm in linked_members if lm.id != member.id]
+    if others:
+        who = ", ".join(f"[m{lm.id}] {lm.display_name} ({lm.role})" for lm in others)
+        lines.append(f"ALSO ABOUT: {who}")
+    lines.append("")
 
     lines.append("RELEVANT WORK ITEMS:")
     if items:

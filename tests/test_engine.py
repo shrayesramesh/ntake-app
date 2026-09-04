@@ -283,3 +283,25 @@ def test_propose_bounded_degrades_to_empty_on_error():
 
 def test_propose_bounded_null_client_returns_empty():
     assert propose_bounded(NullAssistant(), ctx=object(), timeout=2.0) == []
+
+
+def test_action_spec_render_card_is_optional_and_pure():
+    """ActionSpec.render_card is an optional pure (params, resolved) -> [str]
+    renderer (the per-action card detail lines). Defaults to None; when set it is
+    a plain callable the engine never inspects — the app passes pre-resolved
+    values (id->name, dates) in ``resolved`` so the engine stays session-free."""
+    from app.routing.engine import ActionSpec
+
+    # Default: no renderer.
+    assert ActionSpec(name="x", description="X").render_card is None
+
+    # With a renderer: pure function of (params, resolved).
+    spec = ActionSpec(
+        name="assign",
+        description="Assign it.",
+        render_card=lambda params, resolved: [
+            f"To: {resolved.get('member_names', {}).get(params.get('member_id'))}"
+        ],
+    )
+    lines = spec.render_card({"member_id": 2}, {"member_names": {2: "Sam"}})
+    assert lines == ["To: Sam"]

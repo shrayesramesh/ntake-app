@@ -28,6 +28,7 @@ def _ctx(
     *,
     wi_ids: list[int] | None = None,
     ev_ids: list[int] | None = None,
+    member_ids: list[int] | None = None,
     deep_context: str = "",
 ) -> FocusedContext:
     return FocusedContext(
@@ -36,6 +37,7 @@ def _ctx(
         now=NOW,
         resolved_work_item_ids=wi_ids or [],
         resolved_event_ids=ev_ids or [],
+        resolved_member_ids=member_ids or [],
         deep_context=deep_context,
     )
 
@@ -71,6 +73,21 @@ def test_primary_work_item_id_returns_first_resolved_or_none():
 def test_primary_event_id_returns_first_resolved_or_none():
     assert _ctx(ev_ids=[7, 2]).primary_event_id == 7
     assert _ctx(ev_ids=[]).primary_event_id is None
+
+
+def test_focused_context_carries_resolved_member_ids():
+    ctx = _ctx("alex day off", member_ids=[1, 2])
+    assert ctx.resolved_member_ids == [1, 2]
+
+
+def test_resolved_member_ids_default_to_empty():
+    ctx = FocusedContext(text="x", timezone="UTC", now=NOW, deep_context="")
+    assert ctx.resolved_member_ids == []
+
+
+def test_primary_member_id_returns_first_resolved_or_none():
+    assert _ctx(member_ids=[1, 3]).primary_member_id == 1
+    assert _ctx(member_ids=[]).primary_member_id is None
 
 
 # --- FocusedContext.render() ----------------------------------------------

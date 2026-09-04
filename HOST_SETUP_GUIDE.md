@@ -279,12 +279,15 @@ there (or change the config to match your port).
 **Dev Mac — run it directly** (foreground; Ctrl-C to stop):
 ```bash
 # shape (a), self-contained model-llamafile:
-~/.local/share/ntake/llm/llamafile --server --host 127.0.0.1 --port 8080 --nobrowser
+~/.local/share/ntake/llm/llamafile --server --host 127.0.0.1 --port 8080
 
 # shape (b), bare binary + gguf:
-~/.local/share/ntake/llm/llamafile --server --host 127.0.0.1 --port 8080 --nobrowser \
+~/.local/share/ntake/llm/llamafile --server --host 127.0.0.1 --port 8080 \
   -m ~/.local/share/ntake/llm/llama-3.1-8b-instruct.Q8_0.gguf
 ```
+> **Note (llamafile ≥ 0.10.0):** `--server` mode has no TUI/browser, and the old
+> `--nobrowser` flag was removed — passing it makes the server exit immediately
+> with `error: invalid argument: --nobrowser`. Omit it (as above).
 Confirm it's up:
 ```bash
 curl http://localhost:8080/v1/models      # lists the served model
@@ -299,7 +302,7 @@ Description=ntake local LLM (llamafile)
 After=network.target
 
 [Service]
-ExecStart=%h/.local/share/ntake/llm/llamafile --server --host 127.0.0.1 --port 8080 --nobrowser -m %h/.local/share/ntake/llm/llama-3.1-8b-instruct.Q8_0.gguf
+ExecStart=%h/.local/share/ntake/llm/llamafile --server --host 127.0.0.1 --port 8080 -m %h/.local/share/ntake/llm/llama-3.1-8b-instruct.Q8_0.gguf
 Restart=on-failure
 RestartSec=5
 
@@ -340,6 +343,17 @@ The assistant backend is selected by a code value, **not an env var**:
 `timeout=120.0`). Point `base_url` at another runtime (e.g. Ollama on `:11434`)
 or name a different `model` there.
 
+**Dev/UI-testing opt-in (env override).** So you don't have to hand-edit the
+code for a throwaway live session, `get_assistant_config()` honors an optional
+environment override while keeping the **committed default `fake`** (so the test
+suite is unaffected): set `NTAKE_ASSISTANT_KIND=local` to flip the request path
+to the live backend, and optionally `NTAKE_LLM_MODEL`, `NTAKE_LLM_BASE_URL`,
+`NTAKE_LLM_TIMEOUT` to override the model id / URL / timeout. The served model id
+must exactly match `NTAKE_LLM_MODEL` for `llm health` to report green (llamafile
+reports the full `.gguf` path as the id). These are read only when the override
+is `local`; unset, nothing changes. **`make ui-live` sets all of these for you**
+(see §7.6) — you rarely set them by hand.
+
 ### 7.5 End-to-end smoke (with the model actually serving)
 
 This is the one thing the automated tests can't check — real reasoning quality:
@@ -348,6 +362,38 @@ make smoke        # runs the host integration smoke; --serve keeps the server up
 ```
 Confirm real captures produce sane proposals; expect to **tune** prompt wording
 and the timeout against what you observe (the prompt drafts anticipate this).
+
+### 7.6 One-command live-LLM UI session (`make ui-live`)
+
+For hands-on **browser** testing against the live model, `make ui-live` brings
+the whole thing up in one command — the persistent-DB, real-household counterpart
+to `make smoke`:
+
+```bash
+make llm-up        # (infra) start the model server first — §7.2
+make ui-live       # bring the app up on the live backend, seed, mint, serve
+```
+
+What it does (see `scripts/live_llm_ui.sh`, which is self-documented):
+1. **Preflights** the model server at `NTAKE_LLM_BASE_URL` (default `:8080`) and
+   auto-probes the served model id (so `llm health` matches — §7.4).
+2. **Flips** the assistant to `local` for the app process via the §7.4 env
+   override (the committed default stays `fake` — the test suite is unaffected).
+3. Starts the app on the **persistent** `./calendar.db`, seeds sample events, and
+   **mints a device token** for a member (`NTAKE_MEMBER`, default: first adult).
+4. Prints the **URL + token**, then serves (Ctrl-C to stop).
+
+How it differs from `make smoke`: `make smoke` uses an isolated **temp** DB, a
+hardcoded "Smoke Household", the **fake** assistant, and 12 fake-shaped
+assertions (self-cleaning; proves the plumbing). `make ui-live` uses your real
+`family.toml` household, the persistent DB, and the **live** model — for eyeballing
+real reasoning in the browser. In the UI, expand the **"LLM debug trace"** panel
+under a proposal to see both prompts, the raw model replies, and the resolved ids;
+the board/event cards show full record detail.
+
+Secret handling: if `NTAKE_TOKEN_SECRET` isn't set, the script persists a stable
+one to `<config-dir>/token_secret` (out-of-repo, `chmod 600`) so tokens survive
+re-runs — set the env var yourself to control it.
 
 ---
 

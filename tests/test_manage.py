@@ -12,8 +12,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.manage import gen_token_for, list_tokens, revoke_token
-from app.models import DeviceToken, Family, Member
+from app.manage import gen_token_for, list_tokens, revoke_token, seed_sample_events
+from app.models import DeviceToken, Event, Family, Member
 from app.tokens import hash_token
 
 SECRET = "test-manage-secret"
@@ -30,6 +30,19 @@ def _member(session, name="Shrayes") -> Member:
     session.add(m)
     session.commit()
     return m
+
+
+def test_seed_sample_events_is_idempotent(session):
+    """With a PERSISTENT DB, seed_sample_events runs on every launch, so it must
+    seed once then be a no-op — not accumulate duplicate samples."""
+    _member(session)  # creates the family the seed attaches to
+    first = seed_sample_events(session)
+    assert len(first) == 2
+    assert session.query(Event).count() == 2
+    # Second call: nothing added.
+    second = seed_sample_events(session)
+    assert second == []
+    assert session.query(Event).count() == 2
 
 
 def test_gen_token_returns_plaintext_and_stores_only_hash(session):

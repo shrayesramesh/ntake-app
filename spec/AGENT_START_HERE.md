@@ -19,15 +19,22 @@ setup like Tailscale/hardware/stack).
 ## The code (already exists, at repo root — not in this folder)
 
 `app/`, `tests/`, `Makefile`, `setup.sh`, `requirements.txt`, `pyproject.toml`.
-Current state: phases 0–3 and the **fake-first Phase 4** are built and green
-(`make check` → 300 tests pass; + `make smoke`, 12 real-stack checks). Events +
-work-item/board + live SSE + config-seeded identity are in; the assistant runs as
-a two-stage pipeline (`CaptureResolver` → `AssistantClient`) over a reusable
-engine, with a `fake/` backend that runs the real two-call shape
-(`build_world_view` → `fake_link` → `deep_context` → `propose`). Live-surface
-hardening is done (WAL, `manage backup`, SSE reconnect re-sync, PWA). **Not built
-yet:** Phase-4 **task 7** (the live local-LLM backend) and Phase 5's labor view +
-grooming assist + kiosk polish (see PLAN.md).
+Current state: phases 0–3 and **Phase 4 including the live local-LLM backend
+(task 7)** are built and green (`make check` → 408 tests pass; + `make smoke`,
+12 real-stack checks). Events + work-item/board + live SSE + config-seeded
+identity are in; the assistant runs as a two-stage pipeline (`CaptureResolver` →
+`AssistantClient`) over a reusable engine, with both a deterministic `fake/`
+backend and the **`local_llm/` backend (llamafile / any OpenAI-style localhost
+endpoint), verified end-to-end against Llama 3.1 8B on `localhost:8080` — no
+Tailscale**. The live pipeline links work items, events, **and members**
+(`{work_item_ids, event_ids, member_ids}`) and folds each linked member's
+workload into the PROPOSE context. Live-surface hardening is done (WAL,
+`manage backup`, SSE reconnect re-sync, PWA). Dev bring-up for live UI testing is
+one command: **`make llm-up` then `make ui-live`** (real household + persistent
+DB + live model + a debug panel showing the LLM prompts/replies). **Not built
+yet:** Phase 5's **labor view**, **on-demand grooming assist**, the **manual
+board-grooming UI** (the `archive_work_item`/`delete_event` *actions* exist; no
+manual UI), and **kiosk soak/failure-surfacing/logging** (see PLAN.md).
 
 ## How to work
 

@@ -7,8 +7,9 @@
 
 ## Current state (already built & passing)
 
-Phases 0–3 and the fake-first Phase 4 are built and green (`make check` → 296
-tests pass, ≥95% cov; plus `make smoke`, 12 real-stack checks). What exists:
+Phases 0–3 and **Phase 4 including the live local-LLM backend** are built and
+green (`make check` → 408 tests pass, ≥95% cov; plus `make smoke`, 12 real-stack
+checks). What exists:
 - FastAPI app; `GET /health`, `GET /events`, the work-item/board read + append
   paths, `/capture` (propose-only) and `/actions/confirm`.
 - SQLAlchemy 2.0 + SQLite: `Family`, `Event`, `Member`, `device_tokens`,
@@ -30,17 +31,25 @@ tests pass, ≥95% cov; plus `make smoke`, 12 real-stack checks). What exists:
   auth on every request.
 - The assistant: reusable engine (`app/routing/`) + ntake plugin
   (`app/assistant/`) with the two swappable seams (`CaptureResolver`,
-  `AssistantClient`) and the `fake/` backend. The fake runs the real two-call
-  *shape* — `build_world_view` → `fake_link` (deterministic title match) →
-  `deep_context` → `propose` — so it resolves a target from free text and can
-  propose existing-item + event-reschedule actions without a model. Skinny
-  calendar render + SSE.
+  `AssistantClient`) and **both backends built** — `fake/` (deterministic) and
+  `local_llm/` (the live local model, llamafile / any OpenAI-style localhost
+  endpoint, **verified end-to-end** against Llama 3.1 8B on `localhost:8080`). The
+  two-call pipeline is `build_world_view` → LINK → `deep_context` → PROPOSE; LINK
+  resolves work items, events, **and members** (`{work_item_ids, event_ids,
+  member_ids}`, family-whitelisted), and `deep_context` folds in each linked
+  member's workload footprint so PROPOSE can reason about it. Proposals carry a
+  registry-derived `action_summary` (member ids resolved to names) + the model's
+  `llm_rationale` + verbose, id-resolved `detail_lines` from each action's own
+  `ActionSpec.render_card`. **Dev live-UI bring-up:** `make llm-up` + `make
+  ui-live` (real household, persistent DB, seeded data + token, and an in-UI debug
+  panel showing the LINK/PROPOSE prompts + raw model replies + resolved ids).
 - Makefile, setup.sh, pinned requirements, ruff + mypy config.
 
-**Not yet built:** Phase-4 **task 7** (the live local-LLM backend — host-only) and
-Phase 5's **labor view** + grooming assist + kiosk polish. Smaller loose end: the
-manual board-grooming UI (the assistant `archive_work_item` action exists; the UI
-doesn't). *(Alembic migration wiring is now done — see the DB bullet above.)*
+**Not yet built:** Phase 5's **labor view** + on-demand grooming assist + kiosk
+polish (soak/failure-surfacing/logging), and the **manual board-grooming UI** (the
+assistant `archive_work_item` / `delete_event` actions exist; the manual UI
+doesn't). *(Phase-4 task 7 — the live local-LLM backend — is now DONE, see the
+assistant bullet above; Alembic migration wiring is done — see the DB bullet.)*
 
 ## Phasing
 
@@ -110,27 +119,36 @@ device (incl. wall display) reflects it live.
 **Exit:** free-text capture/updates yield correct, confirmable suggestions;
 calendar mutations only on confirm.
 
-> **Status:** the fake-first v1 is built as a **two-stage `focus()` → `propose()`
+> **Status:** the assistant is built as a **two-stage `focus()` → `propose()`
 > pipeline over a reusable engine** — see DESIGN §4.1a. `app/routing/` is the
 > domain-agnostic engine (registry/dispatch/`propose_bounded`, generic
 > `ActionContext`); `app/assistant/` is the ntake plugin. **Both stages sit behind
-> config-selected, swappable seams** (one `NTAKE_ASSISTANT` switch): stage 1 is
-> the `CaptureResolver` seam (`base.py`) with `get_capture_resolver()`; stage 2 is
-> `AssistantClient` with `get_assistant()`. The two backends are **parallel
-> packages** — `app/assistant/fake/` (`FakeCaptureResolver` + `FakeAssistant`,
-> built) and `app/assistant/local_llm/` (task 7, not yet built). The toolset is now
-> **13 actions**: `set_due_date`, `complete_work_item`, `start_work_item`,
-> `move_to_on_deck`, `move_to_todo`, `reopen_work_item`, `assign_work_item`
-> (whitelist-validated member), `archive_work_item` (done-only), `add_checklist_items`,
-> `create_event`, `reschedule_event` (modify existing), `create_work_item`,
-> `no_action`, `deconflict_events`. Both prompt views are built
-> (`build_world_view`, `build_tools_view`). Capture is propose-only and always new
-> (`work_item_id`
-> stays `None`); proposals carry a registry-derived `action_summary` + the model's
-> `llm_rationale`. **Remaining (task 7):** the **`LocalLlmCaptureResolver` (stage 1)
-> + `LocalLlmAssistant` (stage 2)** — host-only live model. The real stage-1
-> text→target resolution and stage-2 reasoning drop into the seams above with no
-> architecture change.
+> config-selected, swappable seams**: stage 1 is the `CaptureResolver` seam
+> (`base.py`) with `get_capture_resolver(config)`; stage 2 is `AssistantClient`
+> with `get_assistant(config)`. The backend is chosen by an in-code
+> **`AssistantConfig`** (`kind` = `fake` | `off` | `local`), NOT an env var — the
+> committed default is `fake`; `make ui-live` flips to `local` via an opt-in
+> `NTAKE_ASSISTANT_KIND=local` env override read only in `get_assistant_config`
+> (so tests stay on fake). The two backends are **parallel packages** —
+> `app/assistant/fake/` and `app/assistant/local_llm/`, **both built**; the live
+> one (`LocalLlmCaptureResolver` + `LocalLlmAssistant` over a `LocalLlmClient`) is
+> **verified end-to-end** against llamafile/Llama 3.1 8B on `localhost:8080`. The
+> toolset is now **15 actions**: `set_due_date`, `complete_work_item`,
+> `start_work_item`, `move_to_on_deck`, `move_to_todo`, `reopen_work_item`,
+> `assign_work_item` (whitelist-validated member), `archive_work_item` (done-only),
+> `add_checklist_items`, `create_event` (timing required), `reschedule_event`,
+> `delete_event`, `create_work_item`, `no_action`, `deconflict_events`. LINK
+> resolves `{work_item_ids, event_ids, member_ids}` (all family-whitelisted);
+> `deep_context` folds each linked member's workload footprint in. Both prompt
+> views are built (`build_world_view`, `build_tools_view`). Capture is propose-only
+> and always new; proposals carry a registry `action_summary` (member ids →
+> names) + `llm_rationale` + per-action `ActionSpec.render_card` detail lines.
+> **Dev debug UI (kept):** a local-only `/capture` branch returns a `debug` block
+> (both prompts, raw model replies, resolved ids) via
+> `app/assistant/debug_capture.py` (a `RecordingLLM` wrapping the real client),
+> rendered as a collapsible panel; `make ui-live` is the one-command bring-up.
+> **Remaining is tuning, not build:** prompt/behavior tuning against the live 8B
+> (date arithmetic, over-/under-linking) + operator host deploy.
 
 ### Phase 5 — labor view, grooming assist, hardening
 - **Labor view** (on demand): assistant reads the raw update log by author over

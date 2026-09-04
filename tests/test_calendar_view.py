@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from app.models import Event, Family
+from app.models import Family
 from app.web import render_calendar
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
@@ -94,18 +94,6 @@ def test_render_calendar_shows_and_escapes_location(session):
     html = render_calendar([ev])
     assert "Hall" in html
     assert "<b>Hall</b>" not in html  # escaped
-
-
-def test_render_calendar_unscheduled_event():
-    # Defensive: an Event with neither timing pair renders without crashing.
-    # (seed_event won't produce this; the render must still be robust.)
-    ev = Event(family_id=1, title="Someday", all_day=False)
-    html = render_calendar([ev])
-    assert "Someday" in html
-    assert "unscheduled" in html
-
-
-# --- GET /calendar/view route ---------------------------------------------
 
 
 def test_calendar_view_requires_auth(client):

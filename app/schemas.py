@@ -112,6 +112,7 @@ class ProposalRead(BaseModel):
     proposal_id: str = ""  # batch-local handle, assigned by the engine seam
     target_ref: str | None = None  # v2 dependency hook; always None in v1
     target_label: str | None = None  # the target item's title, for card context
+    detail_lines: list[str] = []  # verbose, id-resolved card body (per-action)
 
 
 class CaptureResponse(BaseModel):
@@ -120,10 +121,16 @@ class CaptureResponse(BaseModel):
     ``item`` is the existing work item a capture targeted (with its freshly
     appended human note). For a NEW-item capture it is ``None`` — nothing is saved
     until the human confirms a ``create_work_item`` / ``create_event`` proposal
-    (propose-only; bare text no longer auto-creates a work item)."""
+    (propose-only; bare text no longer auto-creates a work item).
+
+    ``debug`` is a DEBUGGING-ONLY trace of the live-LLM pipeline (prompts sent,
+    raw model replies, resolved ids, deep context). Populated only when the local
+    backend is active; ``None`` otherwise. Not committed behavior — a testing aid.
+    """
 
     item: WorkItemRead | None = None
     proposals: list[ProposalRead] = []
+    debug: dict | None = None
 
 
 class ConfirmAction(BaseModel):

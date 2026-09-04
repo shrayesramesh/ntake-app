@@ -42,6 +42,8 @@ def test_tools_view_full_render_over_the_real_registry():
         "all-day). — params: start_at: datetime?, end_at: datetime?, "
         "start_date: date?, end_date: date?  "
         "(exactly one of: {start_at, end_at} OR {start_date, end_date})\n"
+        "- delete_event: Delete an existing event (e.g. it was cancelled). — "
+        "params: (no params)\n"
         "- create_work_item: Create a new work item (a task/todo). — params: "
         "title: string, description: string?, tags: array<string>?\n"
         "- no_action: Nothing to suggest. — params: (no params)\n"

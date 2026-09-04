@@ -208,7 +208,7 @@ in one round trip.
 #### Two-stage pipeline: focus → propose
 
 Capture is split into **two stages**, each with its own swappable client
-(deterministic fakes in v1; local-model implementations on the host, task 7):
+(deterministic fakes + built local-model implementations, config-selected):
 
 ```
 CaptureRequest {text, timezone, now}          ← raw input from the endpoint
@@ -217,7 +217,8 @@ CaptureRequest {text, timezone, now}          ← raw input from the endpoint
         │                         resolution, param grounding. Seam in base.py;
         │                         v1 impl FakeCaptureResolver in fake/resolver.py.
 FocusedContext {text, timezone, now,
-                resolved_work_item_ids, resolved_event_ids,  ← LINK-resolved ids
+                resolved_work_item_ids, resolved_event_ids,
+                resolved_member_ids,           ← LINK-resolved ids (incl. members)
                 deep_context: str}             ← full records for those ids
         │
         ▼  [ STAGE 2 — AssistantClient.propose() ]  engine-clean: no Session, no
@@ -229,32 +230,37 @@ FocusedContext {text, timezone, now,
 - **Stage 1 = `CaptureResolver.focus()`** turns raw text into the *focused world*
   the action will operate on. It runs the two-call *shape*: a LINK step resolves
   which existing entities the note refers to (their **real ids**, validated to the
-  family) into `resolved_work_item_ids` / `resolved_event_ids`, then a
-  deterministic deep-fetch renders their full records — the target item(s) with
-  full update history + linked/participated events — into the `deep_context`
-  string stage 2 reasons over. Stage 2 needs the real ids to emit an *executable*
-  action; it attaches the target from the resolved ids (`primary_work_item_id` /
-  `primary_event_id`). `CaptureResolver` is app-coupled (its `focus()` takes a
+  family) into `resolved_work_item_ids` / `resolved_event_ids` /
+  `resolved_member_ids`, then a deterministic deep-fetch renders their full
+  records — the target item(s) with full update history + linked/participated
+  events, plus **each linked member's workload footprint** (their assigned items +
+  participated events, so PROPOSE can judge a named person's load) — into the
+  `deep_context` string stage 2 reasons over. Stage 2 needs the real ids to emit
+  an *executable* action; it attaches the target from the resolved ids
+  (`primary_work_item_id` / `primary_event_id`; `primary_member_id` is available
+  for person-attribution). `CaptureResolver` is app-coupled (its `focus()` takes a
   `Session`); the abstract seam lives in `app/assistant/base.py` and the v1
   `FakeCaptureResolver` in `app/assistant/fake/resolver.py`.
 - **Stage 2 = `propose()`** reasons over the `FocusedContext` and emits
   `ProposedAction`s. It is **engine-clean** (no `Session`/ORM/app imports) — the
   reusable piece. Because stage 1 resolved the entities/params, every proposal
   fully defines its operation and is confirmable as-is.
-- **v1 scope:** stage-1 resolution is **deterministic**, not yet an LLM call —
+- **Backends:** stage-1 resolution has two built implementations behind the seam.
   `FakeCaptureResolver` uses a model-free LINK (`fake/link.py`, significant-word
-  title matching) to resolve ids, then the real `deep_context`. The
-  LLM-backed `LocalLlmCaptureResolver` (task 7) swaps in a real LINK call (which also
-  builds `build_world_view` for its prompt) behind the same seam. The fake's LINK
-  is deterministic (title matching), so the fake now resolves existing-item
-  targets too — the note-append / set-due-date paths are reachable in v1, not
-  dormant.
+  title matching) to resolve ids, then the real `deep_context`. The LLM-backed
+  `LocalLlmCaptureResolver` (**built + verified end-to-end** against llamafile/
+  Llama 3.1 8B) swaps in a real LINK call — `build_world_view` → constrained-JSON
+  LINK returning `{work_item_ids, event_ids, member_ids}` → `resolve_ids`
+  (family-whitelist, validate-don't-trust) → `deep_context` — behind the same
+  seam. The fake's LINK is deterministic (title matching), so the fake resolves
+  existing-item targets too — the note-append / set-due-date paths are reachable
+  in v1, not dormant.
 - Both stages sit behind config-selected seams for TDD: a `FakeAssistant`
   (stage 2) reasons over a hand-built `FocusedContext` with zero DB, and the
   `FakeCaptureResolver` (stage 1) produces focused contexts from seeded rows.
   Both are chosen by `NTAKE_ASSISTANT` via `app/assistant/factory.py`
   (`get_assistant()` / `get_capture_resolver()`); the local-LLM implementations
-  (task 7) drop into the same seams behind the same switch.
+  (built) drop into the same seams behind the same switch.
 
 The rest of this section describes the confirm half of the loop.
 
@@ -348,7 +354,8 @@ CaptureRequest {text, timezone, now}
       │  [ STAGE 1 — CaptureResolver.focus() ]  app-coupled: DB lookups, entity
       ▼             resolution, param grounding.  (seam: base.py; v1: fake/resolver.py)
 FocusedContext {text, tz, now, resolved_work_item_ids,
-                resolved_event_ids, deep_context: str}   ← LINK-resolved ids + records
+                resolved_event_ids, resolved_member_ids,
+                deep_context: str}   ← LINK-resolved ids (incl. members) + records
       │  [ STAGE 2 — AssistantClient.propose() ]  engine-clean: no Session/ORM
       ▼
 [ ProposedAction, … ]  executable by construction (real ids + grounded params)
@@ -377,8 +384,8 @@ FocusedContext {text, tz, now, resolved_work_item_ids,
   `get_assistant()` (stage 2), one switch driving both.
 - **Backends (parallel packages):** `app/assistant/fake/` (`FakeCaptureResolver`
   + `FakeAssistant` — dev/tests, deterministic) and `app/assistant/local_llm/`
-  (`LocalLlmCaptureResolver` + `LocalLlmAssistant` — host, task 7; llamafile as the
-  reference runtime, any OpenAI-style localhost endpoint behind the same seam).
+  (`LocalLlmCaptureResolver` + `LocalLlmAssistant` — built + verified; llamafile as
+  the reference runtime, any OpenAI-style localhost endpoint behind the same seam).
   They are mirror images swapped by config.
 - **Engine — `app/routing/engine.py`** (imports NOTHING app-specific: no
   `app.models`, no `sqlalchemy`, no `fastapi`; enforced by a boundary test):
@@ -393,8 +400,8 @@ FocusedContext {text, tz, now, resolved_work_item_ids,
   inspects it; each plugin binds its own (`ActionRegistry[NtakeActionContext]`,
   `AssistantClient[FocusedContext]`). No `Any`.
 - **Plugin — `app/assistant/`**: registers ntake's actions into an engine
-  `ActionRegistry` — a **13-action** v1 set spanning create/modify/status/assign/
-  archive/checklist across work-item, event, and no-target actions (e.g.
+  `ActionRegistry` — a **15-action** v1 set spanning create/modify/status/assign/
+  archive/checklist/delete across work-item, event, and no-target actions (e.g.
   `set_due_date`, `create_event`, `complete_work_item`, the status-lifecycle verbs,
   `assign_work_item`, `reschedule_event`, `archive_work_item`, `add_checklist_items`,
   `deconflict_events`, `no_action`; see `spec/ASSISTANT_ACTIONS.md` for the full

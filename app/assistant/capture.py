@@ -73,6 +73,7 @@ class FocusedContext(ActionContext):
     deep_context: str = ""
     resolved_work_item_ids: list[int] = field(default_factory=list)
     resolved_event_ids: list[int] = field(default_factory=list)
+    resolved_member_ids: list[int] = field(default_factory=list)
 
     @property
     def primary_work_item_id(self) -> int | None:
@@ -84,6 +85,15 @@ class FocusedContext(ActionContext):
     def primary_event_id(self) -> int | None:
         """The event target to attach, or None (first resolved event id)."""
         return self.resolved_event_ids[0] if self.resolved_event_ids else None
+
+    @property
+    def primary_member_id(self) -> int | None:
+        """The member the note is about, or None (first resolved member id).
+
+        Used to attribute an action to a named person (e.g. attach a participant
+        on a created event) — the member-linking counterpart to the work-item/
+        event primaries."""
+        return self.resolved_member_ids[0] if self.resolved_member_ids else None
 
     def render(self) -> str:
         """A readable print of what the assistant is focused on.

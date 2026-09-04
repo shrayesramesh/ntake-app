@@ -171,3 +171,48 @@ def test_capture_never_mutates_across_all_actions(client, session, auth_headers)
     assert session.query(WorkItem).count() == 0
     assert session.query(WorkItemUpdate).count() == 0
     assert session.query(Event).count() == 0
+
+
+def test_to_proposal_read_enriches_assign_summary_with_member_name():
+    """assign_work_item's summary shows the member NAME when a name map is given
+    (the describe fn stays pure/id-based; the endpoint resolves the name)."""
+    from app.routing.engine import ProposedAction
+
+    action = ProposedAction(
+        name="assign_work_item", params={"member_id": 2}, target_type="work_item"
+    )
+    # Without a name map: raw registry summary (id only).
+    plain = main._to_proposal_read(action, 1, None)
+    assert "member 2" in plain.action_summary
+    # With a name map: the member name is appended.
+    enriched = main._to_proposal_read(action, 1, None, {2: "Sam"})
+    assert "Sam" in enriched.action_summary
+
+
+def test_to_proposal_read_no_member_name_map_is_safe():
+    """A non-member action (or unresolvable id) is unaffected by the map."""
+    from app.routing.engine import ProposedAction
+
+    action = ProposedAction(
+        name="complete_work_item", params={}, target_type="work_item"
+    )
+    read = main._to_proposal_read(action, 1, None, {2: "Sam"})
+    assert read.action_summary  # non-empty, no crash
+
+
+def test_to_proposal_read_resolves_target_label_from_labels_map():
+    """target_label is resolved from the per-type labels map using the action's
+    target_type/target_id, and feeds render_card (e.g. 'Event: Dentist')."""
+    from app.routing.engine import ProposedAction
+
+    action = ProposedAction(
+        name="reschedule_event",
+        params={"start_at": "2026-09-10T14:00:00Z"},
+        target_id=1,
+        target_type="event",
+    )
+    read = main._to_proposal_read(
+        action, 1, None, {}, {"event": {1: "Dentist"}, "work_item": {}}
+    )
+    assert read.target_label == "Dentist"
+    assert any("Dentist" in ln for ln in read.detail_lines)

@@ -91,8 +91,8 @@ def test_focus_sends_world_view_and_note_to_the_llm(session, fam_member):
     assert "FAMILY MEMBERS:" in user
     assert "walk the dog" in user
     assert "link" in system.lower()
-    # The constrained-output schema names the two id lists.
-    assert set(schema["properties"]) == {"work_item_ids", "event_ids"}
+    # The constrained-output schema names the three id lists.
+    assert set(schema["properties"]) == {"work_item_ids", "event_ids", "member_ids"}
 
 
 def test_malformed_link_json_degrades_to_no_ids(session, fam_member):

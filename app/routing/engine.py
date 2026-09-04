@@ -88,6 +88,14 @@ type Handler[ContextT: ActionContext] = Callable[[ContextT, dict], str]
 # types); must tolerate missing/partial params (runs on unconfirmed proposals).
 DescribeFn = Callable[[dict], str]
 
+# render_card(params, resolved) -> the card's human-readable detail lines. Pure,
+# like DescribeFn, but also given a ``resolved`` dict the APP pre-populates with
+# session-backed lookups (id->name maps, a target label, timezone) — the engine
+# never inspects it, so id/date resolution stays in the app while each action
+# owns HOW its card reads (cohesion). Must tolerate missing/partial params +
+# resolved (runs on unconfirmed proposals) and never raise.
+RenderCardFn = Callable[[dict, dict], list[str]]
+
 
 class ActionError(Exception):
     """Unknown action, missing/invalid params, or a bad target. Callers catch
@@ -183,6 +191,9 @@ class ActionSpec[ContextT: ActionContext]:
     logs: bool = True  # appends a source=assistant log entry on apply?
     apply: Handler[ContextT] = None  # type: ignore[assignment]
     describe: DescribeFn = None  # type: ignore[assignment]
+    # Optional per-action card renderer (pure): (params, resolved) -> [str] detail
+    # lines. None ⇒ the app falls back to a generic params render. See RenderCardFn.
+    render_card: RenderCardFn | None = None
 
     @property
     def needs_target(self) -> bool:

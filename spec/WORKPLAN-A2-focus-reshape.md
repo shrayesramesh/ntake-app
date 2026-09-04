@@ -44,7 +44,7 @@ producing a `FocusedContext` that carries the **deep context** (the string
   (validates to family, unions the member's footprint, renders full update history)
 - `app/assistant/tools.py` → `build_tools_view(registry) -> str`
 - `app/assistant/prompts.py` → `build_link_prompt(...)`, `build_propose_prompt(...)`
-- `app/assistant/actions.py` → the 13-action `REGISTRY`
+- `app/assistant/actions.py` → the 15-action `REGISTRY`
 - Golden-file snapshots: `tests/expectations/*.txt` (regen: `make update-expectations`)
 
 ## Plan (each step: TDD, `make check` green, its own commit)

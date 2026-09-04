@@ -63,43 +63,53 @@ def _event(session, family_id, title, **kw):
 
 
 def test_parse_ids_extracts_int_lists():
-    wi, ev = parse_ids({"work_item_ids": [1, 2], "event_ids": [8]})
-    assert wi == [1, 2] and ev == [8]
+    wi, ev, mem = parse_ids(
+        {"work_item_ids": [1, 2], "event_ids": [8], "member_ids": [1]}
+    )
+    assert wi == [1, 2] and ev == [8] and mem == [1]
 
 
 def test_parse_ids_tolerates_missing_keys_and_junk():
-    wi, ev = parse_ids({"work_item_ids": [3, "x", None, 4.0], "note": "ignored"})
+    wi, ev, mem = parse_ids({"work_item_ids": [3, "x", None, 4.0], "note": "ignored"})
     assert wi == [3]  # non-ints dropped (4.0 is not an int)
     assert ev == []  # missing key -> empty
+    assert mem == []  # missing member_ids -> empty
 
 
 def test_parse_ids_handles_empty_or_bad_input():
-    assert parse_ids({}) == ([], [])
-    assert parse_ids({"work_item_ids": "nope"}) == ([], [])
+    assert parse_ids({}) == ([], [], [])
+    assert parse_ids({"work_item_ids": "nope"}) == ([], [], [])
 
 
 def test_parse_ids_coerces_prefixed_and_string_tokens():
-    # A small model tends to echo the world-view TOKENS ("w3"/"e8") — the exact
-    # labels it was shown — often as strings, instead of bare ints. Accept those
-    # (and plain numeric strings) by coercing to the int; the id is what matters.
-    wi, ev = parse_ids({"work_item_ids": ["w3", "5"], "event_ids": ["e8", 2]})
+    # A small model tends to echo the world-view TOKENS ("w3"/"e8"/"m1") — the
+    # exact labels it was shown — often as strings, instead of bare ints. Accept
+    # those (and plain numeric strings) by coercing to the int; the id is what
+    # matters.
+    wi, ev, mem = parse_ids(
+        {"work_item_ids": ["w3", "5"], "event_ids": ["e8", 2], "member_ids": ["m1"]}
+    )
     assert wi == [3, 5]
     assert ev == [8, 2]
+    assert mem == [1]
 
 
 def test_parse_ids_coercion_is_case_insensitive_on_the_prefix():
-    wi, ev = parse_ids({"work_item_ids": ["W3"], "event_ids": ["E8"]})
-    assert wi == [3] and ev == [8]
+    wi, ev, mem = parse_ids(
+        {"work_item_ids": ["W3"], "event_ids": ["E8"], "member_ids": ["M1"]}
+    )
+    assert wi == [3] and ev == [8] and mem == [1]
 
 
 def test_parse_ids_rejects_wrong_or_bad_prefix_tokens():
     # An event token under work_item_ids (and vice versa) is NOT accepted — the
     # prefix must match the list. Non-numeric junk after the prefix is dropped.
-    wi, ev = parse_ids(
+    wi, ev, mem = parse_ids(
         {"work_item_ids": ["e1", "wx", "w"], "event_ids": ["w2", "eNaN"]}
     )
     assert wi == []  # "e1" wrong prefix; "wx"/"w" no digits
     assert ev == []  # "w2" wrong prefix; "eNaN" no digits
+    assert mem == []
 
 
 # --- validation: whitelist to the member's family -------------------------
@@ -205,6 +215,20 @@ def test_deep_context_dedups_linked_and_participated_event(session, fam_member):
     assert out.count("Shared game") == 1
 
 
+def test_deep_context_renders_linked_members(session, fam_member):
+    fam, m = fam_member
+    from app.models import Member
+
+    sam = Member(family_id=fam.id, display_name="Sam", role="adult", created_at=NOW)
+    session.add(sam)
+    session.commit()
+    # The note linked Sam (member_ids=[sam.id]); the deep context must surface
+    # Sam so PROPOSE can attribute the action to them.
+    out = deep_context(session, m, [], [], [sam.id])
+    assert "Sam" in out
+    assert f"m{sam.id}" in out
+
+
 def test_deep_context_empty_when_nothing_linked_or_assigned(session, fam_member):
     fam, m = fam_member
     out = deep_context(session, m, [], [])
@@ -230,13 +254,36 @@ def test_resolve_ids_keeps_only_family_ids_preserving_order(session, fam_member)
 
     # Model returned two valid ids (out of order), a foreign id, and an unknown
     # id; only the family's survive, in the given order.
-    wi_ids, ev_ids = resolve_ids(
-        session, m, [b.id, 9999, foreign.id, a.id], [ev.id, 8888]
+    wi_ids, ev_ids, mem_ids = resolve_ids(
+        session, m, [b.id, 9999, foreign.id, a.id], [ev.id, 8888], []
     )
     assert wi_ids == [b.id, a.id]
     assert ev_ids == [ev.id]
+    assert mem_ids == []
+
+
+def test_resolve_ids_whitelists_members_to_family(session, fam_member):
+    fam, m = fam_member
+    from app.models import Family, Member
+
+    sam = Member(family_id=fam.id, display_name="Sam", role="adult", created_at=NOW)
+    session.add(sam)
+    other = Family(name="Other", timezone="UTC")
+    session.add(other)
+    session.commit()
+    stranger = Member(
+        family_id=other.id, display_name="Stranger", role="adult", created_at=NOW
+    )
+    session.add(stranger)
+    session.commit()
+
+    # m (the capturer) + sam are family; stranger is foreign; 7777 unknown.
+    _wi_ids, _ev_ids, mem_ids = resolve_ids(
+        session, m, [], [], [m.id, stranger.id, sam.id, 7777]
+    )
+    assert mem_ids == [m.id, sam.id]  # order preserved, foreign/unknown dropped
 
 
 def test_resolve_ids_empty_in_empty_out(session, fam_member):
     _fam, m = fam_member
-    assert resolve_ids(session, m, [], []) == ([], [])
+    assert resolve_ids(session, m, [], [], []) == ([], [], [])

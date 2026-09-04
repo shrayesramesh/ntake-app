@@ -9,7 +9,7 @@ missing required params raise ActionError (the caller drops the action).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -35,6 +35,7 @@ def test_registry_has_v1_actions():
         "reschedule_event",
         "no_action",
         "deconflict_events",
+        "delete_event",
     }
 
 
@@ -69,6 +70,7 @@ def test_all_actions_are_wellformed():
         "no_action",
         "deconflict_events",
         "reschedule_event",
+        "delete_event",
     }
 
 
@@ -418,3 +420,124 @@ def test_create_event_writes_participants(session, fam_member):
     session.expire_all()
     ev = session.query(Event).filter_by(title="Soccer").one()
     assert ev.participants == [{"member_id": m.id}, {"name": "Coach Lee"}]
+
+
+def test_create_event_requires_a_timing(session, fam_member):
+    """create_event with neither a timed (start_at) nor all-day (start_date)
+    timing is rejected — the confirm path can't persist a timing-less junk row
+    (mirrors the propose-side accepts() contract)."""
+    _fam, m = fam_member
+    with pytest.raises(ActionError):
+        apply_action(
+            session, m, "create_event", None, {"title": "No when"}, target_type="event"
+        )
+
+
+def test_create_event_all_day_persists_dates(session, fam_member):
+    """An all-day create_event must persist start_date/end_date (not leave them
+    None with all_day=True — the "all-day · ?" bug). end_date defaults to start."""
+    fam, m = fam_member
+    apply_action(
+        session,
+        m,
+        "create_event",
+        None,
+        {"title": "Family Day", "start_date": "2026-09-12"},
+        target_type="event",
+    )
+    session.expire_all()
+    ev = session.query(Event).filter_by(title="Family Day").one()
+    assert ev.all_day is True
+    assert ev.start_date == date(2026, 9, 12)
+    assert ev.end_date == date(2026, 9, 12)  # defaults to start
+    assert ev.start_at is None and ev.end_at is None
+
+
+def test_delete_event_removes_the_event(session, fam_member):
+    """delete_event removes the target event; event-only (no work-item update)."""
+    fam, m = fam_member
+    ev = Event(
+        family_id=fam.id,
+        title="Cancelled thing",
+        start_at=datetime(2026, 9, 5, 19, 0, tzinfo=UTC),
+        end_at=datetime(2026, 9, 5, 20, 0, tzinfo=UTC),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    session.add(ev)
+    session.commit()
+    ev_id = ev.id
+
+    summary = apply_action(session, m, "delete_event", ev_id, {}, target_type="event")
+
+    session.expire_all()
+    assert session.get(Event, ev_id) is None
+    assert "Deleted event" in summary
+    assert session.query(WorkItemUpdate).count() == 0  # event-only, no log
+
+
+def test_delete_event_missing_target_raises(session, fam_member):
+    """A delete with no/absent target is an invalid action (ActionError -> 422)."""
+    fam, m = fam_member
+    with pytest.raises(ActionError):
+        apply_action(session, m, "delete_event", 999999, {}, target_type="event")
+
+
+# --- render_card: per-action verbose, id-resolved card detail lines --------
+
+
+def _card(name: str, params: dict, resolved: dict | None = None) -> list[str]:
+    spec = ACTIONS[name]
+    assert spec.render_card is not None, f"{name} has no render_card"
+    return spec.render_card(params, resolved or {})
+
+
+def test_render_card_assign_resolves_member_name():
+    lines = _card("assign_work_item", {"member_id": 2}, {"member_names": {2: "Sam"}})
+    assert any("Sam" in ln for ln in lines)
+    assert not any("member 2" in ln for ln in lines)  # id resolved, not raw
+
+
+def test_render_card_assign_falls_back_to_id_without_map():
+    lines = _card("assign_work_item", {"member_id": 2}, {})
+    assert any("2" in ln for ln in lines)  # no map -> id token, no crash
+
+
+def test_render_card_set_due_date_shows_the_date():
+    lines = _card("set_due_date", {"due_at": "2026-09-10T14:00:00Z"})
+    assert any("2026-09-10" in ln for ln in lines)
+
+
+def test_render_card_reschedule_shows_new_timing_and_target():
+    lines = _card(
+        "reschedule_event",
+        {"start_at": "2026-09-10T14:00:00Z"},
+        {"target_label": "Dentist"},
+    )
+    text = " ".join(lines)
+    assert "2026-09-10" in text
+    assert "Dentist" in text  # the target label (already-resolved) is used
+
+
+def test_render_card_create_event_shows_title_and_when():
+    lines = _card(
+        "create_event",
+        {"title": "Soccer", "start_at": "2026-09-10T14:00:00Z"},
+    )
+    text = " ".join(lines)
+    assert "Soccer" in text and "2026-09-10" in text
+
+
+def test_render_card_tolerates_empty_params():
+    # Runs on unconfirmed proposals — must never raise on missing params.
+    for name in (
+        "assign_work_item",
+        "set_due_date",
+        "reschedule_event",
+        "create_event",
+        "create_work_item",
+        "add_checklist_items",
+    ):
+        spec = ACTIONS[name]
+        if spec.render_card:
+            assert isinstance(spec.render_card({}, {}), list)

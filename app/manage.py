@@ -158,7 +158,25 @@ def seed_sample_events(session: Session) -> list[Event]:
     if family is None:
         raise ValueError("No family found. Seed the family config first (startup).")
 
+    # Idempotent: with a PERSISTENT DB, this runs on every `make ui-live` launch,
+    # so it must NOT keep appending. If the family already has any events, do
+    # nothing (a fresh DB has none, so a first run still seeds the samples).
+    existing = session.scalars(
+        select(Event).where(Event.family_id == family.id).limit(1)
+    ).first()
+    if existing is not None:
+        return []
+
     now = datetime.now(UTC)
+
+    # Members to attach as participants so the calendar + deep context have real
+    # participant data (member_id links, resolved to names in the UI).
+    members = session.scalars(
+        select(Member).where(Member.family_id == family.id).order_by(Member.id)
+    ).all()
+    first = [{"member_id": members[0].id}] if members else []
+    everyone = [{"member_id": m.id} for m in members]
+
     timed = seed_event(
         session,
         family.id,
@@ -167,6 +185,7 @@ def seed_sample_events(session: Session) -> list[Event]:
         end_at=(now.replace(microsecond=0)),
         description="Seeded timed event for manual/display testing.",
         location="Downtown clinic",
+        participants=first,
     )
     all_day = seed_event(
         session,
@@ -174,6 +193,7 @@ def seed_sample_events(session: Session) -> list[Event]:
         title="Sample: school holiday",
         all_day=True,
         start_date=now.date(),
+        participants=everyone,
     )
     return [timed, all_day]
 
@@ -338,10 +358,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(line)
         elif args.command == "seed-events":
             events = seed_sample_events(session)
-            print(f"Seeded {len(events)} sample event(s):")
-            for ev in events:
-                kind = "all-day" if ev.all_day else "timed"
-                print(f"    [{ev.id}] {ev.title} ({kind})")
+            if not events:
+                print("Sample events already present — nothing seeded (idempotent).")
+            else:
+                print(f"Seeded {len(events)} sample event(s):")
+                for ev in events:
+                    kind = "all-day" if ev.all_day else "timed"
+                    print(f"    [{ev.id}] {ev.title} ({kind})")
         elif args.command == "backup":
             out = backup_db(session, _backup_dest(args.dest))
             print(f"Wrote snapshot: {out}")

@@ -60,14 +60,14 @@ class LocalLlmClient:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            # llama.cpp/llamafile shape: the schema sits directly under
-            # response_format.schema (NOT nested in a json_schema object, and no
-            # `strict`/`name` — those are the OpenAI-cloud form that the llama.cpp
-            # server rejects; see ggml-org/llama.cpp#11847, #11988). Verified
-            # against tools/server/README.md.
+            # OpenAI/llamafile canonical form: the schema is nested under
+            # response_format.json_schema.{name, schema}. Verified against this
+            # llamafile build — the FLAT response_format.schema form is silently
+            # IGNORED (the model returns free-form text / {}), which broke the
+            # constrained LINK/PROPOSE output. The nested form constrains output.
             "response_format": {
                 "type": "json_schema",
-                "schema": schema,
+                "json_schema": {"name": "response", "schema": schema},
             },
         }
         try:

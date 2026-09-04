@@ -1,14 +1,18 @@
 # Assistant Actions — the LLM capability registry
 
-> **Status:** BUILT. The v1 toolset was seeded at 6 actions then **expanded to 13**
-> for richer LLM context (status lifecycle, assignment, reschedule, archive,
-> checklist). Current v1 set: `set_due_date`, `complete_work_item`,
-> `start_work_item`, `move_to_on_deck`, `move_to_todo`, `reopen_work_item`,
-> `assign_work_item`, `archive_work_item`, `add_checklist_items`, `create_event`,
-> `reschedule_event`, `create_work_item`, `no_action`, `deconflict_events`. Each
-> row's scope column below is the source of truth for what's built (**v1**) vs.
-> backlog (v2 / deferred). This file remains the registry + scope reference; the
-> live contract lives in `app/assistant/actions.py` (`ActionSpec.params`).
+> **Status:** BUILT (both fake + live local-LLM backends). The v1 toolset was
+> seeded at 6 actions then **expanded to 15** for richer LLM context (status
+> lifecycle, assignment, reschedule, archive, checklist, delete). Current v1 set:
+> `set_due_date`, `complete_work_item`, `start_work_item`, `move_to_on_deck`,
+> `move_to_todo`, `reopen_work_item`, `assign_work_item`, `archive_work_item`,
+> `add_checklist_items`, `create_event`, `reschedule_event`, `delete_event`,
+> `create_work_item`, `no_action`, `deconflict_events`. Each row's scope column
+> below is the source of truth for what's built (**v1**) vs. backlog (v2 /
+> deferred). This file remains the registry + scope reference; the live contract
+> lives in `app/assistant/actions.py` (`ActionSpec.params`). Each spec also carries
+> an optional pure `render_card(params, resolved)` that produces the proposal
+> card's verbose, id-resolved detail lines (the app supplies the `resolved`
+> member-name / target-label maps; the engine stays session-free).
 >
 > **Purpose.** The assistant (Phase 4) is a **planner over a fixed set of
 > actions**. Its entire output is zero or more `{name, params}` objects drawn

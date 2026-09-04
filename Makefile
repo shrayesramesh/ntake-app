@@ -21,7 +21,7 @@ SRC  := app tests
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup test run lint format typecheck check coverage smoke llm-up llm-down llm-status freeze clean update-expectations
+.PHONY: help setup test run lint format typecheck check coverage smoke ui-live llm-up llm-down llm-status freeze clean update-expectations
 
 help: ## Show available targets
 	@echo "Targets:"
@@ -66,6 +66,9 @@ coverage: ## Run tests with coverage report (terminal, shows missing lines)
 smoke: ## Host integration smoke (real server, temp DB, self-cleaning). --serve via script
 	@test -x $(PY) || { echo "No venv found — run 'make setup' first."; exit 1; }
 	$(PY) scripts/integration_smoke_on_host.py
+
+ui-live: ## Live-LLM UI session: real household + persistent DB + local LLM, serves + prints token (needs 'make llm-up' first)
+	bash scripts/live_llm_ui.sh
 
 llm-up: ## Start the local llamafile model server (dev; PID-tracked, waits ready)
 	bash scripts/llm.sh up
