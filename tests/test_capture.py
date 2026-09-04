@@ -14,8 +14,6 @@ Auth-protected. Proposals are returned only to the caller (author's device).
 
 from __future__ import annotations
 
-import pytest
-
 import app.main as main
 from app.assistant.context import AssistantClient
 from app.models import Event, WorkItem, WorkItemUpdate
@@ -173,14 +171,3 @@ def test_capture_never_mutates_across_all_actions(client, session, auth_headers)
     assert session.query(WorkItem).count() == 0
     assert session.query(WorkItemUpdate).count() == 0
     assert session.query(Event).count() == 0
-
-
-# --- resolver -> endpoint seam: DB-resolved context flows through ----------
-
-
-@pytest.mark.skip(
-    reason="FakeAssistant deconflict-proposal behavior is the open Step-4 "
-    "decision (WORKPLAN-A2); calendar_window was retired in the reshape."
-)
-def test_capture_surfaces_calendar_context_from_the_resolver():  # pragma: no cover
-    raise NotImplementedError

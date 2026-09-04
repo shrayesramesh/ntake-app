@@ -1,11 +1,12 @@
 # Next session — Ollama (task 7), the last Phase-4 item
 
-> **Two tracks available next.** (a) **A2 reshape** — a written, ready-to-run plan
-> to reshape `FocusedContext` + wire the fake onto the real `link → deep_fetch →
-> propose` pipeline + retire `EventSummary`: see
-> **`spec/WORKPLAN-A2-focus-reshape.md`** (do this to make the fake exercise the
-> real two-call shape deterministically before Ollama). (b) **Ollama task 7** —
-> the live-model plumbing below. A2 is the natural pre-req; either can go first.
+> **A2 reshape is DONE** (`spec/WORKPLAN-A2-focus-reshape.md`): `FocusedContext`
+> is reshaped to the two-call target (`resolved_work_item_ids` /
+> `resolved_event_ids` + `deep_context`), the fake runs the real
+> `link → deep_fetch → propose` shape via a deterministic `fake_link`, and
+> `EventSummary` / `calendar_window` are retired. **Next: Ollama task 7** — the
+> live-model plumbing below (swap a real LINK/PROPOSE client behind the same two
+> seams; the fake proves the shape deterministically already).
 >
 > Handoff for resuming Phase 4. The **fake-first assistant is complete** and both
 > capture stages sit behind swappable, config-selected seams. Both **prompt views
@@ -53,10 +54,12 @@
   composites (`fam_member`, `fam_member_item`, `populated_family` — real seeded
   content → real `build_world_view`). Use these, not per-file seed helpers. The
   new actions have confirm-endpoint integration tests in `test_confirm.py`.
-- **Capture** is propose-only and always new (`work_item_id=None` in v1). Each
+- **Capture** is propose-only (never auto-applies). Stage 1 now *does* resolve a
+  target from the text — a deterministic `fake_link` (title matching) in v1, a
+  real LINK call under Ollama — so existing-item proposals are reachable. Each
   proposal carries a registry-derived `action_summary` (ground truth) +
   `llm_rationale` (the model's account — the fake passes the focused context
-  through via `render_focus`).
+  through via `render_focus`, which prints the resolved ids).
 - **Events:** `seed_event` + fixtures + `python -m app.manage seed-events`; skinny
   calendar render (`render_calendar` + `GET /calendar/view`), live via SSE.
 
@@ -95,14 +98,13 @@
   discussed, **parked**. The registry one is entangled with the actions-vs-tools
   boundary (the "AVAILABLE TOOLS:" header is LLM-vocab that shouldn't live on the
   domain-agnostic engine) — revisit only if it clearly pays off.
-- **`EventSummary` / `FocusedContext.calendar_window` cleanup.** These are
-  fake-path legacy: `EventSummary` is only used by `FakeCaptureResolver` +
-  `FakeAssistant`'s deconflict logic. The real two-call pipeline
-  (`build_world_view` + `resolve.py`) renders events to text and does NOT route
-  through `EventSummary`. Once Ollama lands, either **drop `EventSummary`** or
-  **refactor the FakeAssistant** off it (and slim `FocusedContext`). Don't extend
-  `EventSummary` with new fields (e.g. participants) in the meantime — it's
-  duplicative.
+- **`EventSummary` / `FocusedContext.calendar_window` cleanup — DONE (A2).**
+  Retired in the WORKPLAN-A2 reshape: `EventSummary` and `calendar_window` are
+  gone; `FocusedContext` now carries `resolved_work_item_ids` /
+  `resolved_event_ids` + `deep_context`, and the fake runs the real two-call
+  shape (`fake_link → deep_context → propose`). The fake's placeholder
+  deconflict proposal was intentionally dropped (the two-call design demonstrates
+  context-flow instead); the `deconflict_events` action itself is unchanged.
 - **Checklist check/uncheck/remove/reorder** — deferred; they need by-name/by-id
   addressing + checklist items surfaced in context. Only `add_checklist_items` is
   built.

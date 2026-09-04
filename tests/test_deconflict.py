@@ -3,11 +3,9 @@
 The ``deconflict_events`` action itself (move an overlapping event to the next
 day) is unaffected by the WORKPLAN-A2 reshape and is still fully tested here.
 
-The FakeAssistant no longer *proposes* deconflict from a ``calendar_window`` (that
-context field was retired in the reshape). Whether the fake should re-derive and
-propose deconflict at all is the open Step-4 decision (see
-``spec/WORKPLAN-A2-focus-reshape.md``); the fake-proposal + end-to-end tests are
-skipped until that decision lands.
+The FakeAssistant no longer *proposes* deconflict: the ``calendar_window`` context
+field it read was retired in the reshape, and re-deriving conflicts in the fake
+was intentionally dropped (WORKPLAN-A2 Step 4). The action itself is unaffected.
 """
 
 from __future__ import annotations
@@ -86,21 +84,3 @@ def test_deconflict_missing_event_raises(session, fam_member):
             params={},
             target_type="event",
         )
-
-
-# --- FakeAssistant proposes deconflict: PENDING Step-4 decision ------------
-
-pytestmark_note = (
-    "FakeAssistant deconflict-proposal behavior is the open Step-4 decision "
-    "(WORKPLAN-A2); calendar_window was retired in the reshape."
-)
-
-
-@pytest.mark.skip(reason=pytestmark_note)
-def test_fake_proposes_deconflict_when_two_events_overlap():  # pragma: no cover
-    raise NotImplementedError
-
-
-@pytest.mark.skip(reason=pytestmark_note)
-def test_end_to_end_deconflict():  # pragma: no cover
-    raise NotImplementedError

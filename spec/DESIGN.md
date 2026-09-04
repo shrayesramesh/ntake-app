@@ -217,9 +217,8 @@ CaptureRequest {text, timezone, now}          ← raw input from the endpoint
         │                         resolution, param grounding. Seam in base.py;
         │                         v1 impl FakeCaptureResolver in fake/resolver.py.
 FocusedContext {text, timezone, now,
-                work_item_id,                  ← the resolved target (None in v1)
-                item_log: [str],               ← the target item's recent updates
-                calendar_window: [EventSummary]}  ← nearby events, WITH ids
+                resolved_work_item_ids, resolved_event_ids,  ← LINK-resolved ids
+                deep_context: str}             ← full records for those ids
         │
         ▼  [ STAGE 2 — AssistantClient.propose() ]  engine-clean: no Session, no
         │                         ORM. Pure reasoning over the focused context.
@@ -228,26 +227,28 @@ FocusedContext {text, timezone, now,
 ```
 
 - **Stage 1 = `CaptureResolver.focus()`** turns raw text into the *focused world*
-  the action will operate on: it queries the DB and resolves the relevant
-  **entities (with real ids)** and grounds temporal params (e.g. "friday 3pm" → a
-  concrete UTC datetime). This is why `calendar_window` is a typed `EventSummary`
-  list carrying **ids**, not prose — stage 2 needs real ids to emit an *executable*
-  action (`deconflict_events` targeting `event_id=8`). `CaptureResolver` is
-  app-coupled (its `focus()` takes a `Session`); the abstract seam lives in
-  `app/assistant/base.py` and the v1 `FakeCaptureResolver` in
-  `app/assistant/fake/resolver.py`.
+  the action will operate on. It runs the two-call *shape*: a LINK step resolves
+  which existing entities the note refers to (their **real ids**, validated to the
+  family) into `resolved_work_item_ids` / `resolved_event_ids`, then a
+  deterministic deep-fetch renders their full records — the target item(s) with
+  full update history + linked/participated events — into the `deep_context`
+  string stage 2 reasons over. Stage 2 needs the real ids to emit an *executable*
+  action; it attaches the target from the resolved ids (`primary_work_item_id` /
+  `primary_event_id`). `CaptureResolver` is app-coupled (its `focus()` takes a
+  `Session`); the abstract seam lives in `app/assistant/base.py` and the v1
+  `FakeCaptureResolver` in `app/assistant/fake/resolver.py`.
 - **Stage 2 = `propose()`** reasons over the `FocusedContext` and emits
   `ProposedAction`s. It is **engine-clean** (no `Session`/ORM/app imports) — the
   reusable piece. Because stage 1 resolved the entities/params, every proposal
   fully defines its operation and is confirmable as-is.
 - **v1 scope:** stage-1 resolution is **deterministic**, not yet an LLM call —
-  `FakeCaptureResolver` populates `calendar_window` from events but does **not**
-  resolve a target work item from free text, so `work_item_id` is always `None`
-  and every capture is a *new* capture. The second **LLM** call (stage 1 as a
-  query-planner that reads the text to decide what to fetch / which item to
-  target) is the `OllamaCaptureResolver` (task 7) that slots into the same
-  `CaptureResolver` seam with no change to stage 2. Until then the existing-item
-  note-append path (below) is dormant.
+  `FakeCaptureResolver` uses a model-free LINK (`fake/link.py`, significant-word
+  title matching) to resolve ids, then the real `resolve.deep_context`. The
+  LLM-backed `OllamaCaptureResolver` (task 7) swaps in a real LINK call (which also
+  builds `build_world_view` for its prompt) behind the same seam. The fake's LINK
+  is deterministic (title matching), so the fake now resolves existing-item
+  targets too — the note-append / set-due-date paths are reachable in v1, not
+  dormant.
 - Both stages sit behind config-selected seams for TDD: a `FakeAssistant`
   (stage 2) reasons over a hand-built `FocusedContext` with zero DB, and the
   `FakeCaptureResolver` (stage 1) produces focused contexts from seeded rows.

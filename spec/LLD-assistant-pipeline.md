@@ -87,8 +87,11 @@ return    FocusedContext(request, records)                             # focus()
   type). The model never emits ids; ids live in `FocusedContext` solely so the
   server can attach executable targets without a lookup.
 - **One `Target` representation** `(type: str, id: int | None)` end-to-end
-  (`ProposedAction`, `ExecutionContext`). Kills the pre-agnostic
-  `FocusedContext.work_item_id`.
+  (`ProposedAction`, `ExecutionContext`). The pre-agnostic single
+  `FocusedContext.work_item_id` is retired (A2 reshape): `FocusedContext` now
+  carries `resolved_work_item_ids` / `resolved_event_ids`, and `attach` reads the
+  `primary_work_item_id` / `primary_event_id` accessors (first resolved id, ≤1 per
+  type in v1).
 - **Two engine markers, split by lifecycle:** `ReasoningContext` (read-only,
   no session; bound for the propose seam → `FocusedContext`) vs `ExecutionContext`
   (write; session/member/target; bound for the dispatch seam → today's
