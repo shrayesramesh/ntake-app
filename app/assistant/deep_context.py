@@ -42,18 +42,50 @@ def parse_ids(link_json: dict) -> tuple[list[int], list[int]]:
     """Parse the LINK call's JSON into (work_item_ids, event_ids).
 
     Tolerant of untrusted model output: missing keys → empty; non-list values →
-    empty; non-int entries (strings, floats, None) are dropped. ``bool`` is
-    excluded even though it subclasses ``int``.
+    empty. Each entry is coerced to the entity's **integer** id — the type the
+    whole chain wants (``resolve_ids`` → ``FocusedContext.resolved_*_ids`` →
+    ``ProposedAction.target_id`` → ``session.get(Model, id)``). A small model
+    tends to echo the world-view TOKENS it was shown (``w3``/``e8``), often as
+    strings, rather than bare ints, so we accept an int, a numeric string, or the
+    matching-prefix token (``w`` for work items, ``e`` for events,
+    case-insensitive); anything else (wrong prefix, non-numeric, ``bool``,
+    ``float``, ``None``) is dropped.
     """
-    return _int_list(link_json.get("work_item_ids")), _int_list(
-        link_json.get("event_ids")
+    return (
+        _coerce_ids(link_json.get("work_item_ids"), "w"),
+        _coerce_ids(link_json.get("event_ids"), "e"),
     )
 
 
-def _int_list(value: object) -> list[int]:
+def _coerce_ids(value: object, prefix: str) -> list[int]:
+    """Coerce a list of untrusted id tokens to ints for one entity kind.
+
+    Accepts: a bare ``int`` (not ``bool``); a numeric string (``"5"``); or the
+    kind's token ``<prefix><digits>`` (``"e8"``, case-insensitive). Drops
+    everything else (wrong prefix, non-numeric, floats, None).
+    """
     if not isinstance(value, list):
         return []
-    return [x for x in value if isinstance(x, int) and not isinstance(x, bool)]
+    out: list[int] = []
+    for x in value:
+        coerced = _coerce_one(x, prefix)
+        if coerced is not None:
+            out.append(coerced)
+    return out
+
+
+def _coerce_one(x: object, prefix: str) -> int | None:
+    if isinstance(x, bool):  # bool subclasses int — never an id
+        return None
+    if isinstance(x, int):
+        return x
+    if isinstance(x, str):
+        token = x.strip()
+        # Strip one leading matching-prefix letter (w3/e8), case-insensitive.
+        if token[:1].lower() == prefix:
+            token = token[1:]
+        return int(token) if token.isdigit() else None
+    return None
 
 
 def resolve_ids(

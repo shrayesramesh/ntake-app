@@ -78,6 +78,30 @@ def test_parse_ids_handles_empty_or_bad_input():
     assert parse_ids({"work_item_ids": "nope"}) == ([], [])
 
 
+def test_parse_ids_coerces_prefixed_and_string_tokens():
+    # A small model tends to echo the world-view TOKENS ("w3"/"e8") — the exact
+    # labels it was shown — often as strings, instead of bare ints. Accept those
+    # (and plain numeric strings) by coercing to the int; the id is what matters.
+    wi, ev = parse_ids({"work_item_ids": ["w3", "5"], "event_ids": ["e8", 2]})
+    assert wi == [3, 5]
+    assert ev == [8, 2]
+
+
+def test_parse_ids_coercion_is_case_insensitive_on_the_prefix():
+    wi, ev = parse_ids({"work_item_ids": ["W3"], "event_ids": ["E8"]})
+    assert wi == [3] and ev == [8]
+
+
+def test_parse_ids_rejects_wrong_or_bad_prefix_tokens():
+    # An event token under work_item_ids (and vice versa) is NOT accepted — the
+    # prefix must match the list. Non-numeric junk after the prefix is dropped.
+    wi, ev = parse_ids(
+        {"work_item_ids": ["e1", "wx", "w"], "event_ids": ["w2", "eNaN"]}
+    )
+    assert wi == []  # "e1" wrong prefix; "wx"/"w" no digits
+    assert ev == []  # "w2" wrong prefix; "eNaN" no digits
+
+
 # --- validation: whitelist to the member's family -------------------------
 
 

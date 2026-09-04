@@ -120,6 +120,81 @@ NOTES = [
 ]
 
 
+def _run_debug(base_url: str, model: str) -> int:
+    """Run the two-call pipeline IN-PROCESS with a recording LLM, printing the
+    raw LINK and PROPOSE JSON so we can see WHERE a target goes to None:
+    did the LINK model return the id, or did resolve_ids drop it?"""
+    from app.assistant.capture import CaptureRequest
+    from app.assistant.local_llm.client import LocalLlmClient
+    from app.assistant.local_llm.protocol import LLM
+    from app.assistant.local_llm.resolver import LocalLlmCaptureResolver
+
+    class RecordingLLM:
+        """Wraps a real LLM and prints each call's user prompt + parsed reply."""
+
+        def __init__(self, inner: LLM) -> None:
+            self._inner = inner
+            self.tag = "?"
+
+        def complete(self, system: str, user: str, schema: dict) -> dict:
+            out = self._inner.complete(system=system, user=user, schema=schema)
+            print(f"    [{self.tag} CALL] user prompt (tail):")
+            print("      " + "\n      ".join(user.strip().splitlines()[-12:]))
+            print(f"    [{self.tag} CALL] parsed reply: {json.dumps(out)}")
+            return out
+
+    client = LocalLlmClient(base_url=base_url, model=model, timeout=180.0)
+    rec = RecordingLLM(client)
+
+    # Seed a real DB (same schema path) via the app engine bound to our temp DB.
+    from app.db import init_schema
+
+    init_schema(engine)
+    _token, fam_id = _seed()
+
+    from app.assistant.local_llm.assistant import LocalLlmAssistant
+    from app.models import Member
+
+    resolver = LocalLlmCaptureResolver(rec)
+    assistant = LocalLlmAssistant(rec)
+
+    print(f"\nDEBUG in-process — model {model} @ {base_url}\n")
+    s = SessionLocal()
+    try:
+        member = s.query(Member).filter_by(family_id=fam_id).first()
+        for note in NOTES:
+            print(f'NOTE: "{note}"')
+            req = CaptureRequest(
+                text=note, timezone="America/New_York", now=datetime.now(UTC)
+            )
+            rec.tag = "LINK"
+            ctx = resolver.focus(req, s, member)
+            print(
+                f"    resolved ids: work_items={ctx.resolved_work_item_ids} "
+                f"events={ctx.resolved_event_ids}"
+            )
+            rec.tag = "PROPOSE"
+            proposals = assistant.propose(ctx)
+            for p in proposals:
+                tgt = (
+                    f" [target {p.target_type}#{p.target_id}]"
+                    if p.target_type
+                    else ""
+                )
+                print(f"    → {p.name}({json.dumps(p.params)}){tgt}")
+            print()
+        return 0
+    finally:
+        s.close()
+        try:
+            engine.dispose()
+        except Exception:  # noqa: BLE001
+            pass
+        import shutil
+
+        shutil.rmtree(_TMP, ignore_errors=True)
+
+
 def main_(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Live local-LLM smoke.")
     parser.add_argument(
@@ -132,7 +207,16 @@ def main_(argv: list[str] | None = None) -> int:
         default="./llama-3.1-8b-instruct.Q8_0.gguf",
         help="served model id (see curl localhost:8080/v1/models)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="run the pipeline IN-PROCESS and print raw LINK/PROPOSE LLM I/O "
+        "(to trace why a target resolves to None)",
+    )
     args = parser.parse_args(argv)
+
+    if args.debug:
+        return _run_debug(args.base_url, args.model)
 
     # Point the app's assistant at the live model (config-in-code): override the
     # dependency the capture endpoint reads.
