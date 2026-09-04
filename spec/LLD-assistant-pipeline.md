@@ -216,10 +216,14 @@ class ActionSpec[ContextT: ActionContext]:
     description: str = ""                                # human sentence for the model
     params: list[Param] = field(default_factory=list)
     exclusive_params: list[list[str]] = field(default_factory=list)  # groups; supply exactly one group (param names)
-    needs_target: bool = True
+    target_type: str | None = None      # "work_item" | "event" | None; opaque str to the engine, app supplies the TargetType StrEnum (data model). Default None = targets nothing (safe/inert).
     logs: bool = True
     apply: Handler[ContextT] = None       # type: ignore[assignment]
     describe: DescribeFn = None            # type: ignore[assignment]
+
+    @property
+    def needs_target(self) -> bool:        # derived — target_type is the single source
+        return self.target_type is not None
 
     @property
     def required(self) -> list[str]:       # derived — single source is params

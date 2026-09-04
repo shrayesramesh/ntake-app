@@ -170,10 +170,25 @@ class ActionSpec[ContextT: ActionContext]:
     description: str = ""
     params: list[Param] = field(default_factory=list)
     exclusive_params: list[list[str]] = field(default_factory=list)
-    needs_target: bool = True  # operates on an existing entity?
+    # What kind of existing entity this action operates on, as an opaque string
+    # ("work_item" | "event") or None (a creator / meta action that targets
+    # nothing). Defaults to None — the safe/inert, domain-neutral default: an
+    # action targets nothing unless it opts in, so a forgotten declaration
+    # mis-attaches no target (rather than silently defaulting to a work item). The
+    # engine treats the value as opaque (it never inspects it); the app supplies
+    # the domain ``TargetType`` str-enum, whose members ARE these strings. Single
+    # source for the target category — both assistants read it to attach a
+    # proposal's target. ``needs_target`` is derived from it.
+    target_type: str | None = None
     logs: bool = True  # appends a source=assistant log entry on apply?
     apply: Handler[ContextT] = None  # type: ignore[assignment]
     describe: DescribeFn = None  # type: ignore[assignment]
+
+    @property
+    def needs_target(self) -> bool:
+        """Whether this action operates on an existing entity — derived;
+        ``target_type`` is the single source (None ⇒ targets nothing)."""
+        return self.target_type is not None
 
     @property
     def required(self) -> list[str]:

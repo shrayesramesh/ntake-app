@@ -135,9 +135,12 @@ Each step is its own sub-checkpoint; run `make check` and paste output.
    `[ProposedAction]`. The model emits id-free `{name, params}`; attach is
    type-based (≤1 per type): `needs_target` → primary work-item id, except the
    event-target actions → primary event id. Tested with a hand-built deep
-   `FocusedContext` + `ScriptedLLM` (no link/DB). *(Fast-follow: the event-vs-work
-   target category is being lifted onto `ActionSpec.target_type` so the assistant
-   reads it instead of a local set — see the refactor commit.)*
+   `FocusedContext` + `ScriptedLLM` (no link/DB). *(Fast-follow DONE: the
+   event-vs-work target category now lives on `ActionSpec.target_type` — a
+   `TargetType` StrEnum in the data model — with `needs_target` derived from it;
+   both assistants read the spec instead of a local set. Engine default is `None`
+   (safe/inert); `create_event` is now a `None`-target creator — the confirm path
+   still attaches a work_item target for create-from-item via the payload.)*
 5. **link — call 1 (`resolver.py`, `LocalLlmCaptureResolver`).**
    `build_world_view` + note → LINK call → `parse_ids` (exists) → `deep_context`
    (exists) → `FocusedContext`. Test with `ScriptedLLM`.

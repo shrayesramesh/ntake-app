@@ -384,7 +384,8 @@ FocusedContext {text, tz, now, resolved_work_item_ids,
   `app.models`, no `sqlalchemy`, no `fastapi`; enforced by a boundary test):
   `ProposedAction`, `AssistantClient`/`NullAssistant` (the propose contract);
   `ActionRegistry`/`ActionSpec` (register name → `{required, describe, handler,
-  needs_target, logs}`; `dispatch(name, params, context)` validates + calls the
+  target_type, logs}`, with `needs_target` derived from `target_type`;
+  `dispatch(name, params, context)` validates + calls the
   handler; `describe(name, params)` derives the ground-truth `action_summary`);
   `ActionError`, `require_params`, `propose_bounded` (bounded-timeout +
   graceful-degrade). The opaque context is a **bounded type parameter**

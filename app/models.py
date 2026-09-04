@@ -15,6 +15,7 @@ the LLM reading the todo update log, not via event columns.
 from __future__ import annotations
 
 from datetime import date, datetime
+from enum import StrEnum
 
 from sqlalchemy import JSON, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
@@ -26,6 +27,25 @@ from app.db import Base
 # the UI labels (web) all derive from this — no drift. Display labels are a
 # UI-layer concern (see app/web.py), keyed off these codes.
 WORK_ITEM_STATUSES: tuple[str, ...] = ("todo", "on_deck", "doing", "done")
+
+
+class TargetType(StrEnum):
+    """The kinds of existing entity an assistant action can target.
+
+    Lives in the data model because it names concrete domain entities (the
+    modifiable tables) — the domain-agnostic engine must not know these, so the
+    engine keeps ``target_type`` as an opaque ``str | None`` and the app supplies
+    these members. A ``StrEnum`` so its members ARE their wire strings
+    (``"work_item"`` / ``"event"``): they serialize as those strings over the API
+    and compare equal to the bare literals (so existing JSON payloads and
+    ``== "work_item"`` checks keep working) while giving the specs + the
+    assistants' attach step a real, enumerated, mypy-checkable type. ``None`` (a
+    creator / meta action that targets nothing) is not a member — it stays
+    ``None``.
+    """
+
+    WORK_ITEM = "work_item"
+    EVENT = "event"
 
 
 class Family(Base):

@@ -8,10 +8,10 @@ naming a registered action, and attach the server-known target from the resolved
 ids in the ``FocusedContext``.
 
 The model emits **id-free** ``{name, params}``; ids never come from the model. The
-target is attached here (LLD OQ-4, v1): type-based, ≤1 resolved entity per type —
-a ``needs_target`` action gets the context's primary work-item id, except the
-event-targeting actions, which get the primary event id. Creators / ``no_action``
-(``needs_target=False``) get no target.
+target is attached here (LLD OQ-4, v1): type-based, ≤1 resolved entity per type,
+driven by the action's declared ``ActionSpec.target_type`` (the single source both
+assistants read) — ``"work_item"`` → the primary work-item id, ``"event"`` → the
+primary event id, ``None`` (a creator / ``no_action``) → no target.
 
 Depends on the ``LLM`` protocol, never on httpx. Parse here is deliberately
 lenient (drop what doesn't fit) so a sloppy model degrades to fewer/zero
@@ -26,13 +26,8 @@ from app.assistant.local_llm.protocol import LLM
 from app.assistant.local_llm.tools_schema import build_tools_schema
 from app.assistant.prompts import build_propose_prompt
 from app.assistant.tools_view import build_tools_view
+from app.models import TargetType
 from app.routing.engine import ActionRegistry, AssistantClient
-
-# Actions whose target is an event (not a work item). Everything else that
-# ``needs_target`` targets a work item; ``needs_target=False`` targets nothing.
-# (v1's two event-targeting actions; kept explicit here — the attach seam's small
-# bit of domain knowledge, mirroring what FakeAssistant encodes per-action.)
-_EVENT_TARGET_ACTIONS = frozenset({"reschedule_event", "deconflict_events"})
 
 
 class LocalLlmAssistant(AssistantClient[FocusedContext]):
@@ -59,16 +54,22 @@ class LocalLlmAssistant(AssistantClient[FocusedContext]):
         ]
 
     def _attach(self, call: dict, ctx: FocusedContext) -> ProposedAction:
-        """Turn a validated ``{name, params}`` into a targeted ProposedAction."""
+        """Turn a validated ``{name, params}`` into a targeted ProposedAction.
+
+        The target category comes from the action's declared
+        ``ActionSpec.target_type`` (single source): ``"work_item"`` → the primary
+        resolved work-item id, ``"event"`` → the primary resolved event id,
+        ``None`` (a creator / no_action) → no target. Ids come from the context,
+        never the model.
+        """
         name = call["name"]
         spec = self._registry.get(name)
+        target_type = spec.target_type if spec is not None else None
         target_id: int | None = None
-        target_type: str | None = None
-        if spec is not None and spec.needs_target:
-            if name in _EVENT_TARGET_ACTIONS:
-                target_id, target_type = ctx.primary_event_id, "event"
-            else:
-                target_id, target_type = ctx.primary_work_item_id, "work_item"
+        if target_type == TargetType.WORK_ITEM:
+            target_id = ctx.primary_work_item_id
+        elif target_type == TargetType.EVENT:
+            target_id = ctx.primary_event_id
         return ProposedAction(
             name=name,
             params=call["params"],

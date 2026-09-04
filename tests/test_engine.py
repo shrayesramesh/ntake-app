@@ -67,7 +67,7 @@ def _registry() -> ActionRegistry:
             ),
             ActionSpec(
                 name="noop",
-                needs_target=False,
+                target_type=None,
                 logs=False,
                 apply=lambda c, p: "ok",
                 describe=lambda p: "Do nothing",

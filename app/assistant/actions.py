@@ -24,7 +24,14 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import ChecklistItem, Event, Member, WorkItem, WorkItemUpdate
+from app.models import (
+    ChecklistItem,
+    Event,
+    Member,
+    TargetType,
+    WorkItem,
+    WorkItemUpdate,
+)
 
 # Engine (domain-agnostic) — the plugin builds on these.
 from app.routing.engine import (
@@ -407,36 +414,42 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         name="set_due_date",
         description="Set a work item's due date.",
         params=[Param("due_at", DataType.DATETIME, required=True)],
+        target_type=TargetType.WORK_ITEM,
         apply=_apply_set_due_date,
         describe=_describe_set_due_date,
     ),
     "complete_work_item": ActionSpec(
         name="complete_work_item",
         description="Mark a work item done.",
+        target_type=TargetType.WORK_ITEM,
         apply=_apply_complete,
         describe=_describe_complete,
     ),
     "start_work_item": ActionSpec(
         name="start_work_item",
         description="Start work on an item (move it to Doing).",
+        target_type=TargetType.WORK_ITEM,
         apply=_apply_start,
         describe=_describe_start,
     ),
     "move_to_on_deck": ActionSpec(
         name="move_to_on_deck",
         description="Move a work item to On deck (queued up next).",
+        target_type=TargetType.WORK_ITEM,
         apply=_apply_move_to_on_deck,
         describe=_describe_move_to_on_deck,
     ),
     "move_to_todo": ActionSpec(
         name="move_to_todo",
         description="Move a work item back to Todo.",
+        target_type=TargetType.WORK_ITEM,
         apply=_apply_move_to_todo,
         describe=_describe_move_to_todo,
     ),
     "reopen_work_item": ActionSpec(
         name="reopen_work_item",
         description="Reopen a completed item (back to Todo; clears completion).",
+        target_type=TargetType.WORK_ITEM,
         apply=_apply_reopen,
         describe=_describe_reopen,
     ),
@@ -444,12 +457,14 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         name="assign_work_item",
         description="Assign a work item to a family member.",
         params=[Param("member_id", DataType.INTEGER, required=True)],
+        target_type=TargetType.WORK_ITEM,
         apply=_apply_assign,
         describe=_describe_assign,
     ),
     "archive_work_item": ActionSpec(
         name="archive_work_item",
         description="Archive a work item (only a done item may be archived).",
+        target_type=TargetType.WORK_ITEM,
         apply=_apply_archive_work_item,
         describe=_describe_archive,
     ),
@@ -457,6 +472,7 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         name="add_checklist_items",
         description="Add checklist items (e.g. a grocery list) to a work item.",
         params=[Param("items", DataType.ARRAY_STRING, required=True)],
+        target_type=TargetType.WORK_ITEM,
         apply=_apply_add_checklist_items,
         describe=_describe_add_checklist_items,
     ),
@@ -474,6 +490,10 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
             Param("participants", DataType.OBJECT),
         ],
         exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
+        # A creator: targets nothing by default. (Confirm may still attach a
+        # work_item target for a create-from-item, set on the proposal/payload —
+        # not a spec default.)
+        target_type=None,
         apply=_apply_create_event,
         describe=_describe_create_event,
     ),
@@ -488,7 +508,7 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         ],
         exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
         # Targets an existing event; event-only so it appends NO work-item update.
-        needs_target=True,
+        target_type=TargetType.EVENT,
         logs=False,
         apply=_apply_reschedule_event,
         describe=_describe_reschedule_event,
@@ -501,14 +521,14 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
             Param("description", DataType.STRING),
             Param("tags", DataType.ARRAY_STRING),
         ],
-        needs_target=False,
+        target_type=None,
         apply=_apply_create_work_item,
         describe=_describe_create_work_item,
     ),
     "no_action": ActionSpec(
         name="no_action",
         description="Nothing to suggest.",
-        needs_target=False,
+        target_type=None,
         logs=False,
         apply=_apply_no_action,
         describe=_describe_no_action,
@@ -517,7 +537,7 @@ ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         name="deconflict_events",
         description="Move an event to the next day to resolve a same-time conflict.",
         # Targets an existing event; event-only so it appends NO work-item update.
-        needs_target=True,
+        target_type=TargetType.EVENT,
         logs=False,
         apply=_apply_deconflict_events,
         describe=_describe_deconflict,
