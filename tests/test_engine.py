@@ -116,6 +116,45 @@ def test_spec_execute_raises_on_missing_required_param():
         spec.execute({}, context={})
 
 
+def test_accepts_checks_required_params():
+    spec = ActionSpec(
+        name="echo",
+        params=[Param("msg", DataType.STRING, required=True)],
+    )
+    assert spec.accepts({"msg": "hi"}) is True
+    assert spec.accepts({}) is False
+    assert spec.accepts({"msg": ""}) is False  # empty counts as missing
+
+
+def test_accepts_exclusive_groups_need_exactly_one_anchor():
+    # Two mutually-exclusive groups; the group's FIRST param is its anchor. The
+    # rest of a group is optional (matches apply, which defaults a missing end).
+    spec = ActionSpec(
+        name="ev",
+        params=[
+            Param("title", DataType.STRING, required=True),
+            Param("start_at", DataType.DATETIME),
+            Param("end_at", DataType.DATETIME),
+            Param("start_date", DataType.DATE),
+            Param("end_date", DataType.DATE),
+        ],
+        exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
+    )
+    # exactly one anchor → accepted (end optional):
+    assert spec.accepts({"title": "t", "start_at": "x"}) is True
+    assert spec.accepts({"title": "t", "start_date": "d"}) is True
+    # zero anchors → rejected:
+    assert spec.accepts({"title": "t"}) is False
+    # both anchors → rejected:
+    assert spec.accepts({"title": "t", "start_at": "x", "start_date": "d"}) is False
+    # required still enforced even with a valid group:
+    assert spec.accepts({"start_at": "x"}) is False
+
+
+def test_accepts_true_when_no_params_and_no_groups():
+    assert ActionSpec(name="noop").accepts({}) is True
+
+
 def test_describe_uses_the_spec_and_falls_back_to_name():
     reg = _registry()
     assert reg.describe("echo", {"msg": "yo"}) == "Echo yo"

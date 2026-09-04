@@ -150,11 +150,22 @@ Each step is its own sub-checkpoint; run `make check` and paste output.
    *(Added `resolve_ids` to `deep_context.py` — the id-whitelist counterpart to
    the render whitelist; the fake path was safe already since `fake_link` only
    returns real family ids.)*
-6. **Parsing / graceful-degrade hardening.** Malformed JSON, invalid/unknown tool
-   name, missing required params, wrong types, empty/timeout → **degrade to `[]`**,
-   never raise into the request path. The engine's `propose_bounded` already bounds
-   the timeout; the client + parse layer must not raise. Explicit adversarial
-   tests for each failure mode.
+6. **Parsing / graceful-degrade hardening. DONE.** Everything degrades to `[]`,
+   never raises into the request path, at each layer: **client** — a connect/read
+   timeout, a 4xx/5xx, or a non-JSON body is caught → `{}` (transport never
+   raises); **parse** (`_parse_actions`) — non-list actions / non-dict entries /
+   non-string names / non-dict params dropped; **validate** — added
+   `ActionSpec.accepts(params)` (non-raising: required present + exactly one
+   exclusive-group *anchor* — the group's first param, matching apply which
+   defaults a missing end), and `propose` drops unknown actions + calls the spec
+   doesn't accept. Adversarial tests per failure mode
+   (`test_local_llm_hardening.py`) + engine `accepts` unit tests.
+   *(Corrective retry — re-asking the model "that was malformed" — deliberately
+   NOT added: the pipeline is already two sequential calls with a cold-start
+   budget, and the grammar-constrained `response_format.schema` should prevent
+   most malformed output. Deferred to the Track B end-to-end smoke, where the real
+   malformed-rate is observable; if worth it, add as a `RetryingLLM(LLM)` decorator
+   at the seam (config-gated, off by default) so the parse layer stays oblivious.)*
 7. **Wire the `local` branch + config.** Point both factory functions
    (`get_assistant`, `get_capture_resolver`) at the real classes for
    `NTAKE_ASSISTANT=local` (they fall back to fake today). Plumb the config knobs

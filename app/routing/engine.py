@@ -224,6 +224,34 @@ class ActionSpec[ContextT: ActionContext]:
         require_params(params, self.required)
         return self.apply(context, params)
 
+    def accepts(self, params: dict) -> bool:
+        """Whether ``params`` structurally satisfies this action's contract.
+
+        Non-raising counterpart to ``execute``'s validation, for the propose
+        seam's **drop-invalid** graceful-degrade (LLD OQ-5: params validated
+        against ``params``/``exclusive_params`` after emission): every required
+        param must be present and non-empty, and — when ``exclusive_params`` is
+        set — exactly ONE of the mutually-exclusive groups must be selected.
+
+        A group is "selected" by its **anchor** (its first param), matching the
+        apply handlers, which discriminate on the anchor (``start_at`` vs
+        ``start_date``) and treat the rest of the group as optional (a missing
+        ``end_at`` defaults to the start). So this checks the *mode* is
+        unambiguous — exactly one anchor supplied — not that every group key is
+        present. Deep per-value type coercion is left to ``apply``.
+        """
+        if any(params.get(k) in (None, "") for k in self.required):
+            return False
+        if self.exclusive_params:
+            selected = sum(
+                params.get(group[0]) not in (None, "")
+                for group in self.exclusive_params
+                if group
+            )
+            if selected != 1:
+                return False
+        return True
+
 
 def require_params(params: dict, keys: list[str]) -> None:
     """Raise ActionError if any required key is missing/empty."""

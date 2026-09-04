@@ -4,8 +4,9 @@ Stage-2 seam (:class:`AssistantClient`) backed by a real model. It composes the
 already-built pieces — ``build_propose_prompt`` (the prompt) + ``build_tools_schema``
 (the constrained-output schema) — calls the injected :class:`LLM` seam, then turns
 the reply into ``[ProposedAction]``: parse the actions array, keep only calls
-naming a registered action, and attach the server-known target from the resolved
-ids in the ``FocusedContext``.
+that name a registered action **and** whose params satisfy that action's contract
+(``ActionSpec.accepts`` — required present + exactly one exclusive group), and
+attach the server-known target from the resolved ids in the ``FocusedContext``.
 
 The model emits **id-free** ``{name, params}``; ids never come from the model. The
 target is attached here (LLD OQ-4, v1): type-based, ≤1 resolved entity per type,
@@ -47,11 +48,16 @@ class LocalLlmAssistant(AssistantClient[FocusedContext]):
         )
         schema = build_tools_schema(self._registry)
         reply = self._llm.complete(system=system, user=user, schema=schema)
-        return [
-            self._attach(call, ctx)
-            for call in _parse_actions(reply)
-            if self._registry.get(call["name"]) is not None
-        ]
+        proposals: list[ProposedAction] = []
+        for call in _parse_actions(reply):
+            spec = self._registry.get(call["name"])
+            # Drop unknown actions and calls that don't satisfy the spec's param
+            # contract (missing required / wrong exclusive-group) — graceful
+            # degrade to fewer proposals, never a raise (LLD OQ-5).
+            if spec is None or not spec.accepts(call["params"]):
+                continue
+            proposals.append(self._attach(call, ctx))
+        return proposals
 
     def _attach(self, call: dict, ctx: FocusedContext) -> ProposedAction:
         """Turn a validated ``{name, params}`` into a targeted ProposedAction.

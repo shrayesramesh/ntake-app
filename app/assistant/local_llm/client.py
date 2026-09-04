@@ -16,10 +16,11 @@ never on this module.
 This is the only file in the backend that imports ``httpx``; the boundary test in
 ``tests/test_local_llm_protocol.py`` guards that nothing above the seam does.
 
-Error posture (v1, minimal): a junk/unexpected model reply decodes to ``{}`` (the
-parse layer above reads that as "no actions") rather than raising. Full
-adversarial + timeout hardening — the deliberate degrade-to-``[]`` contract — is
-step 6; the engine's ``propose_bounded`` additionally bounds the wall-clock.
+Error posture: a junk/unexpected model reply decodes to ``{}``, and **any**
+transport failure — a connect/read timeout, a 4xx/5xx status, or a non-JSON body
+— is caught and also degrades to ``{}`` (step 6 hardening), so ``complete`` never
+raises into the request path. The engine's ``propose_bounded`` additionally bounds
+the wall-clock as a last-resort outer guard.
 """
 
 from __future__ import annotations
@@ -69,10 +70,19 @@ class LocalLlmClient:
                 "schema": schema,
             },
         }
-        with httpx.Client(timeout=self._timeout, transport=self._transport) as http:
-            response = http.post(self._base_url + _CHAT_COMPLETIONS_PATH, json=payload)
-            response.raise_for_status()
-            data = response.json()
+        try:
+            with httpx.Client(timeout=self._timeout, transport=self._transport) as http:
+                response = http.post(
+                    self._base_url + _CHAT_COMPLETIONS_PATH, json=payload
+                )
+                response.raise_for_status()
+                data = response.json()
+        except (httpx.HTTPError, ValueError):
+            # Any transport/timeout/connect error (httpx.HTTPError covers them),
+            # a 4xx/5xx (HTTPStatusError, a subclass), or a non-JSON body
+            # (response.json() → ValueError) degrades to {} — the request path
+            # never sees a raise. ValueError also covers json.JSONDecodeError.
+            return {}
         return _parse_content(data)
 
 
