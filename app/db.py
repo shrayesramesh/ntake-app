@@ -39,10 +39,11 @@ def build_engine(url: str = DB_URL) -> Engine:
 
     Single place engines are constructed, so the app and tests share one code
     path. ``check_same_thread=False`` is the standard SQLite+SQLAlchemy setting
-    for use across FastAPI request threads. We also enable
-    ``PRAGMA foreign_keys=ON`` per connection (DESIGN §3.1) so the FK actions
-    (CASCADE on work-item children, SET NULL on member/update links) are actually
-    enforced — SQLite ignores them otherwise.
+    for use across FastAPI request threads. The per-connection listener sets
+    ``PRAGMA foreign_keys=ON`` (DESIGN §3.1 — so FK CASCADE/SET NULL are enforced;
+    SQLite ignores them otherwise) plus the crash-safety pragmas
+    ``journal_mode=WAL`` + ``synchronous=NORMAL`` (NFR-DURABILITY): WAL gives a
+    clean rollback on power loss, NORMAL is its safe+fast companion.
     """
     eng = create_engine(
         url,
@@ -52,9 +53,16 @@ def build_engine(url: str = DB_URL) -> Engine:
     if url.startswith("sqlite"):
 
         @event.listens_for(eng, "connect")
-        def _enable_sqlite_fk(dbapi_conn, _record):
+        def _sqlite_pragmas(dbapi_conn, _record):
             cur = dbapi_conn.cursor()
+            # FK actions (CASCADE/SET NULL) — SQLite ignores them otherwise.
             cur.execute("PRAGMA foreign_keys=ON")
+            # Crash-safety (NFR-DURABILITY): WAL gives a clean rollback on power
+            # loss (no corruption); synchronous=NORMAL is the safe+fast pairing
+            # WAL is designed for. WAL is a persistent DB property; setting it per
+            # connect is harmless (idempotent) and covers a fresh file too.
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA synchronous=NORMAL")
             cur.close()
 
     return eng
