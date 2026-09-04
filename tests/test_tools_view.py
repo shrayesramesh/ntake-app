@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from app.assistant.actions import REGISTRY
 from app.assistant.tools_view import build_tools_view
-from app.routing.engine import ActionRegistry, ActionSpec, Param
+from app.routing.engine import ActionRegistry, ActionSpec, DataType, Param
 
 
 def test_tools_view_full_render_over_the_real_registry():
@@ -65,7 +65,7 @@ def test_tools_view_header_and_one_line_per_action():
             ActionSpec(
                 name="a",
                 description="Do A.",
-                params=[Param("x", "string", required=True)],
+                params=[Param("x", DataType.STRING, required=True)],
             ),
             ActionSpec(name="b", description="Do B."),
         ]

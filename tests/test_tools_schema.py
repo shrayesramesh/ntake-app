@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from app.assistant.actions import REGISTRY
 from app.assistant.local_llm.tools_schema import build_tools_schema
-from app.routing.engine import ActionRegistry, ActionSpec, Param
+from app.routing.engine import ActionRegistry, ActionSpec, DataType, Param
 
 
 def test_envelope_shape():
@@ -56,13 +56,13 @@ def test_datatype_mapping_and_required():
             ActionSpec(
                 name="t",
                 params=[
-                    Param("s", "string", required=True),
-                    Param("dt", "datetime"),
-                    Param("d", "date"),
-                    Param("n", "integer"),
-                    Param("xs", "array<string>"),
-                    Param("xi", "array<integer>"),
-                    Param("o", "object"),
+                    Param("s", DataType.STRING, required=True),
+                    Param("dt", DataType.DATETIME),
+                    Param("d", DataType.DATE),
+                    Param("n", DataType.INTEGER),
+                    Param("xs", DataType.ARRAY_STRING),
+                    Param("xi", DataType.ARRAY_INTEGER),
+                    Param("o", DataType.OBJECT),
                 ],
             )
         ]
@@ -85,7 +85,7 @@ def test_datatype_mapping_and_required():
 
 
 def test_no_required_key_when_no_required_params():
-    reg = ActionRegistry([ActionSpec(name="t", params=[Param("x", "string")])])
+    reg = ActionRegistry([ActionSpec(name="t", params=[Param("x", DataType.STRING)])])
     params = build_tools_schema(reg)["properties"]["actions"]["items"]["oneOf"][0][
         "properties"
     ]["params"]
@@ -98,11 +98,11 @@ def test_exclusive_params_become_oneof():
             ActionSpec(
                 name="create_event",
                 params=[
-                    Param("title", "string", required=True),
-                    Param("start_at", "datetime"),
-                    Param("end_at", "datetime"),
-                    Param("start_date", "date"),
-                    Param("end_date", "date"),
+                    Param("title", DataType.STRING, required=True),
+                    Param("start_at", DataType.DATETIME),
+                    Param("end_at", DataType.DATETIME),
+                    Param("start_date", DataType.DATE),
+                    Param("end_date", DataType.DATE),
                 ],
                 exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
             )

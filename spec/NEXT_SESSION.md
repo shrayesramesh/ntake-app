@@ -53,12 +53,12 @@ Proposed layout, mirroring `fake/`:
 
 ```
 app/assistant/local_llm/
-├── seam.py       # LLM protocol: complete(system, user, schema) -> dict. The one
+├── protocol.py   # LLM protocol: complete(system, user, schema) -> dict. The one
 │                 #   injected effect. ScriptedLLM (test double) + LocalLlmClient
-│                 #   both implement it. propose()/link() depend on THIS, not httpx.
+│                 #   both implement it. propose()/link() depend on THIS, not httpx. [DONE]
 ├── client.py     # LocalLlmClient(LLM): httpx wrapper, JSON-constrained call;
 │                 #   holds base_url/model/timeout. No prompt/domain logic.
-├── schema.py     # registry -> constrained-output JSON schema (pure fn).
+├── tools_schema.py  # registry -> constrained-output JSON schema (pure fn). [DONE]
 ├── assistant.py  # LocalLlmAssistant[FocusedContext] (stage 2): build prompt+schema,
 │                 #   call the LLM, parse -> [ProposedAction]
 ├── resolver.py   # LocalLlmCaptureResolver (stage 1): build_world_view + note
@@ -98,15 +98,26 @@ smoke. **Build all of Track A first; stand up Track B at the end.**
 
 Each step is its own sub-checkpoint; run `make check` and paste output.
 
-1. **`LLM` seam (`seam.py`).** Define the one injected effect —
-   `complete(system, user, schema) -> dict` — as an ABC/Protocol, plus a
-   **`ScriptedLLM`** test double that returns canned JSON keyed off the call. This
-   is the fixture every step below tests against; nothing above the seam ever
-   imports httpx. (Mirrors LLD "LLM is an injected effect, not a session.")
-2. **JSON schema generator (`schema.py`).** Pure fn: `ActionRegistry`
-   (`ActionSpec.params` / `exclusive_params`) → the constrained-output JSON schema
-   (uniform `{actions:[{name: enum[...], params: object}]}`; `exclusive_params` →
-   `oneOf`). No network; snapshot-test the emitted schema like the views.
+1. **`LLM` seam (`protocol.py`). DONE.** The one injected effect —
+   `complete(system, user, schema) -> dict` — as a runtime-checkable Protocol,
+   plus a **`ScriptedLLM`** test double that returns canned JSON keyed off the
+   call (substring of the `user` message). This is the fixture every step below
+   tests against; nothing above the seam ever imports httpx (guarded by a test).
+   (Mirrors LLD "LLM is an injected effect, not a session." Named `protocol.py`,
+   not `seam.py`.)
+2. **JSON schema generator (`local_llm/tools_schema.py`). DONE.** Pure fn:
+   `ActionRegistry` → the constrained-output JSON schema
+   (`{actions:[oneOf:[{name: const, params: object}]]}`; `exclusive_params` →
+   `oneOf`). Snapshot-tested over the real `REGISTRY` like the views.
+   **Shape decisions taken here (superseding the sketch above):** (a) the emitted
+   `params` is the *richer* per-action object (typed properties + required +
+   `oneOf`), not a loose `object` — a loose object can't express the required
+   `oneOf`; post-emission drop-invalid still lives in the parse layer (step 6).
+   (b) The `datatype` → JSON-Schema mapping is no longer a table in this package:
+   `datatype` is now a **`DataType` enum** (engine) whose members carry BOTH
+   `human_token` (tools view) and `json_schema` (tools schema), so the two renders
+   share one source and can't desync; `build_tools_schema` just assembles the
+   fragments.
 3. **`client.py` — `LocalLlmClient(LLM)`.** The `httpx` wrapper implementing the
    seam: OpenAI-style `/v1/chat/completions` POST with the schema attached, holding
    `base_url`/`model`/`timeout`. **The one place the runtime is visible.** Test

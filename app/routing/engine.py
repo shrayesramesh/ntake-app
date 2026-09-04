@@ -22,6 +22,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from enum import Enum
 
 
 class ActionContext:
@@ -93,20 +94,61 @@ class ActionError(Exception):
     this and drop the action rather than failing the whole request."""
 
 
+class DataType(Enum):
+    """The closed param-type vocabulary — each member carries BOTH projections.
+
+    A param's type is one member of this enum, and every member knows how to
+    render itself two ways: ``human_token`` for the LLM tools *view* (the prompt
+    menu) and ``json_schema`` for the tools *schema* (the constrained-output
+    contract). Because both projections live on the one member, adding or changing
+    a type is a single edit that can't leave the view and schema out of sync —
+    ``params`` (built from these) is the single source of truth for both renders.
+
+    Modelled as an ``Enum`` so the vocabulary is a genuinely closed, named,
+    mypy-checkable type (no stray ad-hoc types can be invented at a call site) and
+    is iterable/introspectable. Each member's *value* is
+    ``(human_token, json_schema)``; the properties expose them by name.
+
+    ``json_schema`` is a plain data fragment (a dict), NOT emission logic: the
+    engine only stores it and never acts on it, so this stays domain-agnostic —
+    the JSON-Schema *assembly* still happens in the local_llm package. (Named
+    ``DataType`` to avoid shadowing the builtin ``type``; the literal JSON-Schema
+    keyword ``"type"`` lives inside these fragments only.) ``INTEGER`` /
+    ``ARRAY_INTEGER`` / ``OBJECT`` are pre-shaped for v2 actions (assign,
+    checklist, participants).
+    """
+
+    STRING = ("string", {"type": "string"})
+    DATETIME = ("datetime", {"type": "string", "format": "date-time"})
+    DATE = ("date", {"type": "string", "format": "date"})
+    INTEGER = ("integer", {"type": "integer"})
+    ARRAY_STRING = ("array<string>", {"type": "array", "items": {"type": "string"}})
+    ARRAY_INTEGER = ("array<integer>", {"type": "array", "items": {"type": "integer"}})
+    OBJECT = ("object", {"type": "object"})
+
+    @property
+    def human_token(self) -> str:
+        """The token the tools view prints (e.g. ``"array<string>"``)."""
+        return self.value[0]
+
+    @property
+    def json_schema(self) -> dict:
+        """The JSON-Schema fragment the tools schema assembles for this type."""
+        return self.value[1]
+
+
 @dataclass(frozen=True)
 class Param:
     """One action parameter: its name, value type, and whether it's required.
 
-    ``datatype`` is a closed vocabulary the *tools view* / JSON-schema generator
-    interprets — the engine treats it as opaque data. Values: ``"string"``,
-    ``"datetime"``, ``"date"``, ``"integer"``, ``"array<string>"``,
-    ``"array<integer>"``, ``"object"``. (Named ``datatype`` to avoid shadowing the
-    builtin ``type``; the literal JSON-Schema keyword ``"type"`` appears only at
-    schema emission.)
+    ``datatype`` is a :class:`DataType` member — a value carrying both the human
+    token (tools view) and the JSON-Schema fragment (tools schema), so both renders
+    derive from this one source. The engine treats it as opaque data (it never
+    inspects the fragment).
     """
 
     name: str
-    datatype: str
+    datatype: DataType
     required: bool = False
 
 
@@ -146,7 +188,8 @@ class ActionSpec[ContextT: ActionContext]:
         optional with ``?``, plus the exclusive-group clause when present.
         """
         parts = [
-            f"{p.name}: {p.datatype}{'' if p.required else '?'}" for p in self.params
+            f"{p.name}: {p.datatype.human_token}{'' if p.required else '?'}"
+            for p in self.params
         ]
         params_txt = ", ".join(parts) if parts else "(no params)"
         line = f"- {self.name}: {self.description} — params: {params_txt}"

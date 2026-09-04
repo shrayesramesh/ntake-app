@@ -186,12 +186,27 @@ Authoring style chosen: **lightest engine, verbose authoring** — plain `Param`
 dataclass, no stringly-typed `!` convention, no signature introspection.
 
 ```python
+class DataType(Enum):
+    # closed param-type vocabulary; each member carries BOTH projections:
+    # value = (human_token, json_schema)
+    STRING        = ("string",        {"type": "string"})
+    DATETIME      = ("datetime",      {"type": "string", "format": "date-time"})
+    DATE          = ("date",          {"type": "string", "format": "date"})
+    INTEGER       = ("integer",       {"type": "integer"})
+    ARRAY_STRING  = ("array<string>", {"type": "array", "items": {"type": "string"}})
+    ARRAY_INTEGER = ("array<integer>",{"type": "array", "items": {"type": "integer"}})
+    OBJECT        = ("object",        {"type": "object"})
+
+    @property
+    def human_token(self) -> str: return self.value[0]   # tools VIEW render
+    @property
+    def json_schema(self) -> dict: return self.value[1]  # tools SCHEMA fragment
+
+
 @dataclass(frozen=True)
 class Param:
     name: str
-    datatype: str        # closed vocab (engine treats as opaque data):
-                         # "string" | "datetime" | "date" | "integer"
-                         # | "array<string>" | "array<integer>" | "object"
+    datatype: DataType   # a closed-enum member; carries human_token + json_schema
     required: bool = False
 
 
@@ -212,7 +227,7 @@ class ActionSpec[ContextT: ActionContext]:
 
     @property
     def prompt_line(self) -> str:          # renders ITSELF as the LLM menu line
-        parts = [f"{p.name}: {p.datatype}{'' if p.required else '?'}" for p in self.params]
+        parts = [f"{p.name}: {p.datatype.human_token}{'' if p.required else '?'}" for p in self.params]
         params_txt = ", ".join(parts) if parts else "(no params)"
         line = f"- {self.name}: {self.description} — params: {params_txt}"
         if self.exclusive_params:
@@ -225,9 +240,18 @@ class ActionSpec[ContextT: ActionContext]:
 
 Decisions locked:
 
-- **`datatype`, not `type`** — avoids shadowing the builtin; `datatype` is used
-  throughout our code. The literal JSON-Schema keyword `"type"` appears ONLY at
-  the final schema-emission step in the local_llm package.
+- **`DataType` is a closed enum carrying BOTH projections.** Each member holds
+  `(human_token, json_schema)`, so the tools *view* (`human_token`) and the tools
+  *schema* (`json_schema`) both derive from the one definition — adding/changing a
+  type is a single edit that cannot desync the two renders. `params` (built from
+  these) is the single source of truth for both.
+- **`datatype`, not `type`** — avoids shadowing the builtin. The literal
+  JSON-Schema keyword `"type"` lives ONLY inside each member's `json_schema`
+  fragment; the fragment is passive data the engine stores but never acts on, and
+  the JSON-Schema *assembly* (envelope, per-action `oneOf`) still happens only in
+  the local_llm package (`build_tools_schema`). So the engine stays
+  domain-agnostic (the boundary test still holds) while the fragment lives with
+  its vocabulary.
 - **`name` on the spec IS the registry key.** `register(spec)` uses `spec.name`
   (drop the separate `name` arg to `register`). No duplication; `prompt_line`
   needs no argument because `self.name` is present.
@@ -249,7 +273,7 @@ Example authored actions (v1):
 ActionSpec(
     name="set_due_date",
     description="Set a work item's due date.",
-    params=[Param("due_at", "datetime", required=True)],
+    params=[Param("due_at", DataType.DATETIME, required=True)],
     apply=_apply_set_due_date, describe=_describe_set_due_date,
 )
 
@@ -257,13 +281,13 @@ ActionSpec(
     name="create_event",
     description="Create a calendar event (timed OR all-day).",
     params=[
-        Param("title", "string", required=True),
-        Param("description", "string"),
-        Param("location", "string"),
-        Param("start_at", "datetime"),
-        Param("end_at", "datetime"),
-        Param("start_date", "date"),
-        Param("end_date", "date"),
+        Param("title", DataType.STRING, required=True),
+        Param("description", DataType.STRING),
+        Param("location", DataType.STRING),
+        Param("start_at", DataType.DATETIME),
+        Param("end_at", DataType.DATETIME),
+        Param("start_date", DataType.DATE),
+        Param("end_date", DataType.DATE),
     ],
     exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
     apply=_apply_create_event, describe=_describe_create_event,
@@ -272,9 +296,9 @@ ActionSpec(
 
 Entity-target params (`work_item_id`, `event_id`) are NOT params — they are the
 server-attached `target` (opaque to the model). v1 type vocabulary actually
-needed: `string`, `datetime`, `date`, plus the one-of. (`integer`,
-`array<*>`, `object` are pre-shaped for v2 actions — assign, checklist,
-participants.)
+needed: `DataType.STRING`, `DataType.DATETIME`, `DataType.DATE`, plus the one-of.
+(`INTEGER`, `ARRAY_STRING`/`ARRAY_INTEGER`, `OBJECT` are pre-shaped for v2 actions
+— assign, checklist, participants.)
 
 **Vocabulary — "actions" vs "tools".** "Actions" are what we *execute*
 (`ActionSpec`/`ActionRegistry`/`ProposedAction`/`apply_action` — unchanged

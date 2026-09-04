@@ -9,11 +9,12 @@ renders the SAME registry as the JSON Schema the model's output is constrained t
 Shape (LLD OQ-1 / OQ-5): a uniform envelope
 ``{"actions": [ <action item>, ... ]}`` where each action item is one ``oneOf``
 branch discriminated by ``name`` (a ``const``), carrying a ``params`` object built
-from that action's ``Param`` list. Each ``Param.datatype`` (the engine's closed,
-opaque vocabulary) is mapped to JSON Schema HERE — this is the single place the
-literal JSON-Schema keyword ``"type"`` and ``oneOf`` appear (the LLD confines that
-emission to this backend package). ``exclusive_params`` (mutually-exclusive param
-groups) become a per-action ``oneOf`` over the required-key sets.
+from that action's ``Param`` list. Each param's JSON-Schema fragment is declared
+on its :class:`~app.routing.engine.DataType` (the single source shared with the
+tools view — ``human_token`` there, ``json_schema`` here), so this generator only
+*assembles* fragments; it never maps a bare type string. ``exclusive_params``
+(mutually-exclusive param groups) become a per-action ``oneOf`` over the
+required-key sets.
 
 Why this lives in ``local_llm`` and not beside ``tools_view``: ``tools_view`` is
 backend-neutral (shared by the fake backend, returns a ``str``, knows no JSON
@@ -32,18 +33,6 @@ param validation (graceful-degrade drop-invalid) still happens in the parse laye
 from __future__ import annotations
 
 from app.routing.engine import ActionRegistry, ActionSpec
-
-# The engine's closed ``datatype`` vocabulary → JSON Schema fragment. The engine
-# treats ``datatype`` as opaque data; this table is the one interpreter of it.
-_DATATYPE_TO_JSON_SCHEMA: dict[str, dict] = {
-    "string": {"type": "string"},
-    "datetime": {"type": "string", "format": "date-time"},
-    "date": {"type": "string", "format": "date"},
-    "integer": {"type": "integer"},
-    "array<string>": {"type": "array", "items": {"type": "string"}},
-    "array<integer>": {"type": "array", "items": {"type": "integer"}},
-    "object": {"type": "object"},
-}
 
 
 def build_tools_schema(registry: ActionRegistry) -> dict:
@@ -91,7 +80,10 @@ def _params_schema(spec: ActionSpec) -> dict:
     schema: dict = {
         "type": "object",
         "properties": {
-            p.name: _DATATYPE_TO_JSON_SCHEMA[p.datatype] for p in spec.params
+            # Each param's JSON-Schema fragment is declared on its DataType (the
+            # single source shared with the tools view) — we just assemble them.
+            p.name: p.datatype.json_schema
+            for p in spec.params
         },
         "additionalProperties": False,
     }

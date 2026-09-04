@@ -18,6 +18,7 @@ from app.routing.engine import (
     ActionError,
     ActionRegistry,
     ActionSpec,
+    DataType,
     NullAssistant,
     Param,
     ProposedAction,
@@ -60,7 +61,7 @@ def _registry() -> ActionRegistry:
             ActionSpec(
                 name="echo",
                 description="Echo a message.",
-                params=[Param("msg", "string", required=True)],
+                params=[Param("msg", DataType.STRING, required=True)],
                 apply=_apply_echo,
                 describe=lambda p: f"Echo {p.get('msg', '?')}",
             ),
@@ -99,7 +100,7 @@ def test_dispatch_missing_required_param_raises():
 def test_spec_execute_validates_then_applies():
     spec = ActionSpec(
         name="echo",
-        params=[Param("msg", "string", required=True)],
+        params=[Param("msg", DataType.STRING, required=True)],
         apply=lambda ctx, p: f"echo {p['msg']} for {ctx['who']}",
     )
     assert spec.execute({"msg": "hi"}, {"who": "t"}) == "echo hi for t"
@@ -108,7 +109,7 @@ def test_spec_execute_validates_then_applies():
 def test_spec_execute_raises_on_missing_required_param():
     spec = ActionSpec(
         name="echo",
-        params=[Param("msg", "string", required=True)],
+        params=[Param("msg", DataType.STRING, required=True)],
         apply=lambda ctx, p: "unused",
     )
     with pytest.raises(ActionError):
@@ -139,9 +140,9 @@ def test_required_is_derived_from_params():
     spec = ActionSpec(
         name="x",
         params=[
-            Param("a", "string", required=True),
-            Param("b", "string"),  # optional
-            Param("c", "datetime", required=True),
+            Param("a", DataType.STRING, required=True),
+            Param("b", DataType.STRING),  # optional
+            Param("c", DataType.DATETIME, required=True),
         ],
     )
     assert spec.required == ["a", "c"]  # order preserved; optionals excluded
@@ -168,7 +169,7 @@ def test_prompt_line_renders_name_description_and_params():
     spec = ActionSpec(
         name="set_due_date",
         description="Set a work item's due date.",
-        params=[Param("due_at", "datetime", required=True)],
+        params=[Param("due_at", DataType.DATETIME, required=True)],
     )
     line = spec.prompt_line
     assert line == (
@@ -181,8 +182,8 @@ def test_prompt_line_marks_optional_params_with_question_mark():
         name="create_work_item",
         description="Create a work item.",
         params=[
-            Param("title", "string", required=True),
-            Param("description", "string"),
+            Param("title", DataType.STRING, required=True),
+            Param("description", DataType.STRING),
         ],
     )
     line = spec.prompt_line
@@ -200,10 +201,10 @@ def test_prompt_line_renders_exclusive_params_clause():
         name="create_event",
         description="Create an event.",
         params=[
-            Param("start_at", "datetime"),
-            Param("end_at", "datetime"),
-            Param("start_date", "date"),
-            Param("end_date", "date"),
+            Param("start_at", DataType.DATETIME),
+            Param("end_at", DataType.DATETIME),
+            Param("start_date", DataType.DATE),
+            Param("end_date", DataType.DATE),
         ],
         exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
     )

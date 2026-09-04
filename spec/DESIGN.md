@@ -442,11 +442,14 @@ second consumer appears — package-shape now, not a published package). See PLA
   actions are *presented to the LLM* (`build_tools_view`, the JSON schema). An
   action becomes a tool only at the model boundary.
 - **Param contract is typed data on the spec.** `ActionSpec.params: list[Param]`
-  (`Param(name, datatype, required)`) + `exclusive_params` (mutually-exclusive
-  groups, e.g. create_event's timed-vs-all-day); `required` is derived,
-  `prompt_line` renders the tool line, and the local-LLM JSON-schema generator reads
-  the same specs — lightest-engine / verbose-authoring, no stringly-typed markers
-  or signature introspection. The registry is built from a **flat list** (no
+  (`Param(name, datatype, required)`, where `datatype` is a `DataType` enum member
+  carrying both its `human_token` and its JSON-Schema fragment) + `exclusive_params`
+  (mutually-exclusive groups, e.g. create_event's timed-vs-all-day); `required` is
+  derived, `prompt_line` renders the tool line, and the local-LLM JSON-schema
+  generator reads the same specs — so the tools view and tools schema both derive
+  from one source and cannot desync. Lightest-engine / verbose-authoring, no
+  stringly-typed markers or signature introspection. The registry is built from a
+  **flat list** (no
   imperative `register()`); `ActionSpec.execute()` owns validate-then-apply.
 
 ### 4.2 Views over the same data
