@@ -153,9 +153,18 @@ rather than hard-coding (v2 nicety; v1's six actions fetch the obvious slice).
   materializes only the linked ids.
 - **OQ-4 — target attachment.** Type-based, ≤1 resolved entity per type for v1;
   multi-entity / `target_ref` chaining is v2.
-- **OQ-6 — deep-context size.** `deep_fetch` sends a work item's **full**
-  `work_item_updates` log in v1 (family scale → short logs; uncapped is fine).
-  Cap to last-N only if a log ever grows large enough to bloat the propose prompt.
+- **OQ-6 — deep-context size + member footprint.** `deep_fetch` sends a work
+  item's **full** `work_item_updates` log in v1 (family scale → short logs;
+  uncapped is fine; cap to last-N only if a log ever bloats the prompt). The deep
+  context **always includes the capturing member's footprint** — their assigned
+  work items are unioned with the note-linked entities (deduped) and a member
+  header names whose context it is, so PROPOSE can reason about the member's load
+  (the labor-visibility core). Built in `app/assistant/resolve.py`
+  (`parse_ids` + `deep_context`). **Deferred gap:** "events the member
+  *participates in*" is NOT included — the `Event` model has no `participants`
+  column yet (DESIGN §3 lists it; never added). Adding it is a separate small
+  schema task (column → `seed_event` → `EventSummary`/world-view → wire into
+  `deep_context`). Note-*linked* events still appear by id.
 - **OQ-5 — action param schema. RESOLVED (see "Resolved: action param schema"
   below).** Typed params live **on `ActionSpec`** as `list[Param]` (option B):
   the engine carries them as plain data (not required-only, not a schema
