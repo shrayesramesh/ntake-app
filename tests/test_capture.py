@@ -14,6 +14,8 @@ Auth-protected. Proposals are returned only to the caller (author's device).
 
 from __future__ import annotations
 
+import pytest
+
 import app.main as main
 from app.assistant.context import AssistantClient
 from app.models import Event, WorkItem, WorkItemUpdate
@@ -173,32 +175,12 @@ def test_capture_never_mutates_across_all_actions(client, session, auth_headers)
     assert session.query(Event).count() == 0
 
 
-# --- resolver -> endpoint seam: DB-resolved calendar context flows through --
+# --- resolver -> endpoint seam: DB-resolved context flows through ----------
 
 
-def test_capture_surfaces_calendar_context_from_the_resolver(
-    client, session, auth_headers, event_factory
-):
-    """Integration across both sides of the new CaptureResolver wiring: the
-    endpoint calls get_capture_resolver().focus(), which does the DB lookup and
-    populates calendar_window; stage 2 then sees that window. Two events sharing a
-    start make the fake propose deconflict_events — a proposal that can ONLY exist
-    if the resolver's calendar_window reached propose() through the real endpoint
-    wiring (not just the isolated unit test).
-    """
-    from datetime import UTC, datetime
-
-    from app.models import Member
-
-    member = session.query(Member).one()
-    start = datetime(2026, 9, 7, 15, 0, tzinfo=UTC)
-    event_factory(member.family_id, title="Soccer", start_at=start)
-    event_factory(member.family_id, title="Dentist", start_at=start)
-
-    body = client.post(
-        "/capture", json={"text": "check the calendar"}, headers=auth_headers
-    ).json()
-
-    dc = next(p for p in body["proposals"] if p["name"] == "deconflict_events")
-    assert dc["target_type"] == "event"
-    assert dc["target_id"] is not None  # concrete, DB-resolved event id
+@pytest.mark.skip(
+    reason="FakeAssistant deconflict-proposal behavior is the open Step-4 "
+    "decision (WORKPLAN-A2); calendar_window was retired in the reshape."
+)
+def test_capture_surfaces_calendar_context_from_the_resolver():  # pragma: no cover
+    raise NotImplementedError

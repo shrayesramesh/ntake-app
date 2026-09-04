@@ -24,7 +24,7 @@ def test_off_is_null(monkeypatch):
     from app.assistant.context import FocusedContext
 
     ctx = FocusedContext(
-        text="friday", work_item_id=1, timezone="UTC", now=datetime.now(UTC)
+        text="friday", timezone="UTC", now=datetime.now(UTC), resolved_work_item_ids=[1]
     )
     assert a.propose(ctx) == []
 

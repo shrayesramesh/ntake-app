@@ -32,9 +32,9 @@ NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 def _ctx(text: str, target_id: int | None = None) -> FocusedContext:
     return FocusedContext(
         text=text,
-        work_item_id=target_id,
         timezone="America/New_York",
         now=NOW,
+        resolved_work_item_ids=[target_id] if target_id is not None else [],
     )
 
 

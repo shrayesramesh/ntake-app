@@ -25,7 +25,6 @@ from sqlalchemy.orm import Session
 from app.assistant.context import (
     AssistantClient,
     CaptureRequest,
-    EventSummary,
     FocusedContext,
     NullAssistant,
     ProposedAction,
@@ -37,7 +36,6 @@ __all__ = [
     "AssistantClient",
     "CaptureRequest",
     "CaptureResolver",
-    "EventSummary",
     "FocusedContext",
     "NullAssistant",
     "ProposedAction",

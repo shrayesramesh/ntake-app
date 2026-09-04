@@ -31,10 +31,6 @@ Existing-item capture (real target_id) — item-targeting actions are valid:
   • **done word** (done/finished/complete/completed) → ``complete_work_item``.
   • none of the above → ``no_action``.
 
-Context-aware (any capture): if ``calendar_window`` holds two events at the same
-start (timed start or all-day date), propose ``deconflict_events`` targeting the
-later-created (higher id) — a placeholder proving calendar context flows through.
-
 Examples
 --------
   "dentist appointment friday"     → create_event only (timed)
@@ -84,13 +80,11 @@ def _next_weekday(ctx: FocusedContext, weekday: int, hour: int = 9) -> str:
 class FakeAssistant(AssistantClient[FocusedContext]):
     def propose(self, ctx: FocusedContext) -> list[ProposedAction]:
         text = ctx.text.lower()
-        tid = ctx.work_item_id
+        tid = ctx.primary_work_item_id
         weekday = next((wd for name, wd in _WEEKDAYS.items() if name in text), None)
         event_word = any(w in text for w in _EVENT_WORDS)
 
-        # Context-aware: if the focused calendar window shows two events at the
-        # same start, propose deconflicting them (move the later-created one).
-        proposals = self._deconflict(ctx)
+        proposals: list[ProposedAction] = []
 
         if tid is None:
             proposals += self._propose_new_item(ctx, weekday, event_word)
@@ -98,7 +92,7 @@ class FakeAssistant(AssistantClient[FocusedContext]):
             proposals += self._propose_existing_item(
                 ctx, tid, text, weekday, event_word
             )
-        # Drop a lone no_action if we already have a real proposal (deconflict).
+        # Drop a lone no_action if we already have a real proposal.
         if len(proposals) > 1:
             proposals = [p for p in proposals if p.name != "no_action"]
         # The assistant describes what it understood. The fake just passes the
@@ -108,29 +102,6 @@ class FakeAssistant(AssistantClient[FocusedContext]):
         for p in proposals:
             p.llm_rationale = focus_note
         return proposals
-
-    def _deconflict(self, ctx: FocusedContext) -> list[ProposedAction]:
-        """Propose deconflict_events for the first pair of events that share a
-        start time (timed start, or all-day date). Targets the later-created
-        (higher id). Deterministic placeholder that proves calendar context flows.
-        """
-        seen: dict[object, int] = {}  # start-key -> first event id at that time
-        for ev in ctx.calendar_window:
-            key = ev.start if not ev.all_day else ("all-day", ev.start_date)
-            if key in seen:
-                # Overlap: move the later-created (higher id) of the two.
-                later = max(seen[key], ev.id)
-                return [
-                    ProposedAction(
-                        name="deconflict_events",
-                        params={},
-                        llm_rationale="Two events share a start time.",
-                        target_id=later,
-                        target_type="event",
-                    )
-                ]
-            seen[key] = ev.id
-        return []
 
     # --- new-item capture: self-contained proposals only ------------------
 

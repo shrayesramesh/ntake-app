@@ -1,69 +1,44 @@
 """``FakeCaptureResolver`` — the deterministic v1 stage-1 resolver (no LLM).
 
 Stage-1 sibling of ``FakeAssistant``: it builds the ``FocusedContext`` the
-assistant reasons over. It is the ONLY capture stage that touches the DB — it
-queries the family's events so the ids it puts in ``calendar_window`` make
-stage-2 proposals executable against real rows.
+assistant reasons over. It is the app-coupled capture stage (it touches the DB);
+the ``FocusedContext`` it returns is the session-free value object that crosses
+into stage 2.
 
-v1 does NOT resolve a target work item from free text (``work_item_id=None``;
-every capture is new) — that is the Ollama resolver's job (task 7). Selected via
-``NTAKE_ASSISTANT`` through ``app.assistant.factory.get_capture_resolver``.
+Selected via ``NTAKE_ASSISTANT`` through
+``app.assistant.factory.get_capture_resolver``. The LLM-backed sibling
+(``OllamaCaptureResolver``) is task 7.
 """
 
 from __future__ import annotations
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.assistant.base import (
-    CaptureRequest,
-    CaptureResolver,
-    EventSummary,
-    FocusedContext,
-)
-from app.models import Event, Member
-
-
-def _event_summaries(session: Session, family_id: int) -> list[EventSummary]:
-    """The family's events as id-bearing summaries, ordered by start.
-
-    id-bearing on purpose: stage 2 needs the real event id to emit an executable
-    action (e.g. deconflict_events targeting a specific event).
-    """
-    stmt = (
-        select(Event)
-        .where(Event.family_id == family_id)
-        .order_by(Event.start_at, Event.start_date, Event.id)
-    )
-    return [
-        EventSummary(
-            id=ev.id,
-            title=ev.title,
-            start=ev.start_at,
-            start_date=ev.start_date,
-            all_day=ev.all_day,
-        )
-        for ev in session.scalars(stmt).all()
-    ]
+from app.assistant.base import CaptureRequest, CaptureResolver, FocusedContext
+from app.assistant.resolve import deep_context
+from app.models import Member
 
 
 class FakeCaptureResolver(CaptureResolver):
     """Deterministic v1 resolver (no LLM).
 
-    Passes the raw fields through and populates the calendar window from the
-    member's family events. Does NOT resolve a target from text
-    (``work_item_id=None``; every capture is new) — that is the Ollama resolver's
-    job (task 7).
+    Resolves NO target ids from free text yet (empty resolved lists) — the
+    deterministic ``fake_link`` that populates them is wired in a following step.
+    It still renders the deep context, which always includes the capturing
+    member's own footprint (assigned items + participated events).
     """
 
     def focus(
         self, request: CaptureRequest, session: Session, member: Member
     ) -> FocusedContext:
+        wi_ids: list[int] = []
+        ev_ids: list[int] = []
+        dc = deep_context(session, member, wi_ids, ev_ids)
         return FocusedContext(
             text=request.text,
-            work_item_id=None,  # v1: no text-based resolution yet
             timezone=request.timezone,
             now=request.now,
-            item_log=[],  # populated once a target is resolved (v2/Ollama)
-            calendar_window=_event_summaries(session, member.family_id),
+            deep_context=dc,
+            resolved_work_item_ids=wi_ids,
+            resolved_event_ids=ev_ids,
         )
