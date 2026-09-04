@@ -153,6 +153,11 @@ survives days of uptime; labor view works; failures are visible.
 ## Deferred (explicitly not built)
 - SMS/text capture channel (DESIGN-sms-deferred.md).
 - `.ics` import/export (INTEROP), recurrence (assistant-from-log evolution).
+- **One-time backfill from Trello / Google Calendar** — a file-based
+  `manage import` CLI (Trello JSON → work items + initial updates; `.ics` →
+  events), operator-run, no cloud in the data path, idempotent. **Designed** in
+  DESIGN §6a; not built. A data-population concern (distinct from Alembic schema
+  migrations); good day-one onboarding to avoid a cold-start empty board.
 - Async assistant delivery (v1 is synchronous); conversational refinement of
   proposals (v1 is restate-loop).
 - Two-tier availability split; off-machine backup; Postgres.

@@ -20,6 +20,7 @@ household/emotional labor **visible for recognition and fairness**.
 |---|---|
 | **`spec/`** | **Source of truth** — requirements, design, plan, agent entry point. Read this. |
 | `app/`, `tests/` | The application code (FastAPI + SQLite) and its tests. |
+| `alembic/` | DB migrations (baseline + `env.py`); driven via `python -m app.manage migrate`. |
 | `Makefile`, `setup.sh`, `requirements.txt`, `pyproject.toml` | Build/run/lint tooling. |
 | `SKILL.md` | How to work in this repo (the `make check` gate, conventions). |
 | `HOST_SETUP_GUIDE.md` | Operator setup (config, device tokens, Tailscale, run). |
@@ -28,7 +29,7 @@ household/emotional labor **visible for recognition and fairness**.
 ## Current status
 
 Phases 0–3 and the **fake-first Phase 4** are built and passing (`make check` →
-296 tests green, ≥95% cov; plus a real-stack `make smoke`, 12 checks): FastAPI
+300 tests green, ≥95% cov; plus a real-stack `make smoke`, 12 checks): FastAPI
 app; `/health`, `/events`, the work-item + board read/append paths, `/capture`
 (propose-only) and `/actions/confirm`; config-seeded identity + token CLI;
 change-event seam → SSE live sync; and the assistant as a reusable engine
@@ -40,14 +41,18 @@ deterministically (`fake_link` → `deep_context`), so existing-item and
 event-reschedule proposals are reachable without a model.
 
 **Live-surface hardening (done):** SQLite WAL + `synchronous=NORMAL`
-(crash-safety); a `VACUUM INTO` weekly-snapshot backup (`python -m app.manage
-backup`; scheduling is a documented host cron/systemd step); SSE re-sync on
-(re)connect so the wall display can't miss a change during a disconnect; and a
-PWA manifest + service worker for add-to-home-screen.
+(crash-safety); Alembic **migrations** as the real-DB schema path (startup runs
+`upgrade head`; `python -m app.manage migrate`; tests use `create_all`); a
+`VACUUM INTO` weekly-snapshot backup (`python -m app.manage backup`; scheduling is
+a documented host cron/systemd step); SSE re-sync on (re)connect so the wall
+display can't miss a change during a disconnect; and a PWA manifest + service
+worker for add-to-home-screen.
 
-**Next:** Phase-4 **task 7** — the live Ollama backend (host-only). Phase 5
-(labor view, grooming assist, kiosk polish) and a few loose ends (Alembic, board
-grooming UI) follow. See `spec/PLAN.md` and `spec/NEXT_SESSION.md`.
+**Next:** Phase-4 **task 7** — the live Ollama backend (host-only). Then Phase 5
+(labor view, grooming assist, kiosk polish), the board grooming UI, and a planned
+one-time **backfill** from Trello / Google Calendar (`manage import`, designed in
+DESIGN §6a — a fresh install starts empty otherwise). See `spec/PLAN.md` and
+`spec/NEXT_SESSION.md`.
 
 ## Key shape (details in `spec/`)
 

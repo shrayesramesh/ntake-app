@@ -20,7 +20,7 @@ setup like Tailscale/hardware/stack).
 
 `app/`, `tests/`, `Makefile`, `setup.sh`, `requirements.txt`, `pyproject.toml`.
 Current state: phases 0–3 and the **fake-first Phase 4** are built and green
-(`make check` → 296 tests pass; + `make smoke`, 12 real-stack checks). Events +
+(`make check` → 300 tests pass; + `make smoke`, 12 real-stack checks). Events +
 work-item/board + live SSE + config-seeded identity are in; the assistant runs as
 a two-stage pipeline (`CaptureResolver` → `AssistantClient`) over a reusable
 engine, with a `fake/` backend that runs the real two-call shape

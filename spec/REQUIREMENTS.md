@@ -198,6 +198,12 @@ item"; "joule" is a possible future family-facing label.)*
   import `.ics`** to interoperate with Google/Apple/Outlook. Export synthesizes
   the iCalendar fields on the fly — the stored event model stays minimal, **not**
   iCalendar-shaped. **Not** two-way sync.
+- **INTEROP-2** *(Deferred capability.)* A **one-time backfill** to seed a fresh
+  install from the tools the household already uses — **Trello** (board export →
+  work items + their initial update log) and **Google Calendar** (`.ics` export →
+  events). Operator-run and **file-based** (the operator supplies the export;
+  no cloud API / OAuth in the data path — NFR-PRIVACY), idempotent, and
+  **one-time seeding, not ongoing sync**. Design in DESIGN §6a.
 
 ---
 

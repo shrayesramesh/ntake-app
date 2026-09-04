@@ -11,7 +11,7 @@
 > Handoff for resuming Phase 4. The **fake-first assistant is complete** and both
 > capture stages sit behind swappable, config-selected seams. Both **prompt views
 > are built** (`build_world_view`, `build_tools_view`) and the toolset is a rich
-> **13 actions**. `make check` is green (296 tests, ≥95% cov; + `make smoke`, 12
+> **13 actions**. `make check` is green (300 tests, ≥95% cov; + `make smoke`, 12
 > real-stack checks). Live-surface hardening is done (WAL, `manage backup`, SSE
 > reconnect re-sync, PWA). The one remaining Phase-4 build is the **live local
 > model (Ollama)**, host-only. Read DESIGN §4.1

@@ -480,6 +480,39 @@ events; an imported event may be modeled as its own `work_item_updates` entry
 (import-as-action) so it still traces to an update record. **Not** two-way CalDAV
 sync.
 
+### 6a. One-time backfill (Trello / Google Calendar) — planned, not built
+
+A fresh install starts empty (only config-seeded identity). To avoid a cold-start
+with no history, support a **one-time, operator-run backfill** from the tools a
+household already uses. This is a **migration of *data*, not schema** (schema is
+Alembic's job) and is deliberately **not** ongoing sync.
+
+- **Shape:** a file-based CLI, `python -m app.manage import` (sibling of
+  `backup`/`migrate`) — e.g. `--trello board.json` and `--ics calendar.ics`.
+  **File in, rows out.** No OAuth, no cloud API in the data path (NFR-PRIVACY):
+  the operator exports from Trello/Google themselves and feeds the file. Pure,
+  session-taking core functions (like the other `manage` helpers) so they're
+  unit-testable; `main` wraps them.
+- **Trello → work items.** Each card → a `work_item` (title = card name,
+  description = card desc, `tags` from Trello labels, `status` mapped from the
+  card's list via a small configurable list→column map, default `todo`). The
+  card's existing comments/description become the **initial `work_item_updates`**
+  (source=`human`, author = the importing member or a best-effort mapping),
+  preserving the "log is the source of truth" model. Checklists → `checklist_items`.
+- **Google Calendar → events.** Export as `.ics`; reuse the §6 `.ics` import path
+  (VEVENT → event; all-day vs timed by `DTSTART` value type; times normalized to
+  UTC, `families.timezone` for all-day dates). Recurrence is **flattened or
+  skipped** in v1 (no RRULE machinery, EVENT-4) — expand a bounded window or import
+  only the next N occurrences; decide at build.
+- **Idempotency + safety.** Backfill is **additive and re-runnable without
+  duplicating**: track source ids (Trello card id, iCal UID) — either a nullable
+  `external_ref` column added *via a migration* when this is built, or a dedupe
+  pass keyed on (title, timing) for v1. A `--dry-run` prints what would be created.
+  Runs through the normal write path, so each insert still publishes via the 1d
+  seam (the wall display fills in live as the import runs).
+- **Not sync.** One-time seeding only; subsequent changes in Trello/Google do not
+  propagate. Ongoing interop remains the deferred `.ics`/CalDAV arc (§6).
+
 ---
 
 ## 7. Deferred / out of scope
@@ -502,3 +535,6 @@ sync.
 - SSE event granularity + reconnect replay.
 - Datastore stays SQLite unless a reason to move to Postgres appears.
 - `.ics` timing (OQ-INTEROP-WHEN) and calendar default view (OQ-DISP-VIEW).
+- **Backfill (§6a):** Trello list→column mapping; how to flatten/limit recurring
+  Google events (no RRULE machinery); dedupe strategy — a migration-added
+  `external_ref` (Trello card id / iCal UID) vs. a v1 (title, timing) dedupe pass.
