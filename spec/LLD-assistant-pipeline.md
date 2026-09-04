@@ -157,14 +157,14 @@ rather than hard-coding (v2 nicety; v1's six actions fetch the obvious slice).
   item's **full** `work_item_updates` log in v1 (family scale → short logs;
   uncapped is fine; cap to last-N only if a log ever bloats the prompt). The deep
   context **always includes the capturing member's footprint** — their assigned
-  work items are unioned with the note-linked entities (deduped) and a member
-  header names whose context it is, so PROPOSE can reason about the member's load
-  (the labor-visibility core). Built in `app/assistant/resolve.py`
-  (`parse_ids` + `deep_context`). **Deferred gap:** "events the member
-  *participates in*" is NOT included — the `Event` model has no `participants`
-  column yet (DESIGN §3 lists it; never added). Adding it is a separate small
-  schema task (column → `seed_event` → `EventSummary`/world-view → wire into
-  `deep_context`). Note-*linked* events still appear by id.
+  work items **and the events they participate in** (their `member_id` in the
+  event's `participants` list) are unioned with the note-linked entities (deduped),
+  with a member header naming whose context it is, so PROPOSE can reason about the
+  member's load (the labor-visibility core). Built in `app/assistant/resolve.py`
+  (`parse_ids` + `deep_context`). The `Event.participants` column (JSON list of
+  `{member_id?, name}`, EVENT-5) was added for this; `create_event` writes it and
+  `seed_event` accepts it. *(Was deferred as QQ-6 pending the participants column —
+  now resolved.)*
 - **OQ-5 — action param schema. RESOLVED (see "Resolved: action param schema"
   below).** Typed params live **on `ActionSpec`** as `list[Param]` (option B):
   the engine carries them as plain data (not required-only, not a schema

@@ -155,6 +155,32 @@ def test_deep_context_renders_linked_events(session, fam_member):
     assert "Dentist" in out
 
 
+def test_deep_context_includes_member_participated_events(session, fam_member):
+    fam, m = fam_member
+    # member participates (linked member_id) -> included in footprint even though
+    # the note linked no events.
+    _event(session, fam.id, "Soccer", participants=[{"member_id": m.id}])
+    out = deep_context(session, m, [], [])
+    assert "Soccer" in out
+
+
+def test_deep_context_excludes_events_member_does_not_participate_in(
+    session, fam_member
+):
+    fam, m = fam_member
+    _event(session, fam.id, "Someone elses meeting", participants=[{"name": "Guest"}])
+    out = deep_context(session, m, [], [])
+    assert "Someone elses meeting" not in out
+
+
+def test_deep_context_dedups_linked_and_participated_event(session, fam_member):
+    fam, m = fam_member
+    ev = _event(session, fam.id, "Shared game", participants=[{"member_id": m.id}])
+    # linked by id AND participated -> appears exactly once.
+    out = deep_context(session, m, [], [ev.id])
+    assert out.count("Shared game") == 1
+
+
 def test_deep_context_empty_when_nothing_linked_or_assigned(session, fam_member):
     fam, m = fam_member
     out = deep_context(session, m, [], [])

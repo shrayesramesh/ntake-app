@@ -397,3 +397,24 @@ def test_add_checklist_items_requires_nonempty_list(session, fam_member_item):
     fam, m, wi = fam_member_item
     with pytest.raises(ActionError):
         apply_action(session, m, "add_checklist_items", wi.id, {"items": []})
+
+
+def test_create_event_writes_participants(session, fam_member):
+    fam, m = fam_member
+    start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC).isoformat()
+    apply_action(
+        session,
+        m,
+        "create_event",
+        None,
+        {
+            "title": "Soccer",
+            "start_at": start,
+            "end_at": start,
+            "participants": [{"member_id": m.id}, {"name": "Coach Lee"}],
+        },
+        target_type="event",
+    )
+    session.expire_all()
+    ev = session.query(Event).filter_by(title="Soccer").one()
+    assert ev.participants == [{"member_id": m.id}, {"name": "Coach Lee"}]

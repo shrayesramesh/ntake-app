@@ -36,7 +36,7 @@ def test_tools_view_full_render_over_the_real_registry():
         "work item. — params: items: array<string>\n"
         "- create_event: Create a calendar event (timed OR all-day). — params: "
         "title: string, description: string?, location: string?, start_at: datetime?, "
-        "end_at: datetime?, start_date: date?, end_date: date?  "
+        "end_at: datetime?, start_date: date?, end_date: date?, participants: object?  "
         "(exactly one of: {start_at, end_at} OR {start_date, end_date})\n"
         "- reschedule_event: Move an existing event to new timing (timed OR "
         "all-day). — params: start_at: datetime?, end_at: datetime?, "

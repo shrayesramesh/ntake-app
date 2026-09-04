@@ -296,8 +296,12 @@ def populated_family(session, event_factory):
 
     events: dict[str, int] = {}
     # in-window (2 days ago), out-of-window (30 days ago), future, and all-day.
+    # participants exercises both shapes: a linked member and a free-text name.
     events["recent"] = event_factory(
-        fam.id, title="Soccer", start_at=datetime(2026, 9, 1, 19, 0, tzinfo=UTC)
+        fam.id,
+        title="Soccer",
+        start_at=datetime(2026, 9, 1, 19, 0, tzinfo=UTC),
+        participants=[{"member_id": members["Sam"]}, {"name": "Coach Lee"}],
     ).id
     events["old"] = event_factory(
         fam.id, title="Old picnic", start_at=datetime(2026, 8, 4, 19, 0, tzinfo=UTC)

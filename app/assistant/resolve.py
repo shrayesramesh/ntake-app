@@ -14,10 +14,9 @@ Two deliberate properties:
   enforce it: only ids that exist AND belong to the capturing member's family
   survive; anything else is silently dropped (graceful-degrade).
 * **Member footprint is always included.** Beyond what the note linked, the
-  capturing member's own work is context — their **assigned work items** are
-  unioned in (deduped) so PROPOSE can reason about the member's load. (Events the
-  member *participates in* are deferred: the Event model has no ``participants``
-  column yet — flagged in the LLD. Linked events still appear by id.)
+  capturing member's own work is context — their **assigned work items** and the
+  **events they participate in** (their id in the event's ``participants``) are
+  unioned in (deduped) so PROPOSE can reason about the member's load.
 
 App-coupled (takes a Session), like world.py; returns a plain string.
 """
@@ -72,9 +71,11 @@ def deep_context(
     footprint_items = _load_assigned_items(session, fam_id, member.id)
     items = _dedup_by_id(linked_items + footprint_items)
 
-    # Events: the linked ones, validated to family. (Member-participated events
-    # are deferred — no participants column yet.)
-    events = _load_family_events(session, fam_id, event_ids)
+    # Events: the linked ones (validated to family) ∪ events the member
+    # participates in (participants list contains their member_id), deduped.
+    linked_events = _load_family_events(session, fam_id, event_ids)
+    participated = _load_participated_events(session, fam_id, member.id)
+    events = _dedup_events(linked_events + participated)
 
     return _render(session, member, items, events)
 
@@ -109,6 +110,36 @@ def _load_family_events(
         return []
     stmt = select(Event).where(Event.family_id == family_id, Event.id.in_(ids))
     return list(session.scalars(stmt).all())
+
+
+def _load_participated_events(
+    session: Session, family_id: int, member_id: int
+) -> list[Event]:
+    """Family events the member participates in (their id is in ``participants``).
+
+    ``participants`` is a JSON list of ``{member_id?, name}``; at family scale we
+    fetch the family's events and filter in Python (a JSON-containment SQL query
+    is awkward/non-portable for a handful of rows).
+    """
+    stmt = select(Event).where(Event.family_id == family_id).order_by(Event.id)
+    return [
+        ev
+        for ev in session.scalars(stmt).all()
+        if any(
+            isinstance(p, dict) and p.get("member_id") == member_id
+            for p in (ev.participants or [])
+        )
+    ]
+
+
+def _dedup_events(events: list[Event]) -> list[Event]:
+    seen: set[int] = set()
+    out: list[Event] = []
+    for ev in events:
+        if ev.id not in seen:
+            seen.add(ev.id)
+            out.append(ev)
+    return out
 
 
 def _dedup_by_id(items: list[WorkItem]) -> list[WorkItem]:

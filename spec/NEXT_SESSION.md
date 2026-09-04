@@ -88,6 +88,14 @@
   discussed, **parked**. The registry one is entangled with the actions-vs-tools
   boundary (the "AVAILABLE TOOLS:" header is LLM-vocab that shouldn't live on the
   domain-agnostic engine) — revisit only if it clearly pays off.
+- **`EventSummary` / `FocusedContext.calendar_window` cleanup.** These are
+  fake-path legacy: `EventSummary` is only used by `FakeCaptureResolver` +
+  `FakeAssistant`'s deconflict logic. The real two-call pipeline
+  (`build_world_view` + `resolve.py`) renders events to text and does NOT route
+  through `EventSummary`. Once Ollama lands, either **drop `EventSummary`** or
+  **refactor the FakeAssistant** off it (and slim `FocusedContext`). Don't extend
+  `EventSummary` with new fields (e.g. participants) in the meantime — it's
+  duplicative.
 - **Checklist check/uncheck/remove/reorder** — deferred; they need by-name/by-id
   addressing + checklist items surfaced in context. Only `add_checklist_items` is
   built.
