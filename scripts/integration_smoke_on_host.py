@@ -108,9 +108,7 @@ def _get(url: str, token: str | None = None, timeout: float = 5.0):
 
 
 def _post_json(url: str, payload: dict, token: str, timeout: float = 5.0):
-    req = urllib.request.Request(
-        url, data=json.dumps(payload).encode(), method="POST"
-    )
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST")
     req.add_header("Authorization", f"Bearer {token}")
     req.add_header("Content-Type", "application/json")
     return urllib.request.urlopen(req, timeout=timeout)
@@ -194,7 +192,7 @@ def run_checks(base: str, token: str) -> bool:
         assert "set_due_date" not in names, "no item-targeting action on new capture"
         # Every proposal is executable as-is: no null target on a targeting action.
         for p in data["proposals"]:
-            if p["name"] in ("set_due_date", "complete_work_item"):
+            if p.get("target_type") == "work_item":
                 assert p["target_id"] is not None, p
         # Confirm create_work_item -> the item is created now (human-driven).
         cwi = next(p for p in data["proposals"] if p["name"] == "create_work_item")
@@ -204,27 +202,114 @@ def run_checks(base: str, token: str) -> bool:
             token,
         )
         assert c.status == 200, c.status
-        # Find the created item, then capture onto it and confirm a due date.
+        # Find the created item, then capture a note that REFERS to it by title.
+        # Stage 1 (fake_link) resolves the target from the text — no work_item_id
+        # param — and stage 2 proposes set_due_date on it. This exercises the real
+        # resolve -> propose path against the fake.
         board = json.loads(_get(f"{base}/board", token=token).read())
         item_id = next(
-            wi["id"] for col in board.values() for wi in col
+            wi["id"]
+            for col in board.values()
+            for wi in col
             if wi["title"] == "call plumber friday"
         )
         r2 = _post_json(
             f"{base}/capture",
-            {"text": "he is coming friday", "work_item_id": item_id},
+            {"text": "the plumber is coming friday"},
             token,
         )
         assert r2.status == 201
         data2 = json.loads(r2.read())
-        assert data2["item"]["id"] == item_id
+        # Capture never persists: item is null even when a target is resolved.
+        assert data2["item"] is None
         due = next(p for p in data2["proposals"] if p["name"] == "set_due_date")
+        # The proposal targets the linked item (resolved from "plumber" in the text).
+        assert due["target_id"] == item_id, due
+        assert due["target_type"] == "work_item"
         c2 = _post_json(
             f"{base}/actions/confirm",
             {"name": "set_due_date", "params": due["params"], "target_id": item_id},
             token,
         )
         assert c2.status == 200, c2.status
+
+    def standalone_create_event_via_capture():
+        # An event-word + weekday NEW capture proposes a standalone create_event
+        # (no work item). Confirming it inserts an event and appends NO work-item
+        # update (events aren't the labor log). Exercises target_type='event'.
+        wi_before = len(
+            json.loads(_get(f"{base}/board", token=token).read()).get("todo", [])
+        )
+        body = json.loads(
+            _post_json(
+                f"{base}/capture", {"text": "dentist appointment monday"}, token
+            ).read()
+        )
+        ev = next(p for p in body["proposals"] if p["name"] == "create_event")
+        assert ev["target_type"] == "event" and ev["target_id"] is None, ev
+        title = ev["params"]["title"]
+        c = _post_json(
+            f"{base}/actions/confirm",
+            {"name": "create_event", "params": ev["params"], "target_type": "event"},
+            token,
+        )
+        assert c.status == 200, c.status
+        # The event shows up over real HTTP...
+        titles = [
+            e["title"] for e in json.loads(_get(f"{base}/events", token=token).read())
+        ]
+        assert title in titles, titles
+        # ...and no new work item was created by a standalone event.
+        wi_after = len(
+            json.loads(_get(f"{base}/board", token=token).read()).get("todo", [])
+        )
+        assert wi_after == wi_before, (wi_before, wi_after)
+
+    def deconflict_events_end_to_end():
+        # Seed two events at the same start directly, then confirm deconflict on
+        # the later-created one (higher id) and verify it moved a day forward.
+        # (The fake no longer *proposes* deconflict — we drive the action itself,
+        # which is what the confirm endpoint dispatches.)
+        from datetime import timedelta
+
+        s = SessionLocal()
+        try:
+            from app.manage import seed_event
+
+            fam = s.query(Family).filter_by(name="Smoke Household").one()
+            start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)
+            end = datetime(2026, 9, 5, 20, 0, tzinfo=UTC)
+            e1 = seed_event(s, fam.id, title="Soccer", start_at=start, end_at=end)
+            e2 = seed_event(s, fam.id, title="Dentist", start_at=start, end_at=end)
+            e1_id, e2_id, e1_start = e1.id, e2.id, e1.start_at
+        finally:
+            s.close()
+        assert e2_id > e1_id
+
+        c = _post_json(
+            f"{base}/actions/confirm",
+            {
+                "name": "deconflict_events",
+                "params": {},
+                "target_id": e2_id,
+                "target_type": "event",
+            },
+            token,
+        )
+        assert c.status == 200, c.status
+        # Verify over the DB (the /events read confirms the server applied it).
+        s = SessionLocal()
+        try:
+            from app.models import Event
+
+            moved = s.get(Event, e2_id)
+            other = s.get(Event, e1_id)
+            expected = (start + timedelta(days=1)).replace(tzinfo=None)
+            assert moved.start_at == expected, moved.start_at
+            # The other event is untouched.
+            assert other.start_at == e1_start
+        finally:
+            s.close()
 
     def seed_events_show_in_calendar():
         # Seed sample events directly (no assistant) and confirm GET /events
@@ -249,6 +334,8 @@ def run_checks(base: str, token: str) -> bool:
         ("board fragment shows created item", board_shows_item),
         ("SSE delivers a change frame", sse_delivers_change),
         ("assistant capture->propose->confirm", assistant_capture_propose_confirm),
+        ("standalone create_event via capture", standalone_create_event_via_capture),
+        ("deconflict_events end-to-end", deconflict_events_end_to_end),
         ("seed-events show in calendar", seed_events_show_in_calendar),
     ]:
         ok = _check(name, fn) and ok

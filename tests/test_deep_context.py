@@ -1,4 +1,4 @@
-"""resolve.py — LINK ids → validated → deep context for the PROPOSE call.
+"""deep_context.py — LINK ids → validated → deep context for the PROPOSE call.
 
 The LINK LLM returns ``{"work_item_ids": [...], "event_ids": [...]}``. These tests
 cover: tolerant parsing of that (untrusted) JSON; server-side **validation**

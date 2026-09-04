@@ -42,10 +42,10 @@
   `deconflict_events`.
 - **The two prompt views (built + full-string snapshot tested):**
   `build_world_view(session, family_id, now, tz, *, window_days=7)`
-  (`app/assistant/world.py`) — "state of the world": all members, **non-archived**
+  (`app/assistant/world_view.py`) — "state of the world": all members, **non-archived**
   work items (done INCLUDED, archived EXCLUDED), events in `[now − window_days, ∞)`
   rendered in family tz (date+time, start+end), ids inline as `[m#]/[w#]/[e#]`.
-  And `build_tools_view(registry)` (`app/assistant/tools.py`) — the LLM tool menu,
+  And `build_tools_view(registry)` (`app/assistant/tools_view.py`) — the LLM tool menu,
   one `spec.prompt_line` per action. Vocabulary: actions = execute (internal),
   tools = present-to-LLM. (The richer `WorldView`/`FocusedContext` shapes for the
   full pipeline are designed in the LLD, not all built yet.)
@@ -194,12 +194,13 @@ functional design + open questions (incl. OQ-1 pipeline shape / the 2-call goal)
 
 ## Polish / gaps (lower priority)
 
-- **Integration coverage (real-stack) gaps** worth closing in the smoke script:
-  (1) confirm a **standalone `create_event`** over real HTTP → shows in
-  `/calendar/view`, no work item; (2) **`deconflict_events`** end-to-end;
-  (3) SSE-triggered calendar refresh. (Note: `scripts/integration_smoke_on_host.py`
-  still exercises the older `{"text":…, "work_item_id":…}` capture shape in its
-  assistant check — verify/adjust against the current `/capture` contract.)
+- **Integration coverage (real-stack).** The smoke script now covers, over real
+  HTTP against the fake: the assistant **capture→propose→confirm** path using the
+  current propose-only `/capture` (stage-1 `fake_link` resolves the target from the
+  note text — no `work_item_id` param), a **standalone `create_event`** (target_type
+  `event`, shows in `/events`, no work item), and **`deconflict_events`**
+  end-to-end. Remaining gap: (3) an SSE-triggered **calendar** refresh (the generic
+  SSE change frame is already covered).
 - **Double-confirm semantics:** proposals aren't persisted, so confirming twice
   re-applies (deconflict → +2 days). Accepted for v1; document if it surfaces.
 - **GROOM board UI** — the board is read-only today (no archive/unarchive UI).

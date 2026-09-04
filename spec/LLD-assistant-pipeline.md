@@ -163,7 +163,7 @@ rather than hard-coding (v2 nicety; v1's six actions fetch the obvious slice).
   work items **and the events they participate in** (their `member_id` in the
   event's `participants` list) are unioned with the note-linked entities (deduped),
   with a member header naming whose context it is, so PROPOSE can reason about the
-  member's load (the labor-visibility core). Built in `app/assistant/resolve.py`
+  member's load (the labor-visibility core). Built in `app/assistant/deep_context.py`
   (`parse_ids` + `deep_context`). The `Event.participants` column (JSON list of
   `{member_id?, name}`, EVENT-5) was added for this; `create_event` writes it and
   `seed_event` accepts it. *(Was deferred as QQ-6 pending the participants column —
