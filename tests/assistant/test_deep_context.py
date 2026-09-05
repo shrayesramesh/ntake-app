@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 
 from app.assistant.context.deep import deep_context, resolve_ids
 from app.assistant.local_llm.link import parse_ids
-from app.models import Event, WorkItem, WorkItemUpdate
+from app.persistence.models import Event, WorkItem, WorkItemUpdate
 
 NOW = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)
 
@@ -120,7 +120,7 @@ def test_deep_context_drops_unknown_and_foreign_ids(session, fam_member):
     fam, m = fam_member
     mine = _wi(session, fam.id, "my task")
     # an unknown id and a foreign-family id must not appear.
-    from app.models import Family
+    from app.persistence.models import Family
 
     other = Family(name="Other", timezone="UTC")
     session.add(other)
@@ -154,7 +154,7 @@ def test_deep_context_unions_linked_and_footprint_without_dup(session, fam_membe
 
 def test_deep_context_excludes_other_members_assigned_items(session, fam_member):
     fam, m = fam_member
-    from app.models import Member
+    from app.persistence.models import Member
 
     other = Member(family_id=fam.id, display_name="Sam", role="child", created_at=NOW)
     session.add(other)
@@ -203,7 +203,7 @@ def test_deep_context_renders_full_update_history(session, fam_member):
 def test_deep_context_renders_ordered_checklist_before_timestamped_updates(
     session, fam_member
 ):
-    from app.models import ChecklistItem
+    from app.persistence.models import ChecklistItem
 
     fam, m = fam_member
     wi = _wi(session, fam.id, "Pittsburgh Planning", assigned_to=m.id)
@@ -303,7 +303,7 @@ def test_deep_context_dedups_linked_and_participated_event(session, fam_member):
 
 def test_deep_context_renders_linked_members(session, fam_member):
     fam, m = fam_member
-    from app.models import Member
+    from app.persistence.models import Member
 
     sam = Member(family_id=fam.id, display_name="Sam", role="adult", created_at=NOW)
     session.add(sam)
@@ -331,7 +331,7 @@ def test_resolve_ids_keeps_only_family_ids_preserving_order(session, fam_member)
     b = _wi(session, fam.id, "b")
     ev = _event(session, fam.id, "party")
 
-    from app.models import Family
+    from app.persistence.models import Family
 
     other = Family(name="Other", timezone="UTC")
     session.add(other)
@@ -350,7 +350,7 @@ def test_resolve_ids_keeps_only_family_ids_preserving_order(session, fam_member)
 
 def test_resolve_ids_whitelists_members_to_family(session, fam_member):
     fam, m = fam_member
-    from app.models import Family, Member
+    from app.persistence.models import Family, Member
 
     sam = Member(family_id=fam.id, display_name="Sam", role="adult", created_at=NOW)
     session.add(sam)

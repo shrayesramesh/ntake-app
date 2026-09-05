@@ -25,8 +25,12 @@ household/emotional labor **visible for recognition and fairness**.
 | Path | What it is |
 |---|---|
 | **`spec/`** | **Source of truth** — requirements, design, plan, agent entry point. Read this. |
-| `app/`, `tests/` | The application code (FastAPI + SQLite) and its tests. |
-| `alembic/` | DB migrations (baseline + `env.py`); driven via `python -m app.manage migrate`. |
+| `app/assistant/` | Propose-confirm engine plugin, context renderers, fake backend, and live local-LLM stages. |
+| `app/persistence/` | SQLAlchemy database setup, ORM models, and programmatic Alembic integration. |
+| `app/identity/` | Device-token cryptography and FastAPI request authentication. |
+| `app/schemas.py` | Pydantic API DTOs; deliberately separate from persistence models. |
+| `tests/` | Feature suites: `assistant/`, `identity/`, `persistence/`, `api/`, `web/`, and `operations/`; root holds shared fixtures and snapshots. |
+| `alembic/` | Alembic script environment and immutable migration revision history. |
 | `Makefile`, `setup.sh`, `requirements.txt`, `pyproject.toml` | Build/run/lint tooling. |
 | `SKILL.md` | How to work in this repo (the `make check` gate, conventions). |
 | `HOST_SETUP_GUIDE.md` | Operator setup (config, device tokens, Tailscale, run). |

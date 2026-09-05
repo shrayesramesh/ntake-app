@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Event, Member, WorkItem
+from app.persistence.models import Event, Member, WorkItem
 
 # --- row shapes (internal; not exported) ----------------------------------
 # Thin rows the queries return and the formatter consumes. Plain values, no ORM

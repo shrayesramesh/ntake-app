@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 
 from app.assistant.capture import FocusedContext
 from app.assistant.fake import FakeAssistant
-from app.models import Event, Family, Member, WorkItem, WorkItemUpdate
+from app.persistence.models import Event, Family, Member, WorkItem, WorkItemUpdate
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 

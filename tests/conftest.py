@@ -11,13 +11,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.pool import StaticPool
 
-from app.db import (
+from app.main import app, app_emitter
+from app.persistence.database import (
     get_session,
     init_schema,
     make_session_factory,
     register_change_events,
 )
-from app.main import app, app_emitter
 
 
 @pytest.fixture()
@@ -79,8 +79,8 @@ def auth_headers(session, monkeypatch):
     """
     from datetime import UTC, datetime
 
-    from app.models import DeviceToken, Family, Member
-    from app.tokens import generate_token, hash_token
+    from app.identity.tokens import generate_token, hash_token
+    from app.persistence.models import DeviceToken, Family, Member
 
     secret = "test-token-secret"
     monkeypatch.setenv("NTAKE_TOKEN_SECRET", secret)
@@ -115,7 +115,7 @@ def family_factory(session):
 
     Removes the copied 3-line family-seeding boilerplate scattered across tests.
     """
-    from app.models import Family
+    from app.persistence.models import Family
 
     def make(name: str = "Fam", tz: str = "America/New_York"):
         fam = Family(name=name, timezone=tz)
@@ -131,7 +131,7 @@ def member_factory(session):
     """Factory: ``make(family_id, name="A", role="adult") -> Member`` (committed)."""
     from datetime import UTC, datetime
 
-    from app.models import Member
+    from app.persistence.models import Member
 
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
@@ -158,7 +158,7 @@ def work_item_factory(session):
     """
     from datetime import UTC, datetime
 
-    from app.models import WorkItem
+    from app.persistence.models import WorkItem
 
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
@@ -226,7 +226,7 @@ def seeded_events(session, event_factory):
     """
     from datetime import UTC, date, datetime
 
-    from app.models import Family
+    from app.persistence.models import Family
 
     fam = Family(name="SeededFam", timezone="America/New_York")
     session.add(fam)
@@ -261,7 +261,7 @@ def populated_family(session, event_factory):
     from datetime import UTC, date, datetime
     from types import SimpleNamespace
 
-    from app.models import Family, Member, WorkItem
+    from app.persistence.models import Family, Member, WorkItem
 
     # Reference "now": Thu 2026-09-03 12:00 UTC = 08:00 America/New_York.
     now = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)

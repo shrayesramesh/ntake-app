@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.assistant.actions.registry import REGISTRY
 from app.assistant.capture import FocusedContext
 from app.assistant.factory import AssistantConfig, get_assistant
-from app.models import Event, Member, WorkItem
+from app.persistence.models import Event, Member, WorkItem
 from app.routing.engine import ProposedAction, propose_bounded
 from app.schemas import ProposalRead
 

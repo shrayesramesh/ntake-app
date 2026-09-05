@@ -1,1 +1,1 @@
-"""Focused assistant and propose-confirm test suite."""
+"""Focused assistant test suite."""

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.assistant.actions.registry import apply_action
-from app.models import Event, WorkItem, WorkItemUpdate
+from app.persistence.models import Event, WorkItem, WorkItemUpdate
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 

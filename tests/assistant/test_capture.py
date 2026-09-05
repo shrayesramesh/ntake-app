@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import app.assistant.proposals as proposals
 from app.assistant.capture import AssistantClient
-from app.models import Event, WorkItem, WorkItemUpdate
+from app.persistence.models import Event, WorkItem, WorkItemUpdate
 
 
 def test_capture_requires_auth(client):

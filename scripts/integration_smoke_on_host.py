@@ -46,11 +46,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import uvicorn  # noqa: E402
 
-from app.db import SessionLocal, engine  # noqa: E402
+from app.persistence.database import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.manage import gen_token_for, seed_sample_events  # noqa: E402
-from app.models import Family, Member  # noqa: E402
-from app.tokens import token_secret  # noqa: E402
+from app.persistence.models import Family, Member  # noqa: E402
+from app.identity.tokens import token_secret  # noqa: E402
 
 PASS = "\033[32mPASS\033[0m"
 FAIL = "\033[31mFAIL\033[0m"
@@ -355,7 +355,7 @@ def run_checks(base: str, token: str) -> bool:
         # Verify over the DB (the /events read confirms the server applied it).
         s = SessionLocal()
         try:
-            from app.models import Event
+            from app.persistence.models import Event
 
             moved = s.get(Event, e2_id)
             other = s.get(Event, e1_id)
@@ -407,7 +407,7 @@ def run_checks(base: str, token: str) -> bool:
         assert c.status == 200, c.status
         s = SessionLocal()
         try:
-            from app.models import Event
+            from app.persistence.models import Event
 
             moved = s.get(Event, ev_id)
             assert moved.start_at is not None and moved.start_at != before.replace(

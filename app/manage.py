@@ -32,8 +32,8 @@ from pathlib import Path
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.models import DeviceToken, Event, Family, Member
-from app.tokens import generate_token, hash_token, token_secret
+from app.identity.tokens import generate_token, hash_token, token_secret
+from app.persistence.models import DeviceToken, Event, Family, Member
 
 
 def gen_token_for(
@@ -317,8 +317,8 @@ def main(argv: list[str] | None = None) -> int:
     # init_schema (create_all), which would create tables outside Alembic's
     # tracking. Handle it first, before the create_all + session setup below.
     if args.command == "migrate":
-        from app.db import DB_URL
-        from app.migrations import upgrade_to_head
+        from app.persistence.database import DB_URL
+        from app.persistence.migrations import upgrade_to_head
 
         upgrade_to_head(DB_URL)
         print(f"Migrated {DB_URL} to head.")
@@ -334,7 +334,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Import here so tests that only exercise the core functions don't require
     # the app DB/env to import this module.
-    from app.db import SessionLocal, engine, init_schema
+    from app.persistence.database import SessionLocal, engine, init_schema
 
     init_schema(engine)
     session = SessionLocal()

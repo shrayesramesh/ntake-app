@@ -129,7 +129,7 @@ def test_assembled_propose_prompt_over_populated_family(session, populated_famil
     from app.assistant.actions.registry import REGISTRY
     from app.assistant.context.deep import deep_context
     from app.assistant.tools_view import build_tools_view
-    from app.models import Member
+    from app.persistence.models import Member
     from tests.expectations import assert_matches_expectation
 
     p = populated_family

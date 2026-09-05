@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-from app.models import Event, TargetType
+from app.persistence.models import Event, TargetType
 from app.routing.engine import ActionSpec, DataType, Param, require_params
 
 from .context import NtakeActionContext

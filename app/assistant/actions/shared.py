@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from app.models import Event, Member, WorkItem, WorkItemUpdate
+from app.persistence.models import Event, Member, WorkItem, WorkItemUpdate
 from app.routing.engine import ActionError
 
 

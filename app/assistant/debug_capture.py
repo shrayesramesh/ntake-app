@@ -21,7 +21,7 @@ from app.assistant.capture import CaptureRequest, FocusedContext, ProposedAction
 from app.assistant.local_llm.link import LocalLlmCaptureResolver
 from app.assistant.local_llm.propose import LocalLlmAssistant
 from app.assistant.local_llm.protocol import LLM, Json
-from app.models import Member
+from app.persistence.models import Member
 
 
 @dataclass

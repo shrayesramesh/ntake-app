@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from html import escape
 
-from app.models import WORK_ITEM_STATUSES, Event, WorkItem
+from app.persistence.models import WORK_ITEM_STATUSES, Event, WorkItem
 
 # Column order = the canonical domain status codes (single source of truth in
 # models). Labels are the UI-layer display names, keyed off those codes.

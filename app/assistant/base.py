@@ -29,7 +29,7 @@ from app.assistant.capture import (
     NullAssistant,
     ProposedAction,
 )
-from app.models import Member
+from app.persistence.models import Member
 
 __all__ = [
     "AssistantClient",

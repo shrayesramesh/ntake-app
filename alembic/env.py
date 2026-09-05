@@ -1,9 +1,9 @@
-"""Alembic environment — driven by app.migrations (no alembic.ini).
+"""Alembic environment — driven by app.persistence.migrations (no alembic.ini).
 
 The DB URL comes from the in-code ``Config`` (``sqlalchemy.url``, set by
-``app.migrations.make_alembic_config``) when provided, else from
-``CALENDAR_DB_URL`` via ``app.db.DB_URL`` — one source of truth. ``target_metadata``
-is ``app.db.Base.metadata`` (models imported so every table is registered), which
+``app.persistence.migrations.make_alembic_config``) when provided, else from
+``CALENDAR_DB_URL`` via ``app.persistence.database.DB_URL`` — one source of truth. ``target_metadata``
+is ``app.persistence.database.Base.metadata`` (models imported so every table is registered), which
 is what ``--autogenerate`` diffs against.
 """
 
@@ -12,12 +12,12 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-import app.models  # noqa: F401 — register all mappers on Base.metadata
-from app.db import DB_URL, Base
+import app.persistence.models  # noqa: F401 — register all mappers on Base.metadata
+from app.persistence.database import DB_URL, Base
 
 config = context.config
 
-# URL precedence: explicit Config option (app.migrations) → CALENDAR_DB_URL.
+# URL precedence: explicit Config option (app.persistence.migrations) → CALENDAR_DB_URL.
 _url = config.get_main_option("sqlalchemy.url") or DB_URL
 
 target_metadata = Base.metadata

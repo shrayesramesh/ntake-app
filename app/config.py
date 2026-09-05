@@ -22,7 +22,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Family, Member
+from app.persistence.models import Family, Member
 
 
 class MemberConfig(BaseModel):

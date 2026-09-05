@@ -25,6 +25,20 @@ Use these only when the task makes them relevant:
 ## The code (already exists, at repo root — not in this folder)
 
 `app/`, `tests/`, `Makefile`, `setup.sh`, `requirements.txt`, `pyproject.toml`.
+
+### Package map
+
+- `app/persistence/` — database engine/session setup, ORM models, and Alembic
+  wrapper. The repository-root `alembic/` directory holds scripts and revision
+  history.
+- `app/identity/` — device-token cryptography and FastAPI authentication
+  dependencies. `Member` and `DeviceToken` remain persistence models.
+- `app/assistant/` — fake and local-LLM backends plus the explicit
+  world → LINK → deep-context → PROPOSE pipeline.
+- `app/schemas.py` — Pydantic API DTOs; it is an API boundary, not persistence.
+- `tests/<feature>/` — feature-owned tests: `assistant`, `identity`,
+  `persistence`, `api`, `web`, and `operations`. Shared fixtures stay in
+  `tests/conftest.py`; prompt snapshots stay in `tests/expectations/`.
 Current state: phases 0–3 and **Phase 4 including the live local-LLM backend
 (task 7)** are built and green (`make check` green, ≥95% coverage; + `make smoke`,
 12 real-stack checks). Events + work-item/board + live SSE + config-seeded

@@ -8,7 +8,14 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ChecklistItem, Event, Family, Member, WorkItem, WorkItemUpdate
+from app.persistence.models import (
+    ChecklistItem,
+    Event,
+    Family,
+    Member,
+    WorkItem,
+    WorkItemUpdate,
+)
 
 _DATETIME_FMT = "%a %b %-d, %-I:%M %p"
 _DATE_FMT = "%a %b %-d"

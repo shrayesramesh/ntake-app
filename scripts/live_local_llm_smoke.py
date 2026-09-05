@@ -42,10 +42,10 @@ import uvicorn  # noqa: E402
 
 import app.main as main  # noqa: E402
 from app.assistant.factory import AssistantConfig  # noqa: E402
-from app.db import SessionLocal, engine  # noqa: E402
+from app.persistence.database import SessionLocal, engine  # noqa: E402
 from app.manage import gen_token_for, seed_event  # noqa: E402
-from app.models import Family, Member  # noqa: E402
-from app.tokens import token_secret  # noqa: E402
+from app.persistence.models import Family, Member  # noqa: E402
+from app.identity.tokens import token_secret  # noqa: E402
 
 
 def _free_port() -> int:
@@ -147,13 +147,13 @@ def _run_debug(base_url: str, model: str) -> int:
     rec = RecordingLLM(client)
 
     # Seed a real DB (same schema path) via the app engine bound to our temp DB.
-    from app.db import init_schema
+    from app.persistence.database import init_schema
 
     init_schema(engine)
     _token, fam_id = _seed()
 
     from app.assistant.local_llm.propose import LocalLlmAssistant
-    from app.models import Member
+    from app.persistence.models import Member
 
     resolver = LocalLlmCaptureResolver(rec)
     assistant = LocalLlmAssistant(rec)

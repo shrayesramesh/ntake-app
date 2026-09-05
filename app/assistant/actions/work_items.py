@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import func
 
-from app.models import ChecklistItem, Member, TargetType, WorkItem
+from app.persistence.models import ChecklistItem, Member, TargetType, WorkItem
 from app.routing.engine import ActionError, ActionSpec, DataType, Param, require_params
 
 from .context import NtakeActionContext

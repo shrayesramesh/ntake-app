@@ -23,7 +23,7 @@ from app.assistant.context.world import (
     build_world_view,
 )
 from app.manage import seed_event
-from app.models import Family, Member, WorkItem
+from app.persistence.models import Family, Member, WorkItem
 
 # A fixed "now": Thu 2026-09-03 12:00 UTC = 08:00 America/New_York.
 NOW = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)

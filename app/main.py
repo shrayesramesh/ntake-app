@@ -29,7 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
-import app.db as db
+import app.persistence.database as db
 from app import __version__
 from app.assistant.actions.registry import apply_action
 from app.assistant.capture import CaptureRequest
@@ -40,12 +40,12 @@ from app.assistant.proposals import (
     propose,
     to_proposal_read,
 )
-from app.auth import current_member, current_member_stream
 from app.config import config_path, load_config, seed_from_config
-from app.db import SessionLocal, get_session, register_change_events
 from app.event_emitter import InProcessEmitter
-from app.migrations import upgrade_to_head
-from app.models import (
+from app.identity.auth import current_member, current_member_stream
+from app.persistence.database import SessionLocal, get_session, register_change_events
+from app.persistence.migrations import upgrade_to_head
+from app.persistence.models import (
     WORK_ITEM_STATUSES,
     ChecklistItem,
     Event,
@@ -97,7 +97,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """On startup: migrate the DB to head, then seed identity from config.
 
     Migrations are the schema path for the real DB (``alembic upgrade head`` via
-    ``app.migrations``): on a fresh DB this creates every table *via the baseline
+    ``app.persistence.migrations``): on a fresh DB this creates every
+    table *via the baseline
     migration* and stamps it at head, so the deployed schema is always
     Alembic-managed (no create_all/migration drift). Tests build their schema
     from the ORM metadata (``init_schema``) for speed — this migrate path is the

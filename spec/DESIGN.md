@@ -388,7 +388,7 @@ FocusedContext {text, tz, now, resolved_work_item_ids,
   the reference runtime, any OpenAI-style localhost endpoint behind the same seam).
   They are mirror images swapped by config.
 - **Engine — `app/routing/engine.py`** (imports NOTHING app-specific: no
-  `app.models`, no `sqlalchemy`, no `fastapi`; enforced by a boundary test):
+  `app.persistence.models`, no `sqlalchemy`, no `fastapi`; enforced by a boundary test):
   `ProposedAction`, `AssistantClient`/`NullAssistant` (the propose contract);
   `ActionRegistry`/`ActionSpec` (register name → `{required, describe, handler,
   target_type, logs}`, with `needs_target` derived from `target_type`;

@@ -11,7 +11,8 @@ concrete context type — no ``Any``, and no parameter-variance issues, because 
 plugin's ``AssistantClient[FocusedContext]`` / handler is a fully-typed
 specialization rather than an override that narrows a base parameter.
 
-Imports NOTHING app-specific (no app.models, no sqlalchemy, no fastapi) — that
+Imports NOTHING app-specific (no app.persistence.models, no sqlalchemy,
+no fastapi) — that
 boundary (enforced by tests/test_engine.py) is what makes it extractable into
 its own package by a directory move.
 """

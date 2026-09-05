@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.models import Member
+from app.persistence.models import Member
 from app.routing.engine import ActionRegistry, ActionSpec
 
 from .context import NtakeActionContext

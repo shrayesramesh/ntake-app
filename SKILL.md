@@ -41,6 +41,11 @@
 | `make setup` | venv + install + verify (run once / after deps change) |
 | `make test` | run the full pytest suite |
 | `make test-assistant` | run the focused assistant / local-LLM pipeline suite |
+| `make test-identity` | run the focused identity / device-token suite |
+| `make test-persistence` | run the focused database / model / migration suite |
+| `make test-api` | run the focused JSON API / live-sync suite |
+| `make test-web` | run the focused PWA / server-rendered UI suite |
+| `make test-operations` | run the focused lifecycle / config / backup / CLI suite |
 | `make lint` | ruff check + format-check (no changes) |
 | `make format` | ruff auto-fix + format (mutates files) |
 | `make typecheck` | mypy |
@@ -49,8 +54,9 @@
 | `make clean` | remove venv/caches/db |
 
 Typical loop while coding:
-1. Run the focused feature suite while iterating (`make test-assistant` for
-   assistant/pipeline work).
+1. Run the focused feature suite while iterating (`make test-assistant`,
+   `make test-identity`, `make test-persistence`, `make test-api`, `make test-web`,
+   or `make test-operations`).
 2. Write or update the relevant test, then code.
 3. Run `make format` as needed.
 4. Before finishing a checkpoint or creating a commit, run the full `make check`
@@ -61,9 +67,11 @@ Typical loop while coding:
 - **TDD:** write the test first, then the code to pass it. Tests live in `tests/`
   and use the in-memory-SQLite fixtures in `tests/conftest.py` (each test gets an
   isolated DB — do not write to the real `calendar.db`).
-- **Data layer:** SQLAlchemy 2.0 ORM (typed `Mapped[...]`), NOT SQLModel. Schema
-  per `research/04-data-layer.md`. Pydantic models are separate DTOs at the API
-  edge (`app/schemas.py`) — do not merge them into the ORM classes.
+- **Data layer:** SQLAlchemy 2.0 ORM (typed `Mapped[...]`), NOT SQLModel. It
+  lives in `app/persistence/`: `database.py` owns engine/session setup,
+  `models.py` owns ORM rows, and `migrations.py` owns the programmatic Alembic
+  wrapper. Pydantic models are separate API DTOs at `app/schemas.py` — do not
+  merge them into ORM classes.
 - **Timestamps are UTC**; `families.timezone` is required. Use `datetime.UTC`
   (not the older `timezone.utc`). **Gotcha:** SQLite/SQLAlchemy returns
   **tz-naive** datetimes even when you stored tz-aware ones — they represent UTC.
@@ -118,8 +126,7 @@ there's a concrete reason not to; deviating is fine but call it out.
   caught and the prompt context is inspectable in-repo. (`test_world_view`,
   `test_tools_view`.)
 - **Keep the engine domain-agnostic.** `app/routing/` (the propose/route/confirm
-  engine) must import nothing app-specific — no `app.models`, `sqlalchemy`, or
-  `fastapi` (enforced by a boundary test). App-coupled work (DB, ORM) lives in
+  engine) must import nothing app-specific — no `app.persistence.models`, `sqlalchemy`, or `fastapi` (enforced by a boundary test). App-coupled work (DB, ORM) lives in
   `app/assistant/`. Vocabulary marks the boundary: **"actions" are what we execute
   (internal); "tools" are how they're presented to the LLM.**
 - **Assistant flow has explicit stage ownership.** `AssistantConfig.kind` selects
@@ -135,12 +142,23 @@ there's a concrete reason not to; deviating is fine but call it out.
     parsing, and the stage-2 assistant.
   Stateless singleton strategies receive request-scoped DB `Session` values as
   method arguments and never retain them.
-- **Tests follow feature boundaries.** Add unit tests beside the owning feature
-  suite (`tests/assistant/` for LINK, PROPOSE, context, and actions). Keep HTTP
+- **Tests follow feature boundaries.** Add tests beside the owning feature suite:
+  `tests/assistant/` (LINK, PROPOSE, context, actions), `tests/identity/`
+  (device-token authentication), `tests/persistence/` (database, models,
+  migrations), `tests/api/` (JSON API and SSE), `tests/web/` (PWA and rendered
+  UI), or `tests/operations/` (lifecycle, config, backup, CLI). Keep HTTP
   capture/confirm tests as feature-level integration coverage. Prefer a small
   number of end-to-end happy paths for cross-boundary behavior while retaining
   unit tests for validation, serialization, time handling, and other edge-heavy
   contracts.
+- **TDD test placement is part of feature design.** Before writing production
+  code, place the test in the narrowest owning suite: persistence behavior in
+  `tests/persistence/`, request/response behavior in `tests/api/`, rendered UI
+  behavior in `tests/web/`, lifecycle/CLI behavior in `tests/operations/`, and
+  assistant or identity behavior in their respective suites. If a behavior
+  crosses layers, put the happy-path integration test with the user-facing
+  feature (`assistant` capture/confirm or `api` endpoint), not at the test root.
+  The root is reserved for shared fixtures and expectation helpers.
 - **Test fixtures for seeding, not copied helpers.** Use the `conftest.py`
   factories (`family_factory`/`member_factory`/`work_item_factory`/`event_factory`)
   and composites (`fam_member`, `fam_member_item`, `populated_family`) rather than

@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.assistant.base import CaptureRequest, CaptureResolver, FocusedContext
 from app.assistant.context.deep import deep_context
-from app.models import Event, Member, WorkItem
+from app.persistence.models import Event, Member, WorkItem
 
 
 class FakeCaptureResolver(CaptureResolver):

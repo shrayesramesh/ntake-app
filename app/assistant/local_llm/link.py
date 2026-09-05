@@ -10,7 +10,7 @@ from app.assistant.base import CaptureRequest, CaptureResolver, FocusedContext
 from app.assistant.context.deep import deep_context, resolve_ids
 from app.assistant.context.world import build_world_view
 from app.assistant.local_llm.protocol import LLM
-from app.models import Member
+from app.persistence.models import Member
 
 # --- CALL 1: LINK (entity resolution) -------------------------------------
 # Input: the shallow world (id-bearing menu) + the raw note.

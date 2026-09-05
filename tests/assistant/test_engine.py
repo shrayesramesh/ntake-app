@@ -3,8 +3,9 @@
 The engine (``app.routing``) is domain-agnostic: it knows how to register
 actions, validate params, dispatch to a handler with an OPAQUE context it never
 inspects, describe an action from its params, and run a bounded/graceful-degrade
-propose. It must import NOTHING app-specific — no app.models, no sqlalchemy, no
-fastapi — which is what makes it extractable into its own package later.
+propose. It must import NOTHING app-specific — no
+app.persistence.models, sqlalchemy, or fastapi — which is what makes it
+extractable into its own package later.
 
 These tests use a fake handler + a fake opaque context (a plain dict), so they
 exercise the engine with zero ORM / zero app types.
@@ -29,8 +30,8 @@ from app.routing.engine import (
 
 
 def test_engine_does_not_import_app_specific_modules():
-    """A fresh import of the engine must not transitively pull in app.models,
-    sqlalchemy, or fastapi. This is what guarantees extractability."""
+    """A fresh import must not transitively load persistence, SQLAlchemy,
+    or FastAPI modules; that guarantees extractability."""
     import importlib
     import sys
 
@@ -43,7 +44,7 @@ def test_engine_does_not_import_app_specific_modules():
     importlib.import_module("app.routing.engine")
     newly = set(sys.modules) - before
 
-    forbidden = {"app.models", "sqlalchemy", "fastapi"}
+    forbidden = {"app.persistence.models", "sqlalchemy", "fastapi"}
     leaked = {m for m in newly if m in forbidden or m.split(".")[0] in forbidden}
     assert not leaked, f"engine leaked app-specific imports: {leaked}"
 

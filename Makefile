@@ -21,13 +21,21 @@ SRC  := app tests
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup test test-assistant run lint format typecheck check coverage smoke ui-live llm-up llm-down llm-status freeze clean update-expectations
+.PHONY: \
+  help setup test \
+  test-assistant test-identity test-persistence test-api test-web test-operations \
+  update-expectations \
+  run smoke ui-live llm-up llm-down llm-status \
+  lint format typecheck coverage check \
+  freeze clean
 
 help: ## Show available targets
 	@echo "Targets:"
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) \
 	  | sed -E 's/^([a-zA-Z_-]+):.*## (.*)/  \1|\2/' \
-	  | awk -F'|' '{ printf "  %-10s %s\n", $$1, $$2 }'
+	  | awk -F'|' '{ printf "  %-22s %s\n", $$1, $$2 }'
+
+# --- Setup and focused tests -----------------------------------------
 
 setup: ## Create venv, install deps, and run tests (delegates to setup.sh)
 	bash setup.sh
@@ -40,14 +48,40 @@ test-assistant: ## Run the focused assistant/pipeline suite
 	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
 	$(PYTEST) -v -W ignore tests/assistant
 
+test-identity: ## Run the focused identity/device-token suite
+	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
+	$(PYTEST) -v -W ignore tests/identity
+
+test-persistence: ## Run the focused database/model/migration suite
+	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
+	$(PYTEST) -v -W ignore tests/persistence
+
+test-api: ## Run the focused JSON API and live-sync suite
+	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
+	$(PYTEST) -v -W ignore tests/api
+
+test-web: ## Run the focused PWA and server-rendered UI suite
+	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
+	$(PYTEST) -v -W ignore tests/web
+
+test-operations: ## Run the focused lifecycle, config, backup, and CLI suite
+	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
+	$(PYTEST) -v -W ignore tests/operations
+
+# --- Prompt snapshots ------------------------------------------------
+
 update-expectations: ## Regenerate golden-file prompt/LLM expectations (review the diff!)
 	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
 	NTAKE_UPDATE_EXPECTATIONS=1 $(PYTEST) -q -W ignore tests/assistant/test_prompts.py
 	@echo "Expectations regenerated — review 'git diff tests/expectations/'."
 
+# --- Runtime and integration -----------------------------------------
+
 run: ## Run the dev server (127.0.0.1:8000)
 	@test -x $(UVICORN) || { echo "No venv found — run 'make setup' first."; exit 1; }
 	$(UVICORN) app.main:app --reload --host 127.0.0.1 --port 8000
+
+# --- Local quality checks --------------------------------------------
 
 lint: ## Check lint rules (ruff, no changes)
 	@test -x $(RUFF) || { echo "No venv found — run 'make setup' first."; exit 1; }
@@ -83,12 +117,16 @@ llm-down: ## Stop the local llamafile model server started by llm-up
 llm-status: ## Is the local model server answering?
 	bash scripts/llm.sh status
 
+# --- Full quality gate ------------------------------------------------
+
 check: ## Everything gate: lint + typecheck + coverage-enforced tests
 	@$(MAKE) lint
 	@$(MAKE) typecheck
 	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
 	$(PYTEST) -W ignore --cov=app --cov-report=term-missing --cov-fail-under=95
 	@echo "check: all passed."
+
+# --- Maintenance ------------------------------------------------------
 
 freeze: ## Print exact installed versions (for updating requirements.txt)
 	@test -x $(PIP) || { echo "No venv found — run 'make setup' first."; exit 1; }

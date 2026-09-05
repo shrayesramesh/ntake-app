@@ -180,7 +180,7 @@ def test_reschedule_word_without_a_resolved_event_does_not_propose_reschedule():
 
 def test_propose_does_not_touch_the_db(session):
     """The assistant must be read-only; propose takes context, not a session."""
-    from app.models import WorkItem, WorkItemUpdate
+    from app.persistence.models import WorkItem, WorkItemUpdate
 
     before_items = session.query(WorkItem).count()
     before_updates = session.query(WorkItemUpdate).count()

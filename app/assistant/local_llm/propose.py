@@ -10,7 +10,7 @@ from app.assistant.actions.registry import REGISTRY
 from app.assistant.capture import FocusedContext, ProposedAction
 from app.assistant.local_llm.protocol import LLM
 from app.assistant.tools_view import build_tools_view
-from app.models import TargetType
+from app.persistence.models import TargetType
 from app.routing.engine import ActionRegistry, ActionSpec, AssistantClient
 
 # --- CALL 2: PROPOSE (action planning) ------------------------------------
