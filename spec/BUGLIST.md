@@ -134,7 +134,7 @@ uses the strengthened prompt rather than needing the guard.
 
 ---
 
-### BUG-003 — LINK returns event ids absent from THE WORLD — open
+### BUG-003 — LINK returns event ids absent from THE WORLD — prompt tuned; live retest pending
 
 **Class:** prompt/model contract violation  
 **Severity:** low while family whitelist remains in place; medium if validation is
@@ -162,11 +162,12 @@ ids before they reach `FocusedContext`, so this id is dropped and does not becom
 an attachable target. The result is safe today, but the model contract is violated
 and it adds noise to debug reasoning.
 
-**Investigation direction**
+**Current mitigation**
 
-Prompt-tune LINK toward fewer ids when unsure; retain the server-side whitelist as
-the non-negotiable defense. Add a regression test around raw out-of-world ids being
-dropped if one does not already cover this exact member/event combination.
+The LINK prompt now explicitly forbids inferring the next numeric ID and says to
+prefer an empty list when unsure. Keep the server-side whitelist as the
+non-negotiable defense. Re-run the live trace to see whether the smaller model
+stops emitting out-of-world IDs before considering a dynamic enum schema.
 
 ---
 

@@ -25,13 +25,14 @@ this slice — OS dictation writes into the ordinary field. If capture later bec
 a multiline textarea, define the contract explicitly: Enter submits; Shift+Enter
 adds a newline.
 
-### 4. Add tag-based calendar colors — [open]
+### 4. Add tag-based calendar colors — [deferred: kiosk hardening]
 The event-tag data/action contract is now built: `Event.tags: list[str]`, the API,
 create actions, `set_event_tags`, and deep context all carry normalized shared tags.
-The remaining work is visual mapping: assign a fixed, accessible household palette
-to EventCalendar `backgroundColor`/`textColor` or `classNames`. First tag is the
-primary grid color; remaining tags belong in a later event-detail surface. Unknown
-tags use a neutral fallback. Do not accept arbitrary model-supplied colors.
+Defer the visual palette decision until immediately before kiosk hardening starts,
+when the wall-display constraints can steer it. The eventual mapping should use a
+fixed accessible household palette; first tag is the primary grid color, remaining
+tags belong in a later event-detail surface, and unknown tags use a neutral
+fallback. Do not accept arbitrary model-supplied colors.
 
 ### 1. Deep context includes work-item and event tags — [done]
 Deep context now renders normalized work-item and event tags in a compact

@@ -7,9 +7,11 @@ a family member just typed). Decide which existing work items, events, and famil
 members — if any — the note is about.
 
 Rules:
-- Reference ONLY ids that appear in THE WORLD. Never invent an id.
+- Reference ONLY ids that appear in THE WORLD. Never invent an id or infer the
+  next numeric id.
 - A note may refer to nothing existing (a brand-new task/event): return empty
-  lists. It may refer to more than one.
+  lists. It may refer to more than one. If uncertain whether an existing entity
+  is intended, prefer an empty list to a guessed link.
 - Include a member id in member_ids when the note is ABOUT that person (e.g.
   "Alex's day off" -> that member; "drive Sam to practice" -> Sam), so their
   existing workload/events can inform what to do. Match people by name.

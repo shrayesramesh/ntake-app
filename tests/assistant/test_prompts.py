@@ -46,9 +46,11 @@ def test_link_prompt_fills_and_embeds_inputs():
     assert "actions" not in system.lower()
 
 
-def test_link_prompt_forbids_inventing_ids():
+def test_link_prompt_forbids_phantom_ids_and_prefers_no_link_when_unsure():
     system, _ = build_link_prompt(world_view="x", note="y", now=NOW, timezone=TZ)
-    assert "invent" in system.lower()  # the "never invent an id" rule is present
+    assert "invent" in system.lower()
+    assert "next numeric id" in system.lower()
+    assert "prefer an empty list" in system.lower()
 
 
 # --- PROPOSE --------------------------------------------------------------
