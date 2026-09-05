@@ -106,3 +106,12 @@ def test_board_view_loads_full_checklist_for_open_cards(client, session, auth_he
     assert "☐ milk" in html
     assert "☑ bread" in html
     assert html.index("milk") < html.index("bread")
+
+
+def test_capture_form_uses_native_submit_and_mobile_done_hint(client):
+    html = client.get("/").text
+
+    assert '<form id="capture" onsubmit="return onCapture(event)">' in html
+    assert 'id="capture-text"' in html
+    assert 'enterkeyhint="done"' in html
+    assert '<button type="submit">Capture</button>' in html

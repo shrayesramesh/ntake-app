@@ -135,7 +135,10 @@ SHELL_PAGE = """<!doctype html>
   </div>
 
   <form id="capture" onsubmit="return onCapture(event)">
-    <input id="capture-text" placeholder="Capture a note, task, or plan…" required>
+    <input id="capture-text"
+           placeholder="Capture a note, task, or plan…"
+           enterkeyhint="done"
+           required>
     <button type="submit">Capture</button>
   </form>
 
