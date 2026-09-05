@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.assistant.base import CaptureRequest, CaptureResolver, FocusedContext
 from app.assistant.context.deep import deep_context
+from app.assistant.context.linking import add_capturing_member_for_first_person
 from app.persistence.models import Event, Member, WorkItem
 
 
@@ -54,7 +55,8 @@ class FakeCaptureResolver(CaptureResolver):
         wi_ids, ev_ids = fake_link(
             session, member.family_id, request.text, request.now, request.timezone
         )
-        dc = deep_context(session, member, wi_ids, ev_ids)
+        member_ids = add_capturing_member_for_first_person(request.text, [], member.id)
+        dc = deep_context(session, member, wi_ids, ev_ids, member_ids)
         return FocusedContext(
             text=request.text,
             timezone=request.timezone,
@@ -62,6 +64,7 @@ class FakeCaptureResolver(CaptureResolver):
             deep_context=dc,
             resolved_work_item_ids=wi_ids,
             resolved_event_ids=ev_ids,
+            resolved_member_ids=member_ids,
         )
 
 

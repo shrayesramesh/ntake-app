@@ -137,7 +137,11 @@ def test_participant_name_migration_converts_legacy_event_data(tmp_path: Path):
             participants = connection.execute(
                 text("SELECT participants FROM events WHERE id = 1")
             ).scalar_one()
+            tags = connection.execute(
+                text("SELECT tags FROM events WHERE id = 1")
+            ).scalar_one()
     finally:
         engine.dispose()
 
     assert json.loads(participants) == ["Sam", "Coach Lee"]
+    assert json.loads(tags) == []

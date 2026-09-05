@@ -90,12 +90,14 @@ def test_create_timed_event_writes_participants(session, fam_member):
             "start_at": start,
             "end_at": start,
             "participants": [m.display_name, "Coach Lee"],
+            "tags": ["school", "sports"],
         },
         target_type="event",
     )
     session.expire_all()
     ev = session.query(Event).filter_by(title="Soccer").one()
     assert ev.participants == [m.display_name, "Coach Lee"]
+    assert ev.tags == ["school", "sports"]
 
 
 def test_create_timed_event_requires_a_timing(session, fam_member):
@@ -407,3 +409,38 @@ def test_render_card_event_metadata_actions_show_names_and_location():
 
     assert location == ["Location: Downtown clinic"]
     assert participants == ["Participants: Alex, Grandma"]
+
+
+def test_set_event_tags_replaces_normalized_tags(session, fam_member):
+    fam, member = fam_member
+    event = seed_event(
+        session,
+        fam.id,
+        title="Soccer",
+        start_at=datetime(2026, 9, 5, 19, 0, tzinfo=UTC),
+        tags=["school"],
+    )
+
+    apply_action(
+        session,
+        member,
+        "set_event_tags",
+        event.id,
+        {"tags": [" Sports ", "school", "family"]},
+        target_type="event",
+    )
+
+    session.expire_all()
+    assert session.get(Event, event.id).tags == ["Sports", "school", "family"]
+    assert session.query(WorkItemUpdate).count() == 0
+
+    apply_action(
+        session,
+        member,
+        "set_event_tags",
+        event.id,
+        {"tags": []},
+        target_type="event",
+    )
+    session.expire_all()
+    assert session.get(Event, event.id).tags == []

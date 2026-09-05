@@ -10,7 +10,7 @@ from app.persistence.models import ChecklistItem, Member, TargetType, WorkItem
 from app.routing.engine import ActionError, ActionSpec, DataType, Param, require_params
 
 from .context import NtakeActionContext
-from .shared import _append_assistant_update, _load_item, _parse_dt
+from .shared import _append_assistant_update, _load_item, _normalized_tags, _parse_dt
 
 
 def _apply_set_due_date(ctx: NtakeActionContext, params: dict) -> str:
@@ -93,6 +93,17 @@ def _apply_append_update(ctx: NtakeActionContext, params: dict) -> str:
     body = params["body"]
     _append_assistant_update(ctx.session, ctx.member, wi.id, body)
     return "Appended work-item update"
+
+
+def _apply_set_work_item_tags(ctx: NtakeActionContext, params: dict) -> str:
+    require_params(params, ["tags"])
+    work_item = _load_item(ctx.session, ctx.target_id)
+    work_item.tags = _normalized_tags(params["tags"])
+    work_item.updated_at = datetime.now(UTC)
+    rendered_tags = ", ".join(work_item.tags) or "(none)"
+    note = f"Set tags: {rendered_tags}"
+    _append_assistant_update(ctx.session, ctx.member, work_item.id, note)
+    return note
 
 
 def _apply_archive_work_item(ctx: NtakeActionContext, params: dict) -> str:
@@ -263,6 +274,13 @@ def _describe_append_update(params: dict) -> str:
     return f"Append update: {body}" if body else "Append a work-item update"
 
 
+def _describe_set_work_item_tags(params: dict) -> str:
+    tags = params.get("tags")
+    if isinstance(tags, list):
+        return f"Set work-item tags: {', '.join(str(tag) for tag in tags)}"
+    return "Set work-item tags"
+
+
 def _describe_archive(params: dict) -> str:
     return "Archive the (done) work item"
 
@@ -305,6 +323,13 @@ def _render_assign(params: dict, resolved: dict) -> list[str]:
 def _render_set_due_date(params: dict, resolved: dict) -> list[str]:
     due = params.get("due_at")
     return [f"Due: {due}"] if due else []
+
+
+def _render_set_work_item_tags(params: dict, resolved: dict) -> list[str]:
+    tags = params.get("tags")
+    if isinstance(tags, list):
+        return [f"Tags: {', '.join(str(tag) for tag in tags) or '(none)'}"]
+    return []
 
 
 def _render_create_work_item(params: dict, resolved: dict) -> list[str]:
@@ -417,6 +442,15 @@ WORK_ITEM_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         apply=_apply_assign,
         describe=_describe_assign,
         render_card=_render_assign,
+    ),
+    "set_work_item_tags": ActionSpec(
+        name="set_work_item_tags",
+        description="Replace a work item's complete shared tag list.",
+        params=[Param("tags", DataType.ARRAY_STRING, required=True)],
+        target_type=TargetType.WORK_ITEM,
+        apply=_apply_set_work_item_tags,
+        describe=_describe_set_work_item_tags,
+        render_card=_render_set_work_item_tags,
     ),
     "archive_work_item": ActionSpec(
         name="archive_work_item",

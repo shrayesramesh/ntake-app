@@ -397,3 +397,21 @@ def test_household_scenario_deep_context_has_workload_and_history(
     assert "Plumber visit" in out
     assert "Sam" in out
     assert "Soccer" in out  # Sam's participated-event footprint
+
+
+def test_deep_context_renders_work_item_tags(session, fam_member):
+    family, member = fam_member
+    item = _wi(session, family.id, "Buy groceries", tags=["household", "urgent"])
+
+    out = deep_context(session, member, [item.id], [])
+
+    assert "[tags: household, urgent]" in out
+
+
+def test_deep_context_renders_event_tags(session, fam_member):
+    family, member = fam_member
+    event = _event(session, family.id, "Soccer", tags=["school", "sports"])
+
+    out = deep_context(session, member, [], [event.id])
+
+    assert "[tags: school, sports]" in out

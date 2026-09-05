@@ -401,12 +401,9 @@ FocusedContext {text, tz, now, resolved_work_item_ids,
   inspects it; each plugin binds its own (`ActionRegistry[NtakeActionContext]`,
   `AssistantClient[FocusedContext]`). No `Any`.
 - **Plugin — `app/assistant/`**: registers ntake's actions into an engine
-  `ActionRegistry` — a **22-action** v1 set spanning create/modify/status/assign/
-  archive/checklist/delete across work-item, event, and no-target actions (e.g.
-  `set_due_date`, `create_event`, `complete_work_item`, the status-lifecycle verbs,
-  `assign_work_item`, `reschedule_event`, `archive_work_item`, `add_checklist_items`,
-  `deconflict_events`, `no_action`; see `spec/ASSISTANT_ACTIONS.md` for the full
-  registry + scope tiers). Each handler receives the opaque
+  `ActionRegistry` — the v1 action set spanning create/modify/status/assign/
+  archive/checklist/delete across work-item, event, and no-target actions (see
+  `spec/ASSISTANT_ACTIONS.md` for the live registry and parameters). Each handler receives the opaque
   `NtakeActionContext(session, member, target_id, target_type)` and does the ORM
   mutation plus — only when it targets a work item — the `source=assistant`
   update append (WORKITEM-3; conditional per the generalized target). The
@@ -419,6 +416,11 @@ second consumer appears — package-shape now, not a published package). See PLA
 "reusable propose-confirm engine".
 
 **Design decisions (rationale worth keeping).**
+- **First-person linking.** Before deep-context construction, both resolver paths
+  deterministically add the capturing member to `resolved_member_ids` for the
+  singular pronouns `I`/`me`/`my`/`mine`; the LLM cannot omit it. Plural
+  `we`/`us`/`our` remains deferred because it is ambiguous which household members
+  it denotes.
 - **Seam naming.** Stage 1 is `CaptureResolver` (method stays `focus()`), chosen
   over a bare `Resolver` so it won't collide with other "resolver" notions.
 - **Session is a per-call method param, not a class member.** The resolver is a

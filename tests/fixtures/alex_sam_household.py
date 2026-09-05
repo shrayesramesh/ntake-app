@@ -154,6 +154,7 @@ def seed_alex_sam_household(session: Session) -> SimpleNamespace:
             start_at=datetime(2026, 9, 1, 19, 0, tzinfo=UTC),
             end_at=datetime(2026, 9, 1, 20, 0, tzinfo=UTC),
             participants=["Sam", "Coach Lee"],
+            tags=["school", "sports"],
             created_at=NOW,
             updated_at=NOW,
         ),

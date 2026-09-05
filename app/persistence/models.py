@@ -120,6 +120,8 @@ class Event(Base):
     # may match household members or identify anyone else; deep context matches
     # household display names to find participant workload.
     participants: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Shared family-vocabulary labels (EVENT-6); colors are a render-time concern.
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]

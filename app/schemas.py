@@ -28,6 +28,7 @@ class EventRead(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     participants: list[str] = []
+    tags: list[str] = []
 
 
 class WorkItemCreate(BaseModel):

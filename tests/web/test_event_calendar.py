@@ -73,6 +73,7 @@ def test_events_include_name_only_participants(client, session, auth_headers):
         start_at=now,
         end_at=now,
         participants=[member.display_name, "Coach Lee"],
+        tags=["sports"],
         created_at=now,
         updated_at=now,
     )
@@ -82,3 +83,4 @@ def test_events_include_name_only_participants(client, session, auth_headers):
     payload = client.get("/events", headers=auth_headers).json()
     soccer = next(e for e in payload if e["title"] == "Soccer")
     assert soccer["participants"] == ["Tester", "Coach Lee"]
+    assert soccer["tags"] == ["sports"]

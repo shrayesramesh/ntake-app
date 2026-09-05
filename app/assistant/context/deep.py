@@ -270,7 +270,8 @@ def _render_work_item_context(
         return [*lines, "- (none)", ""]
     for wi in items:
         due = f", due {_fmt_dt(wi.due_at, zone)}" if wi.due_at else ""
-        lines.append(f"- [w{wi.id}] {wi.title} ({wi.status}{due})")
+        tags = f" [tags: {', '.join(wi.tags)}]" if wi.tags else ""
+        lines.append(f"- [w{wi.id}] {wi.title} ({wi.status}{due}){tags}")
 
         checklist = _item_checklist(session, wi.id)
         if checklist:
@@ -296,13 +297,14 @@ def _render_event_context(events: list[Event], zone: ZoneInfo) -> list[str]:
 
 
 def _fmt_event(ev: Event, zone: ZoneInfo) -> str:
+    tags = f" [tags: {', '.join(ev.tags)}]" if ev.tags else ""
     if ev.all_day:
         start = ev.start_date.strftime(_DATE_FMT) if ev.start_date else "?"
-        return f"- [e{ev.id}] {ev.title} — {start} (all day)"
+        return f"- [e{ev.id}] {ev.title} — {start} (all day){tags}"
     start = _fmt_dt(ev.start_at, zone) if ev.start_at else "?"
     end = _fmt_dt(ev.end_at, zone) if ev.end_at else start
     when = start if start == end else f"{start} – {end}"
-    return f"- [e{ev.id}] {ev.title} — {when}"
+    return f"- [e{ev.id}] {ev.title} — {when}{tags}"
 
 
 def _fmt_dt(dt: datetime, zone: ZoneInfo) -> str:

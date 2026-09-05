@@ -398,3 +398,26 @@ def test_check_off_items_rejects_unknown_checklist_names(session, fam_member_ite
             work_item.id,
             {"items": ["not on this list"]},
         )
+
+
+def test_set_work_item_tags_replaces_and_clears_tags(session, fam_member_item):
+    _family, member, work_item = fam_member_item
+    work_item.tags = ["old"]
+    session.commit()
+
+    apply_action(
+        session,
+        member,
+        "set_work_item_tags",
+        work_item.id,
+        {"tags": [" Household ", "household", "urgent"]},
+    )
+    apply_action(session, member, "set_work_item_tags", work_item.id, {"tags": []})
+
+    session.expire_all()
+    assert session.get(WorkItem, work_item.id).tags == []
+    updates = session.query(WorkItemUpdate).filter_by(work_item_id=work_item.id).all()
+    assert [update.body for update in updates] == [
+        "Set tags: Household, urgent",
+        "Set tags: (none)",
+    ]

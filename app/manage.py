@@ -99,7 +99,8 @@ def seed_event(
     end_date: date | None = None,
     description: str | None = None,
     location: str | None = None,
-    participants: list | None = None,
+    participants: list[str] | None = None,
+    tags: list[str] | None = None,
 ) -> Event:
     """Create + commit an Event directly (no assistant), returning it.
 
@@ -138,6 +139,7 @@ def seed_event(
         start_date=start_date,
         end_date=end_date,
         participants=participants or [],
+        tags=tags or [],
         created_at=now,
         updated_at=now,
     )

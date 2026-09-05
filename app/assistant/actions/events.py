@@ -8,7 +8,13 @@ from app.persistence.models import Event, TargetType
 from app.routing.engine import ActionError, ActionSpec, DataType, Param, require_params
 
 from .context import NtakeActionContext
-from .shared import _append_assistant_update, _load_event, _load_item, _parse_dt
+from .shared import (
+    _append_assistant_update,
+    _load_event,
+    _load_item,
+    _normalized_tags,
+    _parse_dt,
+)
 
 
 def _normalized_participant_names(
@@ -109,6 +115,7 @@ def _create_event(ctx: NtakeActionContext, params: dict, *, all_day: bool) -> st
             else (date.fromisoformat(params["start_date"]) if all_day else None)
         ),
         participants=_normalized_participant_names(params.get("participants")),
+        tags=_normalized_tags(params.get("tags")),
         source_update_id=source_update_id,
         created_at=now,
         updated_at=now,
@@ -143,6 +150,14 @@ def _apply_add_event_participants(ctx: NtakeActionContext, params: dict) -> str:
     event.participants = _normalized_participant_names(event.participants)
     event.updated_at = datetime.now(UTC)
     return f"Added {len(additions)} event participant(s)"
+
+
+def _apply_set_event_tags(ctx: NtakeActionContext, params: dict) -> str:
+    require_params(params, ["tags"])
+    event = _load_event(ctx.session, ctx.target_id)
+    event.tags = _normalized_tags(params["tags"])
+    event.updated_at = datetime.now(UTC)
+    return f"Set {len(event.tags)} event tag(s)"
 
 
 def _apply_delete_event(ctx: NtakeActionContext, params: dict) -> str:
@@ -210,6 +225,13 @@ def _describe_add_event_participants(params: dict) -> str:
     return "Add event participants"
 
 
+def _describe_set_event_tags(params: dict) -> str:
+    tags = params.get("tags")
+    if isinstance(tags, list):
+        return f"Set event tags: {', '.join(str(tag) for tag in tags)}"
+    return "Set event tags"
+
+
 def _describe_delete_event(params: dict) -> str:
     return "Delete the event"
 
@@ -260,6 +282,13 @@ def _render_add_event_participants(params: dict, resolved: dict) -> list[str]:
     return []
 
 
+def _render_set_event_tags(params: dict, resolved: dict) -> list[str]:
+    tags = params.get("tags")
+    if isinstance(tags, list):
+        return [f"Tags: {', '.join(str(tag) for tag in tags) or '(none)'}"]
+    return []
+
+
 EVENT_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
     "create_timed_event": ActionSpec(
         name="create_timed_event",
@@ -271,6 +300,7 @@ EVENT_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
             Param("description", DataType.STRING),
             Param("location", DataType.STRING),
             Param("participants", DataType.ARRAY_STRING),
+            Param("tags", DataType.ARRAY_STRING),
         ],
         target_type=None,
         apply=_apply_create_timed_event,
@@ -287,6 +317,7 @@ EVENT_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
             Param("description", DataType.STRING),
             Param("location", DataType.STRING),
             Param("participants", DataType.ARRAY_STRING),
+            Param("tags", DataType.ARRAY_STRING),
         ],
         target_type=None,
         apply=_apply_create_all_day_event,
@@ -338,6 +369,16 @@ EVENT_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         apply=_apply_add_event_participants,
         describe=_describe_add_event_participants,
         render_card=_render_add_event_participants,
+    ),
+    "set_event_tags": ActionSpec(
+        name="set_event_tags",
+        description="Replace an existing event's complete shared tag list.",
+        params=[Param("tags", DataType.ARRAY_STRING, required=True)],
+        target_type=TargetType.EVENT,
+        logs=False,
+        apply=_apply_set_event_tags,
+        describe=_describe_set_event_tags,
+        render_card=_render_set_event_tags,
     ),
     "delete_event": ActionSpec(
         name="delete_event",

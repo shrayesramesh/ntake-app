@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.assistant.base import CaptureRequest, CaptureResolver, FocusedContext
 from app.assistant.context.deep import deep_context, resolve_ids
+from app.assistant.context.linking import add_capturing_member_for_first_person
 from app.assistant.context.world import build_world_view
 from app.assistant.local_llm.protocol import LLM
 from app.persistence.models import Member
@@ -143,6 +144,9 @@ class LocalLlmCaptureResolver(CaptureResolver):
         )
         link_json = self._llm.complete(system=system, user=user, schema=_LINK_SCHEMA)
         raw_wi_ids, raw_ev_ids, raw_mem_ids = parse_ids(link_json)
+        raw_mem_ids = add_capturing_member_for_first_person(
+            request.text, raw_mem_ids, member.id
+        )
         # Validate-don't-trust: whitelist the model's ids to the member's family
         # BEFORE they reach the context (they become attachable targets), so a
         # hallucinated/foreign id is dropped everywhere — not just in rendering.

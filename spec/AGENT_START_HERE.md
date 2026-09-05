@@ -15,6 +15,8 @@ source of truth. Read this fully before doing anything.
 Use these only when the task makes them relevant:
 
 - **LLD-assistant-pipeline.md** — LINK → context → PROPOSE stage contracts.
+- **ASSISTANT_ACTIONS.md** — the live assistant action registry, parameters, and
+  scope; read this before changing assistant behavior.
 - **BUGLIST.md** — reproducible correctness issues and their evidence.
 - **UI_TESTING_BACKLOG.md** — product, interaction, and visual follow-ups.
 - **HOST_SETUP_GUIDE.md** *(at repo root)* — operator-only local-LLM and host

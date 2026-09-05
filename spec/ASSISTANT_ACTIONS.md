@@ -84,8 +84,7 @@ no cleaner verb.
 | `reopen_work_item` | `work_item_id` | status → `todo` (or prior), clears `completed_at` | WORKITEM-4 (inverse) | **v1** |
 | `assign_work_item` | `work_item_id`, `member_id` | sets `assigned_to` | WORKITEM-7 | **v1** |
 | `unassign_work_item` | `work_item_id` | `assigned_to = NULL` | WORKITEM-7 (inverse) | deferred |
-| `tag_work_item` | `work_item_id`, `tags: [str]` | appends `work_items.tags` (shared vocab) | WORKITEM-9 / EVENT-6 | v2 |
-| `untag_work_item` | `work_item_id`, `tags: [str]` | removes from `work_items.tags` | WORKITEM-9 (inverse) | deferred |
+| `set_work_item_tags` | `work_item_id`, `tags: [str]` | replaces `work_items.tags` (empty list clears) | WORKITEM-9 / EVENT-6 | **v1** |
 | `rename_work_item` | `work_item_id`, `title` | sets `title` | WORKITEM-1 | deferred |
 | `append_to_description` | `work_item_id`, `text` | appends `description` | WORKITEM-1 | deferred |
 
@@ -140,8 +139,7 @@ no cleaner verb.
 | `set_event_location` | `event_id`, `location` | sets `location` | EVENT-3 | **v1** |
 | `add_event_participants` | `event_id`, `participants: [str]` | appends normalized participant names | EVENT-5 | **v1** |
 | `remove_event_participants` | `event_id`, `participants` | removes `participants` | EVENT-5 (inverse) | deferred |
-| `tag_event` | `event_id`, `tags: [str]` | appends event `tags` | EVENT-6 | deferred |
-| `untag_event` | `event_id`, `tags: [str]` | removes event `tags` | EVENT-6 (inverse) | deferred |
+| `set_event_tags` | `event_id`, `tags: [str]` | replaces normalized event tags (empty list clears) | EVENT-6 | **v1** |
 | `make_event_all_day` | `event_id`, `start_date`, `end_date` | switches timed→all-day (moves timing to date fields; clears start_at/end_at) | EVENT-2 (avoid off-by-one) | deferred |
 | `make_event_timed` | `event_id`, `start_at`, `end_at` | switches all-day→timed | EVENT-2 (inverse) | deferred |
 | `cancel_event` | `event_id` | deletes an `events` row | EVENT-1 (delete); SAFE-2 (destructive → extra confirm) | deferred |
@@ -190,10 +188,10 @@ Excluded write actions (would violate a design stance):
 
 ## v1 cut — LOCKED
 
-## v1 cut — the built toolset (seeded at 6, now 22)
+## v1 cut — the built toolset (seeded at 6, now 24)
 
 The v1 was **seeded** with the 6 below (the minimal architecture-proving set),
-then expanded to its current **22 actions** as richer prompt context and explicit
+then expanded to its current **24 actions** as richer prompt context and explicit
 confirmable mutations proved useful. Everything still-unbuilt in the registry is
 a pre-shaped slot (add later by registering the entry — no rework of the flow).
 
@@ -236,6 +234,9 @@ a pre-shaped slot (add later by registering the entry — no rework of the flow)
 14. **`set_event_location` / `add_event_participants`** — narrow event metadata
     updates. Participants are normalized plain names, so household members and
     anyone else share the same `list[str]` contract.
+15. **`set_event_tags` / `set_work_item_tags`** — replace complete normalized
+    shared-vocabulary tag lists; an empty list clears tags. Calendar color
+    rendering consumes event tags in the next UI slice.
 
 **v1 boundaries (explicit):**
 - Capture targets an **explicit work item** for item-scoped actions — assistant

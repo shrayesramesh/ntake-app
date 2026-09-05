@@ -145,15 +145,8 @@ calendar mutations only on confirm.
 > `app/assistant/fake/` and `app/assistant/local_llm/`, **both built**; the live
 > one (`LocalLlmCaptureResolver` + `LocalLlmAssistant` over a `LocalLlmClient`) is
 > **verified end-to-end** against llamafile/Llama 3.1 8B on `localhost:8080`. The
-> toolset is now **22 actions**: `set_due_date`, `complete_work_item`,
-> `start_work_item`, `move_to_on_deck`, `move_to_todo`, `reopen_work_item`,
-> `assign_work_item` (whitelist-validated member), `archive_work_item` (done-only),
-> `archive_all_done`, `add_checklist_items`, `check_off_items`,
-> `create_timed_event`, `create_all_day_event`, `reschedule_timed_event`,
-> `reschedule_all_day_event`, `set_event_location`, `add_event_participants`,
-> `delete_event`, `create_work_item`, `append_update`, `no_action`,
-> `deconflict_events`. LINK
-> resolves `{work_item_ids, event_ids, member_ids}` (all family-whitelisted);
+> action registry and parameters are documented in `spec/ASSISTANT_ACTIONS.md`.
+> LINK resolves `{work_item_ids, event_ids, member_ids}` (all family-whitelisted);
 > `deep_context` folds each linked member's workload footprint in. Both prompt
 > views are built (`build_world_view`, `build_tools_view`). Capture is propose-only
 > and always new; proposals carry a registry `action_summary` (member ids →

@@ -103,3 +103,15 @@ def test_malformed_link_json_degrades_to_no_ids(session, fam_member):
     assert ctx.resolved_work_item_ids == []
     assert ctx.resolved_event_ids == []
     assert isinstance(ctx.deep_context, str)
+
+
+def test_first_person_capture_links_the_author_even_when_llm_returns_no_members(
+    session, fam_member
+):
+    _family, member = fam_member
+    ctx = _resolver({"work_item_ids": [], "event_ids": [], "member_ids": []}).focus(
+        _req("my dentist appointment"), session, member
+    )
+
+    assert ctx.resolved_member_ids == [member.id]
+    assert ctx.primary_member_id == member.id

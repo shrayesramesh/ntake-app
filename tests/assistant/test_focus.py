@@ -90,3 +90,13 @@ def test_fake_capture_resolver_is_a_capture_resolver():
 def test_capture_resolver_abc_cannot_be_instantiated():
     with pytest.raises(TypeError):
         CaptureResolver()  # type: ignore[abstract]
+
+
+def test_first_person_capture_deterministically_links_the_author(session, fam_member):
+    _family, member = fam_member
+    ctx = FakeCaptureResolver().focus(
+        _req("I need a dentist appointment"), session, member
+    )
+
+    assert ctx.resolved_member_ids == [member.id]
+    assert ctx.primary_member_id == member.id

@@ -199,6 +199,10 @@ def test_full_schema_snapshot_over_the_real_registry():
                                 required=["member_id"],
                             ),
                         ),
+                        action(
+                            "set_work_item_tags",
+                            obj({"tags": arr_s}, required=["tags"]),
+                        ),
                         action("archive_work_item", empty_params),
                         action("archive_all_done", empty_params),
                         action(
@@ -225,6 +229,7 @@ def test_full_schema_snapshot_over_the_real_registry():
                                     "description": s,
                                     "location": s,
                                     "participants": arr_s,
+                                    "tags": arr_s,
                                 },
                                 required=["title", "start_at", "end_at"],
                             ),
@@ -239,6 +244,7 @@ def test_full_schema_snapshot_over_the_real_registry():
                                     "description": s,
                                     "location": s,
                                     "participants": arr_s,
+                                    "tags": arr_s,
                                 },
                                 required=["title", "start_date"],
                             ),
@@ -264,6 +270,10 @@ def test_full_schema_snapshot_over_the_real_registry():
                         action(
                             "add_event_participants",
                             obj({"participants": arr_s}, required=["participants"]),
+                        ),
+                        action(
+                            "set_event_tags",
+                            obj({"tags": arr_s}, required=["tags"]),
                         ),
                         action("delete_event", empty_params),
                         action("deconflict_events", empty_params),

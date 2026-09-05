@@ -45,3 +45,23 @@ def _append_assistant_update(
     session.add(upd)
     session.flush()  # assign id (create_event links to it)
     return upd
+
+
+def _normalized_tags(value: object) -> list[str]:
+    """Normalize optional shared-vocabulary tags into unique display strings."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ActionError("tags must be a list of strings")
+
+    tags: list[str] = []
+    seen: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, str) or not raw.strip():
+            raise ActionError("each tag must be a non-empty string")
+        tag = raw.strip()
+        key = tag.casefold()
+        if key not in seen:
+            seen.add(key)
+            tags.append(tag)
+    return tags

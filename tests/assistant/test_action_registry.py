@@ -19,6 +19,7 @@ def test_registry_has_v1_actions():
         "move_to_todo",
         "reopen_work_item",
         "assign_work_item",
+        "set_work_item_tags",
         "archive_work_item",
         "archive_all_done",
         "add_checklist_items",
@@ -32,6 +33,7 @@ def test_registry_has_v1_actions():
         "delete_event",
         "set_event_location",
         "add_event_participants",
+        "set_event_tags",
     }
 
 
@@ -80,6 +82,7 @@ def test_all_actions_are_wellformed():
         "delete_event",
         "set_event_location",
         "add_event_participants",
+        "set_event_tags",
         "archive_all_done",
     }
 
