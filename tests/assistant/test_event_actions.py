@@ -89,13 +89,13 @@ def test_create_timed_event_writes_participants(session, fam_member):
             "title": "Soccer",
             "start_at": start,
             "end_at": start,
-            "participants": [{"member_id": m.id}, {"name": "Coach Lee"}],
+            "participants": [m.display_name, "Coach Lee"],
         },
         target_type="event",
     )
     session.expire_all()
     ev = session.query(Event).filter_by(title="Soccer").one()
-    assert ev.participants == [{"member_id": m.id}, {"name": "Coach Lee"}]
+    assert ev.participants == [m.display_name, "Coach Lee"]
 
 
 def test_create_timed_event_requires_a_timing(session, fam_member):
@@ -321,3 +321,89 @@ def test_deconflict_missing_event_raises(session, fam_member):
             params={},
             target_type="event",
         )
+
+
+def test_set_event_location_updates_existing_event(session, fam_member):
+    fam, member = fam_member
+    event = seed_event(
+        session,
+        fam.id,
+        title="Dentist",
+        start_at=datetime(2026, 9, 5, 19, 0, tzinfo=UTC),
+        location="Old office",
+    )
+
+    apply_action(
+        session,
+        member,
+        "set_event_location",
+        event.id,
+        {"location": " Downtown clinic "},
+        target_type="event",
+    )
+
+    session.expire_all()
+    assert session.get(Event, event.id).location == "Downtown clinic"
+    assert session.query(WorkItemUpdate).count() == 0
+
+
+def test_add_event_participants_merges_normalized_names(session, fam_member):
+    fam, member = fam_member
+    event = seed_event(
+        session,
+        fam.id,
+        title="Soccer",
+        start_at=datetime(2026, 9, 5, 19, 0, tzinfo=UTC),
+        participants=["Sam", "Coach Lee"],
+    )
+
+    apply_action(
+        session,
+        member,
+        "add_event_participants",
+        event.id,
+        {"participants": [" Alex ", "sam", "Grandma"]},
+        target_type="event",
+    )
+
+    session.expire_all()
+    assert session.get(Event, event.id).participants == [
+        "Sam",
+        "Coach Lee",
+        "Alex",
+        "Grandma",
+    ]
+    assert session.query(WorkItemUpdate).count() == 0
+
+
+@pytest.mark.parametrize("participants", [[], [""], ["  "], [42], [{"name": "Sam"}]])
+def test_add_event_participants_rejects_non_name_values(
+    session, fam_member, participants
+):
+    fam, member = fam_member
+    event = seed_event(
+        session,
+        fam.id,
+        title="Soccer",
+        start_at=datetime(2026, 9, 5, 19, 0, tzinfo=UTC),
+    )
+
+    with pytest.raises(ActionError):
+        apply_action(
+            session,
+            member,
+            "add_event_participants",
+            event.id,
+            {"participants": participants},
+            target_type="event",
+        )
+
+
+def test_render_card_event_metadata_actions_show_names_and_location():
+    location = _card("set_event_location", {"location": "Downtown clinic"})
+    participants = _card(
+        "add_event_participants", {"participants": ["Alex", "Grandma"]}
+    )
+
+    assert location == ["Location: Downtown clinic"]
+    assert participants == ["Participants: Alex, Grandma"]

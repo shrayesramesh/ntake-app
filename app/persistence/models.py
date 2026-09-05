@@ -116,10 +116,10 @@ class Event(Base):
         ForeignKey("work_item_updates.id", ondelete="SET NULL"), default=None
     )
 
-    # Participants (EVENT-5): a JSON list of {member_id?, name} — a linked family
-    # member and/or a free-text name. Used by the assistant's deep context to pull
-    # events a member participates in (not just events they created).
-    participants: Mapped[list] = mapped_column(JSON, default=list)
+    # Participants (EVENT-5): a JSON list of plain, display-ready names. Names
+    # may match household members or identify anyone else; deep context matches
+    # household display names to find participant workload.
+    participants: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]

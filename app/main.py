@@ -150,8 +150,7 @@ def list_events(
     """Return this family's persisted events as JSON (checkpoint 1c).
 
     Requires a valid device token (ACCESS-2). Ordered by start time. The response
-    includes raw ``participants`` plus server-resolved ``participant_names`` so
-    browser calendar cards never need to render raw member ids.
+    includes name-only ``participants`` ready for calendar display.
     """
     events = list(
         session.scalars(
@@ -160,31 +159,7 @@ def list_events(
             .order_by(Event.start_at)
         ).all()
     )
-    member_names = {
-        m.id: m.display_name
-        for m in session.scalars(
-            select(Member).where(Member.family_id == member.family_id)
-        ).all()
-    }
-    return [_event_read(event, member_names) for event in events]
-
-
-def _event_read(event: Event, member_names: dict[int, str]) -> EventRead:
-    """Map an Event to the API DTO with human participant names resolved."""
-    dto = EventRead.model_validate(event)
-    dto.participants = event.participants or []
-    names: list[str] = []
-    for participant in dto.participants:
-        explicit = participant.get("name")
-        member_id = participant.get("member_id")
-        resolved = member_names.get(member_id) if isinstance(member_id, int) else None
-        label = (
-            explicit or resolved or (f"m{member_id}" if member_id is not None else None)
-        )
-        if label:
-            names.append(str(label))
-    dto.participant_names = names
-    return dto
+    return [EventRead.model_validate(event) for event in events]
 
 
 def _format_change(entity: str, entity_id: int, op: str) -> dict:
@@ -491,14 +466,7 @@ def calendar_view(
             select(Event).order_by(Event.start_at, Event.start_date, Event.id)
         ).all()
     )
-    # Member id -> display name, so participant member links render as names.
-    member_names = {
-        m.id: m.display_name
-        for m in session.scalars(
-            select(Member).where(Member.family_id == _member.family_id)
-        ).all()
-    }
-    return render_calendar(events, member_names)
+    return render_calendar(events)
 
 
 # --- Capture with proposals (Phase 4, task 4) ----------------------------

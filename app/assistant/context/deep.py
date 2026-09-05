@@ -166,19 +166,23 @@ def _load_family_members(
 def _load_participated_events(
     session: Session, family_id: int, member_id: int
 ) -> list[Event]:
-    """Family events the member participates in (their id is in ``participants``).
+    """Family events whose participant names match the member display name.
 
-    ``participants`` is a JSON list of ``{member_id?, name}``; at family scale we
-    fetch the family's events and filter in Python (a JSON-containment SQL query
-    is awkward/non-portable for a handful of rows).
+    Participants are deliberately a JSON list of plain names. At family scale we
+    fetch the family's events and compare normalized names in Python; a
+    JSON-containment SQL query would be awkward and non-portable.
     """
+    member = session.get(Member, member_id)
+    if member is None:
+        return []
+    target_name = member.display_name.strip().casefold()
     stmt = select(Event).where(Event.family_id == family_id).order_by(Event.id)
     return [
-        ev
-        for ev in session.scalars(stmt).all()
+        event
+        for event in session.scalars(stmt).all()
         if any(
-            isinstance(p, dict) and p.get("member_id") == member_id
-            for p in (ev.participants or [])
+            isinstance(name, str) and name.strip().casefold() == target_name
+            for name in (event.participants or [])
         )
     ]
 

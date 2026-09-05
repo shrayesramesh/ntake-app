@@ -47,7 +47,7 @@ def test_shell_mounts_read_only_event_calendar(client):
     assert "authHeaders(false)" in html
     # Title-first custom content restores useful context over the library default.
     assert "eventContent: calendarEventContent" in html
-    assert "participantNames" in html
+    assert "participants" in html
     assert "calendar-event-title" in html
     # Inclusive app all-day end -> exclusive calendar end adapter.
     assert "addOneDay" in html
@@ -63,9 +63,8 @@ def test_shell_mounts_read_only_event_calendar(client):
     assert "eventDurationEditable: false" in html
 
 
-def test_events_include_resolved_participant_names(client, session, auth_headers):
-    """The browser calendar needs names, not raw member ids, for compact event
-    metadata. /events resolves linked family members and preserves free-text names."""
+def test_events_include_name_only_participants(client, session, auth_headers):
+    """The browser calendar receives participant names directly from /events."""
     member = session.query(Member).filter_by(display_name="Tester").one()
     now = datetime(2026, 9, 4, 17, 0, tzinfo=UTC)
     event = Event(
@@ -73,7 +72,7 @@ def test_events_include_resolved_participant_names(client, session, auth_headers
         title="Soccer",
         start_at=now,
         end_at=now,
-        participants=[{"member_id": member.id}, {"name": "Coach Lee"}],
+        participants=[member.display_name, "Coach Lee"],
         created_at=now,
         updated_at=now,
     )
@@ -82,4 +81,4 @@ def test_events_include_resolved_participant_names(client, session, auth_headers
 
     payload = client.get("/events", headers=auth_headers).json()
     soccer = next(e for e in payload if e["title"] == "Soccer")
-    assert soccer["participant_names"] == ["Tester", "Coach Lee"]
+    assert soccer["participants"] == ["Tester", "Coach Lee"]

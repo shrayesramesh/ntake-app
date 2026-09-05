@@ -10,10 +10,12 @@ AVAILABLE TOOLS:
 - assign_work_item: Assign a work item to a family member. — params: member_id: integer
 - archive_work_item: Archive a work item (only a done item may be archived). — params: (no params)
 - add_checklist_items: Add checklist items (e.g. a grocery list) to a work item. — params: items: array<string>
-- create_timed_event: Create a timed calendar event. — params: title: string, start_at: datetime, end_at: datetime, description: string?, location: string?, participants: object?
-- create_all_day_event: Create an all-day calendar event. — params: title: string, start_date: date, end_date: date?, description: string?, location: string?, participants: object?
+- create_timed_event: Create a timed calendar event. — params: title: string, start_at: datetime, end_at: datetime, description: string?, location: string?, participants: array<string>?
+- create_all_day_event: Create an all-day calendar event. — params: title: string, start_date: date, end_date: date?, description: string?, location: string?, participants: array<string>?
 - reschedule_timed_event: Move an existing event to a timed range. — params: start_at: datetime, end_at: datetime
 - reschedule_all_day_event: Move an existing event to all-day date(s). — params: start_date: date, end_date: date?
+- set_event_location: Set an existing event's location. — params: location: string
+- add_event_participants: Add people by name to an existing event. — params: participants: array<string>
 - delete_event: Delete an existing event (e.g. it was cancelled). — params: (no params)
 - deconflict_events: Move an event to the next day to resolve a same-time conflict. — params: (no params)
 - no_action: Nothing to suggest. — params: (no params)

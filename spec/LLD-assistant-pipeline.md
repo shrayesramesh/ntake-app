@@ -170,7 +170,7 @@ rather than hard-coding (v2 nicety; v1's six actions fetch the obvious slice).
   Built in `app/assistant/local_llm/link.py` (`parse_ids` → 3-tuple incl.
   `member_ids`) and `app/assistant/context/deep.py` (`resolve_ids` family-
   whitelist + `deep_context`). The `Event.participants` column (JSON list of
-  `{member_id?, name}`, EVENT-5) was added for this; `create_event` writes it and
+  `{name: str}`, EVENT-5) was added for this; `create_event` writes it and
   `seed_event` accepts it. *(Was deferred as QQ-6 pending the participants column —
   now resolved.)*
 - **OQ-5 — action param schema. RESOLVED (see "Resolved: action param schema"

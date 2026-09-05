@@ -279,7 +279,7 @@ def test_deep_context_includes_member_participated_events(session, fam_member):
     fam, m = fam_member
     # member participates (linked member_id) -> included in footprint even though
     # the note linked no events.
-    _event(session, fam.id, "Soccer", participants=[{"member_id": m.id}])
+    _event(session, fam.id, "Soccer", participants=[m.display_name])
     out = deep_context(session, m, [], [])
     assert "Soccer" in out
 
@@ -288,14 +288,14 @@ def test_deep_context_excludes_events_member_does_not_participate_in(
     session, fam_member
 ):
     fam, m = fam_member
-    _event(session, fam.id, "Someone elses meeting", participants=[{"name": "Guest"}])
+    _event(session, fam.id, "Someone elses meeting", participants=["Guest"])
     out = deep_context(session, m, [], [])
     assert "Someone elses meeting" not in out
 
 
 def test_deep_context_dedups_linked_and_participated_event(session, fam_member):
     fam, m = fam_member
-    ev = _event(session, fam.id, "Shared game", participants=[{"member_id": m.id}])
+    ev = _event(session, fam.id, "Shared game", participants=[m.display_name])
     # linked by id AND participated -> appears exactly once.
     out = deep_context(session, m, [], [ev.id])
     assert out.count("Shared game") == 1
@@ -373,3 +373,27 @@ def test_resolve_ids_whitelists_members_to_family(session, fam_member):
 def test_resolve_ids_empty_in_empty_out(session, fam_member):
     _fam, m = fam_member
     assert resolve_ids(session, m, [], [], []) == ([], [], [])
+
+
+def test_household_scenario_deep_context_has_workload_and_history(
+    session, household_scenario
+):
+    scenario = household_scenario
+    from app.persistence.models import Member
+
+    alex = session.get(Member, scenario.members["Alex"])
+    assert alex is not None
+    out = deep_context(
+        session,
+        alex,
+        [scenario.items["plumber"]],
+        [scenario.events["plumber_visit"]],
+        [scenario.members["Sam"]],
+    )
+
+    assert "Call plumber" in out
+    assert "Called the plumber; waiting for an appointment." in out
+    assert "Set due date to 2026-09-05T19:00:00+00:00" in out
+    assert "Plumber visit" in out
+    assert "Sam" in out
+    assert "Soccer" in out  # Sam's participated-event footprint

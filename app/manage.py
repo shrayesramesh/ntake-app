@@ -169,13 +169,13 @@ def seed_sample_events(session: Session) -> list[Event]:
 
     now = datetime.now(UTC)
 
-    # Members to attach as participants so the calendar + deep context have real
-    # participant data (member_id links, resolved to names in the UI).
+    # Names attach directly to events; deep context matches household display
+    # names while non-members stay plain participant strings.
     members = session.scalars(
         select(Member).where(Member.family_id == family.id).order_by(Member.id)
     ).all()
-    first = [{"member_id": members[0].id}] if members else []
-    everyone = [{"member_id": m.id} for m in members]
+    first = [members[0].display_name] if members else []
+    everyone = [member.display_name for member in members]
 
     timed = seed_event(
         session,

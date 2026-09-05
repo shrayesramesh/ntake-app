@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from app.persistence.models import ChecklistItem, WorkItemUpdate
+from app.persistence.models import ChecklistItem, WorkItem, WorkItemUpdate
 from app.web import render_board, render_calendar
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
@@ -100,25 +100,22 @@ def test_event_card_shows_full_record(fam_member, event_factory):
         title="Soccer",
         description="Bring cleats",
         location="North field",
-        participants=[{"member_id": 2}, {"name": "Coach Lee"}],
+        participants=["Sam", "Coach Lee"],
     )
     html = render_calendar([ev])
     assert f"e{ev.id}" in html
     assert "Bring cleats" in html
     assert "@ North field" in html
-    assert "Coach Lee" in html and "m2" in html
+    assert "Sam" in html and "Coach Lee" in html
 
 
-def test_event_card_resolves_participant_member_names(fam_member, event_factory):
+def test_event_card_renders_participant_names_directly(fam_member, event_factory):
     fam, m = fam_member
-    ev = event_factory(
-        fam.id, title="Soccer", participants=[{"member_id": m.id}, {"name": "Coach"}]
-    )
-    # With a name map, member links render as names; explicit names pass through.
-    html = render_calendar([ev], {m.id: m.display_name})
+    ev = event_factory(fam.id, title="Soccer", participants=[m.display_name, "Coach"])
+
+    html = render_calendar([ev])
     assert m.display_name in html
     assert "Coach" in html
-    assert f"m{m.id}" not in html  # resolved to a name, not the raw id token
 
 
 def test_event_card_all_day_renders_date(fam_member, event_factory):
@@ -128,3 +125,38 @@ def test_event_card_all_day_renders_date(fam_member, event_factory):
     )
     html = render_calendar([ev])
     assert "all-day · 2026-09-04" in html
+
+
+def test_household_scenario_board_shows_open_checklist_and_collapsed_done(
+    session, household_scenario
+):
+    scenario = household_scenario
+    groceries = session.get(WorkItem, scenario.items["groceries"])
+    plumber = session.get(WorkItem, scenario.items["plumber"])
+    school_forms = session.get(WorkItem, scenario.items["school_forms"])
+    taxes = session.get(WorkItem, scenario.items["taxes"])
+    assert groceries is not None
+    assert plumber is not None
+    assert school_forms is not None
+    assert taxes is not None
+    groceries.checklist = (
+        session.query(ChecklistItem)
+        .filter_by(  # type: ignore[attr-defined]
+            work_item_id=groceries.id
+        )
+        .order_by(ChecklistItem.position)
+        .all()
+    )
+
+    html = render_board(
+        {
+            "todo": [groceries],
+            "on_deck": [school_forms],
+            "doing": [plumber],
+            "done": [taxes],
+        }
+    )
+
+    assert "☐ milk" in html and "☑ bread" in html
+    assert "1 done item" in html
+    assert "File taxes" not in html

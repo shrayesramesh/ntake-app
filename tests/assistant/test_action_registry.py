@@ -28,6 +28,8 @@ def test_registry_has_v1_actions():
         "no_action",
         "deconflict_events",
         "delete_event",
+        "set_event_location",
+        "add_event_participants",
     }
 
 
@@ -73,6 +75,8 @@ def test_all_actions_are_wellformed():
         "reschedule_timed_event",
         "reschedule_all_day_event",
         "delete_event",
+        "set_event_location",
+        "add_event_participants",
     }
 
 

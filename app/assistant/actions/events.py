@@ -5,10 +5,43 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 from app.persistence.models import Event, TargetType
-from app.routing.engine import ActionSpec, DataType, Param, require_params
+from app.routing.engine import ActionError, ActionSpec, DataType, Param, require_params
 
 from .context import NtakeActionContext
 from .shared import _append_assistant_update, _load_event, _load_item, _parse_dt
+
+
+def _normalized_participant_names(
+    value: object, *, require_nonempty: bool = False
+) -> list[str]:
+    """Validate and normalize a name-only participant list.
+
+    Participants deliberately model people as plain names: household members and
+    everyone else use the same string shape. Keep the first spelling/order and
+    de-duplicate later case-insensitive repeats.
+    """
+    if value is None and not require_nonempty:
+        return []
+    if not isinstance(value, list) or (require_nonempty and not value):
+        raise ActionError("participants must be a non-empty list of names")
+
+    names: list[str] = []
+    seen: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, str) or not raw.strip():
+            raise ActionError("each participant must be a non-empty name")
+        name = raw.strip()
+        key = name.casefold()
+        if key not in seen:
+            seen.add(key)
+            names.append(name)
+    return names
+
+
+def _normalized_location(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ActionError("location must be a non-empty string")
+    return value.strip()
 
 
 def _reschedule_event(ctx: NtakeActionContext, params: dict, *, all_day: bool) -> str:
@@ -75,7 +108,7 @@ def _create_event(ctx: NtakeActionContext, params: dict, *, all_day: bool) -> st
             if all_day and params.get("end_date")
             else (date.fromisoformat(params["start_date"]) if all_day else None)
         ),
-        participants=params.get("participants") or [],
+        participants=_normalized_participant_names(params.get("participants")),
         source_update_id=source_update_id,
         created_at=now,
         updated_at=now,
@@ -90,6 +123,26 @@ def _apply_create_timed_event(ctx: NtakeActionContext, params: dict) -> str:
 
 def _apply_create_all_day_event(ctx: NtakeActionContext, params: dict) -> str:
     return _create_event(ctx, params, all_day=True)
+
+
+def _apply_set_event_location(ctx: NtakeActionContext, params: dict) -> str:
+    require_params(params, ["location"])
+    event = _load_event(ctx.session, ctx.target_id)
+    event.location = _normalized_location(params["location"])
+    event.updated_at = datetime.now(UTC)
+    return f"Set event location to {event.location}"
+
+
+def _apply_add_event_participants(ctx: NtakeActionContext, params: dict) -> str:
+    require_params(params, ["participants"])
+    event = _load_event(ctx.session, ctx.target_id)
+    additions = _normalized_participant_names(
+        params["participants"], require_nonempty=True
+    )
+    event.participants = _normalized_participant_names(event.participants) + additions
+    event.participants = _normalized_participant_names(event.participants)
+    event.updated_at = datetime.now(UTC)
+    return f"Added {len(additions)} event participant(s)"
 
 
 def _apply_delete_event(ctx: NtakeActionContext, params: dict) -> str:
@@ -144,6 +197,19 @@ def _describe_create_event(params: dict) -> str:
     return "Create a calendar event"
 
 
+def _describe_set_event_location(params: dict) -> str:
+    location = params.get("location")
+    return f"Set event location to {location}" if location else "Set event location"
+
+
+def _describe_add_event_participants(params: dict) -> str:
+    participants = params.get("participants")
+    if isinstance(participants, list) and participants:
+        names = ", ".join(str(name) for name in participants)
+        return f"Add event participants: {names}"
+    return "Add event participants"
+
+
 def _describe_delete_event(params: dict) -> str:
     return "Delete the event"
 
@@ -182,6 +248,18 @@ def _render_create_event(params: dict, resolved: dict) -> list[str]:
     return lines
 
 
+def _render_set_event_location(params: dict, resolved: dict) -> list[str]:
+    location = params.get("location")
+    return [f"Location: {location}"] if location else []
+
+
+def _render_add_event_participants(params: dict, resolved: dict) -> list[str]:
+    participants = params.get("participants")
+    if isinstance(participants, list) and participants:
+        return [f"Participants: {', '.join(str(name) for name in participants)}"]
+    return []
+
+
 EVENT_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
     "create_timed_event": ActionSpec(
         name="create_timed_event",
@@ -192,7 +270,7 @@ EVENT_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
             Param("end_at", DataType.DATETIME, required=True),
             Param("description", DataType.STRING),
             Param("location", DataType.STRING),
-            Param("participants", DataType.OBJECT),
+            Param("participants", DataType.ARRAY_STRING),
         ],
         target_type=None,
         apply=_apply_create_timed_event,
@@ -208,7 +286,7 @@ EVENT_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
             Param("end_date", DataType.DATE),
             Param("description", DataType.STRING),
             Param("location", DataType.STRING),
-            Param("participants", DataType.OBJECT),
+            Param("participants", DataType.ARRAY_STRING),
         ],
         target_type=None,
         apply=_apply_create_all_day_event,
@@ -240,6 +318,26 @@ EVENT_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         apply=_apply_reschedule_all_day_event,
         describe=_describe_reschedule_event,
         render_card=_render_reschedule,
+    ),
+    "set_event_location": ActionSpec(
+        name="set_event_location",
+        description="Set an existing event's location.",
+        params=[Param("location", DataType.STRING, required=True)],
+        target_type=TargetType.EVENT,
+        logs=False,
+        apply=_apply_set_event_location,
+        describe=_describe_set_event_location,
+        render_card=_render_set_event_location,
+    ),
+    "add_event_participants": ActionSpec(
+        name="add_event_participants",
+        description="Add people by name to an existing event.",
+        params=[Param("participants", DataType.ARRAY_STRING, required=True)],
+        target_type=TargetType.EVENT,
+        logs=False,
+        apply=_apply_add_event_participants,
+        describe=_describe_add_event_participants,
+        render_card=_render_add_event_participants,
     ),
     "delete_event": ActionSpec(
         name="delete_event",

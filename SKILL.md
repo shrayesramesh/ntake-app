@@ -162,7 +162,10 @@ there's a concrete reason not to; deviating is fine but call it out.
 - **Test fixtures for seeding, not copied helpers.** Use the `conftest.py`
   factories (`family_factory`/`member_factory`/`work_item_factory`/`event_factory`)
   and composites (`fam_member`, `fam_member_item`, `populated_family`) rather than
-  re-defining local seed helpers per file.
+  re-defining local seed helpers per file. `populated_family` stays intentionally
+  compact for world/prompt snapshots; use `household_scenario` for the richer
+  Alex-and-Sam config-backed database with assignments, logs, checklists, and
+  events.
 - **Keep the docs in sync as part of the change.** Update `spec/` (and this file)
   in the same session as the code — stale status/action-lists/test-counts are a
   recurring drift source.

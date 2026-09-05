@@ -108,8 +108,9 @@ revoked_at (NULL = active)`.
   record that drove this event; person/why come via that record (ACCESS-4,
   EVENT-7). NULL for directly-created/imported events.
 - `tags` — list of strings, shared vocabulary (EVENT-6)
-- `participants` — list of `{member_id?, name}` (EVENT-5): a linked member or a
-  free-text name
+- `participants` — list of plain display-name strings (EVENT-5): household
+  member names and any other person use the same form; no member-id linkage is
+  stored on the event
 - `created_at, updated_at`
 - **No** uid / sequence / status / recurrence_rule. (`.ics` export synthesizes
   UID/DTSTAMP; recurrence is assistant-from-log, not a column — EVENT-4.)
@@ -400,7 +401,7 @@ FocusedContext {text, tz, now, resolved_work_item_ids,
   inspects it; each plugin binds its own (`ActionRegistry[NtakeActionContext]`,
   `AssistantClient[FocusedContext]`). No `Any`.
 - **Plugin — `app/assistant/`**: registers ntake's actions into an engine
-  `ActionRegistry` — a **15-action** v1 set spanning create/modify/status/assign/
+  `ActionRegistry` — a **20-action** v1 set spanning create/modify/status/assign/
   archive/checklist/delete across work-item, event, and no-target actions (e.g.
   `set_due_date`, `create_event`, `complete_work_item`, the status-lifecycle verbs,
   `assign_work_item`, `reschedule_event`, `archive_work_item`, `add_checklist_items`,
@@ -466,7 +467,7 @@ second consumer appears — package-shape now, not a published package). See PLA
   (DISP-6).
 - **Board (~monthly grooming, GROOM):** fixed 4 columns; prioritize / review
   workload / celebrate + manually archive Done.
-- **Labor view (on demand, R-labor / ASSIST-4):** the assistant reads the **raw
+- **Labor view (follow-on, on demand, R-labor / ASSIST-4):** the assistant reads the **raw
   update log by author over time** and surfaces who's carrying/coordinating what
   — recognition & fairness, **not** scoring. Uses `source` to weight
   **human-authored notes** as effort and not conflate them with

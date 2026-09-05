@@ -301,7 +301,7 @@ def populated_family(session, event_factory):
         fam.id,
         title="Soccer",
         start_at=datetime(2026, 9, 1, 19, 0, tzinfo=UTC),
-        participants=[{"member_id": members["Sam"]}, {"name": "Coach Lee"}],
+        participants=["Sam", "Coach Lee"],
     ).id
     events["old"] = event_factory(
         fam.id, title="Old picnic", start_at=datetime(2026, 8, 4, 19, 0, tzinfo=UTC)
@@ -316,3 +316,16 @@ def populated_family(session, event_factory):
     return SimpleNamespace(
         family=fam, now=now, tz=tz, members=members, items=items, events=events
     )
+
+
+@pytest.fixture()
+def household_scenario(session):
+    """The richer Alex-and-Sam scenario shared with config tests.
+
+    Unlike ``populated_family``, this fixture deliberately includes updates,
+    checklists, assignments, provenance, and participant workload for
+    feature-level assistant and UI tests.
+    """
+    from tests.fixtures.alex_sam_household import seed_alex_sam_household
+
+    return seed_alex_sam_household(session)

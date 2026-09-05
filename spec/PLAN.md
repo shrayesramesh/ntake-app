@@ -50,10 +50,11 @@ checks). What exists:
   panel showing the LINK/PROPOSE prompts + raw model replies + resolved ids).
 - Makefile, setup.sh, pinned requirements, ruff + mypy config.
 
-**Not yet built:** Phase 5's **labor view** + on-demand grooming assist + kiosk
-polish (soak/failure-surfacing/logging), and the **manual board-grooming UI** (the
-assistant `archive_work_item` / `delete_event` actions exist; the manual UI
-doesn't). *(Phase-4 task 7 — the live local-LLM backend — is now DONE, see the
+**Remaining MVP work:** live-assistant prompt/behavior tuning and kiosk launch
+hardening (always-on soak, failure surfacing, logging). **Follow-on scope:** the
+labor view, on-demand grooming assist, and manual board-grooming UI; the
+underlying `archive_work_item` / `delete_event` actions already exist but no manual
+UI does. *(Phase-4 task 7 — the live local-LLM backend — is DONE, see the
 assistant bullet above; Alembic migration wiring is done — see the DB bullet.)*
 
 ## Phasing
@@ -102,8 +103,9 @@ via config + CLI ✅.
 - CRUD + **append-update** flow (the primary daily interaction); each write emits
   a change event (reuse 1d) → SSE.
 - Concurrency: last-write-wins (`updated_at`).
-- Board view (grooming): 4 columns; **manual archive** of Done (+ "archive all
-  Done"); unarchive. App-invariant: only Done archivable.
+- Board view: four columns with detailed open cards and a collapsed Done count.
+  The underlying archive/unarchive/move actions exist, but manual grooming UI is
+  follow-on scope.
 - `events.source_update_id` now a real FK → `work_item_updates`.
 - Read-mostly HTMX board plus a locally served **EventCalendar** display: month
   default with week/day controls, authenticated event source, SSE refetch, stable
@@ -143,11 +145,13 @@ calendar mutations only on confirm.
 > `app/assistant/fake/` and `app/assistant/local_llm/`, **both built**; the live
 > one (`LocalLlmCaptureResolver` + `LocalLlmAssistant` over a `LocalLlmClient`) is
 > **verified end-to-end** against llamafile/Llama 3.1 8B on `localhost:8080`. The
-> toolset is now **15 actions**: `set_due_date`, `complete_work_item`,
+> toolset is now **20 actions**: `set_due_date`, `complete_work_item`,
 > `start_work_item`, `move_to_on_deck`, `move_to_todo`, `reopen_work_item`,
 > `assign_work_item` (whitelist-validated member), `archive_work_item` (done-only),
-> `add_checklist_items`, `create_event` (timing required), `reschedule_event`,
-> `delete_event`, `create_work_item`, `no_action`, `deconflict_events`. LINK
+> `add_checklist_items`, `create_timed_event`, `create_all_day_event`,
+> `reschedule_timed_event`, `reschedule_all_day_event`, `set_event_location`,
+> `add_event_participants`, `delete_event`, `create_work_item`, `append_update`,
+> `no_action`, `deconflict_events`. LINK
 > resolves `{work_item_ids, event_ids, member_ids}` (all family-whitelisted);
 > `deep_context` folds each linked member's workload footprint in. Both prompt
 > views are built (`build_world_view`, `build_tools_view`). Capture is propose-only
@@ -160,13 +164,7 @@ calendar mutations only on confirm.
 > **Remaining is tuning, not build:** prompt/behavior tuning against the live 8B
 > (date arithmetic, over-/under-linking) + operator host deploy.
 
-### Phase 5 — labor view, grooming assist, hardening
-- **Labor view** (on demand): assistant reads the raw update log by author over
-  time, using `source` to credit human effort vs. assistant-confirmed — surfaced
-  as recognition, **not** scores (R-labor guardrail). *(Underspecified — needs a
-  design spike on the output shape before building; it's an ASSIST-* feature, so
-  it's coupled to task 7's live model.)*
-- **On-demand grooming** assist for the ~monthly review.
+### Phase 5 — MVP launch hardening
 - **Persistence/resiliency ✅ (done this session):** WAL mode +
   `synchronous=NORMAL`; the **one scheduled job** — weekly consistent snapshot
   (`VACUUM INTO` via `manage backup`, same-disk v1). *Scheduling* itself is a
@@ -175,8 +173,18 @@ calendar mutations only on confirm.
   reconnect re-sync ✅. **Remaining:** always-on soak (days of uptime — on-device),
   failure surfacing in the UI, basic logging.
 
-**Exit:** data is backed up weekly ✅ (logic; scheduling documented); wall display
-survives days of uptime; labor view works; failures are visible.
+**MVP exit:** data is backed up weekly ✅ (logic; scheduling documented); wall
+display survives days of uptime; failures are visible.
+
+## Follow-on scope (explicitly out of MVP)
+- **Labor view** (on demand): read the raw update log by author over time and
+  surface recognition/fairness without scores or surveillance. It still needs a
+  design spike on output shape before implementation.
+- **On-demand grooming assist** for the ~monthly review.
+- **Manual board grooming UI:** archive a Done item, unarchive, and simple
+  review-time moves. Add the no-target `archive_all_done` assistant action for the
+  monthly grooming event; it must archive only current-family Done items. The
+  existing assistant actions remain available independently of this deferred UI.
 
 ## Deferred (explicitly not built)
 - SMS/text capture channel (DESIGN-sms-deferred.md).

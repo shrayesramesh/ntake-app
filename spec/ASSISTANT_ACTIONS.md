@@ -35,7 +35,7 @@
 >   names or invalid params are dropped (graceful degradation).
 > - **State-changing only.** Actions are confirmable *mutations*. Soft
 >   interpretations (blocker / needs-help / partial progress) are NOT actions —
->   they are read-time summaries surfaced by the labor/board views (Phase 5),
+>   they are read-time summaries surfaced by the follow-on labor/board views,
 >   per research/06 ("no `update_type` column; interpretation is transient").
 
 ## How to read this
@@ -137,8 +137,8 @@ no cleaner verb.
 | `reschedule_timed_event` | `event_id`, `start_at`, `end_at` | updates an existing event to a timed range | EVENT-1 ("move the dentist to Thursday at 3") | **v1** |
 | `reschedule_all_day_event` | `event_id`, `start_date`, `end_date?` | updates an existing event to an all-day range; missing `end_date` defaults to `start_date` | EVENT-1 | **v1** |
 | `rename_event` | `event_id`, `title` | sets event `title` | EVENT-1 | deferred |
-| `set_event_location` | `event_id`, `location` | sets `location` | EVENT-3 | deferred |
-| `add_event_participants` | `event_id`, `participants: [{member_id?, name}]` | appends `participants` | EVENT-5 | deferred |
+| `set_event_location` | `event_id`, `location` | sets `location` | EVENT-3 | **v1** |
+| `add_event_participants` | `event_id`, `participants: [str]` | appends normalized participant names | EVENT-5 | **v1** |
 | `remove_event_participants` | `event_id`, `participants` | removes `participants` | EVENT-5 (inverse) | deferred |
 | `tag_event` | `event_id`, `tags: [str]` | appends event `tags` | EVENT-6 | deferred |
 | `untag_event` | `event_id`, `tags: [str]` | removes event `tags` | EVENT-6 (inverse) | deferred |
@@ -153,7 +153,7 @@ no cleaner verb.
 |---|---|---|---|---|
 | `archive_work_item` | `work_item_id` | sets `archived_at` (invariant: only `done` may be archived) | GROOM-2/4 | **v1** (assistant action; board UI is Phase 5) |
 | `unarchive_work_item` | `work_item_id` | clears `archived_at` | GROOM-3 | deferred |
-| `archive_all_done` | *(none)* | archives every `done` item | GROOM-3 | deferred |
+| `archive_all_done` | *(none)* | archives every current-family `done` item | GROOM-3 | follow-on grooming backlog |
 
 ### F. Relational / grooming-adjacent
 
@@ -174,7 +174,7 @@ no cleaner verb.
 ## NOT actions (deliberately)
 
 Read-time interpretations, not confirmable mutations — surfaced by the
-labor/board views (Phase 5), never stored as classifications (research/06):
+follow-on labor/board views, never stored as classifications (research/06):
 
 - **blocker / needs-more-info**, **request-for-help**, **multi-step / partial
   progress** — surfaced from the log when relevant (WORKITEM-5). *(The only
@@ -190,10 +190,10 @@ Excluded write actions (would violate a design stance):
 
 ## v1 cut — LOCKED
 
-## v1 cut — the built toolset (seeded at 6, now 18)
+## v1 cut — the built toolset (seeded at 6, now 20)
 
 The v1 was **seeded** with the 6 below (the minimal architecture-proving set),
-then expanded to its current **18 actions** as richer prompt context and explicit
+then expanded to its current **20 actions** as richer prompt context and explicit
 confirmable mutations proved useful. Everything still-unbuilt in the registry is
 a pre-shaped slot (add later by registering the entry — no rework of the flow).
 
@@ -225,7 +225,7 @@ a pre-shaped slot (add later by registering the entry — no rework of the flow)
    modify-existing actions with non-null event targets; avoids an intra-action
    timed/all-day choice.
 10. **`archive_work_item`** — done-only invariant (ActionError otherwise). The
-    assistant action is built; the board's manual grooming UI is Phase 5.
+    assistant action is built; the board's manual grooming UI is follow-on scope.
 11. **`add_checklist_items`** — the easy grocery-list slice (`items: [str]`);
     check/uncheck/remove deferred (they need by-name/by-id addressing).
 12. **`delete_event`** — explicit event-only cancellation/deletion, kept separate
@@ -233,6 +233,9 @@ a pre-shaped slot (add later by registering the entry — no rework of the flow)
 13. **`append_update`** — assistant-composed context for an existing resolved
     work item; it records an observation without changing status, due date, or
     checklist state.
+14. **`set_event_location` / `add_event_participants`** — narrow event metadata
+    updates. Participants are normalized plain names, so household members and
+    anyone else share the same `list[str]` contract.
 
 **v1 boundaries (explicit):**
 - Capture targets an **explicit work item** for item-scoped actions — assistant

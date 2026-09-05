@@ -43,6 +43,9 @@ Rules:
   Similarly, use an event modifier only for an existing resolved event. Use
   `create_timed_event` when the note supplies times, or `create_all_day_event`
   for an all-day date range.
+- Event participants are plain display names, never IDs or objects. When a new
+  event is about a named person in THE NOTE or CONTEXT, include that name in its
+  `participants` list unless the note explicitly says otherwise.
 - Calendar frame: the family timezone is {timezone}; its current local date and
   time is {local_now} ({local_weekday}). A bare weekday means its next occurrence
   after the current local date.

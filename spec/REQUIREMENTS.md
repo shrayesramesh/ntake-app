@@ -62,10 +62,10 @@ There is no separate app to install beyond adding the PWA to the home screen.
   surfaces via the work-item update log and the assistant proposing it (see
   ASSIST-*); the calendar itself stores only discrete events. *(Future evolution
   lives on the assistant/log side, not the calendar schema.)*
-- **EVENT-5** An event has **participants** — who it's for/about (e.g. "Kid1",
-  "Mom", "Grandma"). Each participant is **either a linked family member or a
-  free-text name**, so non-members (Grandma, a teacher) can be named without
-  being enrolled. Participants are calendar metadata, not a labor signal.
+- **EVENT-5** An event has **participants** — a list of display names for who it
+  is for/about (e.g. "Kid1", "Mom", "Grandma"). Household member names and
+  anyone else use the same plain-string form; participants are calendar metadata,
+  not a labor signal.
 - **EVENT-6** An event has **tags** (a list of strings) from a **shared family
   vocabulary** (e.g. "Kid1", "school", "household"). Tags drive display
   color-coding (see DISP-6) and cross-surface grouping with work items
@@ -112,7 +112,7 @@ item"; "joule" is a possible future family-facing label.)*
   footprint across calendar + board (e.g. all "Kid1" items) and drive
   color-coding (DISP-6).
 
-### 4.3 Board grooming & archive — `GROOM`
+### 4.3 Board grooming & archive — `GROOM` *(follow-on after MVP)*
 
 - **GROOM-1** The **board view** is a **periodic (~monthly) grooming instrument**,
   not the daily surface. Its jobs: prioritize when time is contentious, review
@@ -138,9 +138,9 @@ item"; "joule" is a possible future family-facing label.)*
   **calendar-event impact** (propose creating/updating an event). These are
   transient interpretations, not stored classifications; unacted proposals are
   not persisted.
-- **ASSIST-4** The **labor view** (§1) and the board grooming are run **on demand**
-  ("review now"), reading the raw update log at that moment — not scheduled, not
-  precomputed metrics.
+- **ASSIST-4** *(Follow-on after MVP.)* The **labor view** (§1) and board
+  grooming are run **on demand** ("review now"), reading the raw update log at
+  that moment — not scheduled, not precomputed metrics.
 - **ASSIST-5** Correcting a wrong proposal is done by **restating** in a new
   update (which yields a fresh proposal), not a manual edit form. *(Future:
   in-place conversational refinement — telling the assistant what to change and

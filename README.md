@@ -45,7 +45,7 @@ paths, `/capture` (propose-only) and `/actions/confirm`; config-seeded identity 
 token CLI; change-event seam → SSE live sync; and the assistant as a reusable
 engine (`app/routing/`) + ntake plugin (`app/assistant/`) with two swappable seams
 (`CaptureResolver`, `AssistantClient`), **both a `fake/` and a live `local_llm/`
-backend**, a 15-action toolset, and the two prompt views (`build_world_view`,
+backend**, a 20-action toolset, and the two prompt views (`build_world_view`,
 `build_tools_view`). The two-call pipeline links work items, events, **and
 members** from free text (`{work_item_ids, event_ids, member_ids}`) and folds each
 linked member's workload into the PROPOSE context; proposal cards render verbose,
@@ -74,13 +74,11 @@ config-in-code (`AssistantConfig`); `make ui-live` flips it via the opt-in
 `NTAKE_ASSISTANT_KIND=local` env override so the committed default (and the tests)
 stay on `fake`.
 
-**Next:** Phase 5 — the **labor view** (needs a design spike on output shape),
-**on-demand grooming assist**, the **manual board-grooming UI** (the
-`archive_work_item` / `delete_event` *actions* exist; no manual UI yet), and
-**kiosk hardening** (always-on soak, failure surfacing, logging). Plus the planned
-one-time **backfill** from Trello / Google Calendar (`manage import`, designed in
-DESIGN §6a — a fresh install starts empty otherwise). See `spec/PLAN.md`,
-`spec/BUGLIST.md`, and `spec/UI_TESTING_BACKLOG.md`.
+**Next MVP work:** finish live-assistant prompt/behavior tuning and kiosk launch
+hardening (always-on soak, failure surfacing, logging). **Follow-on scope:** labor
+view, on-demand grooming assist, manual board-grooming UI, and one-time backfill
+from Trello / Google Calendar (`manage import`, designed in DESIGN §6a). See
+`spec/PLAN.md`, `spec/BUGLIST.md`, and `spec/UI_TESTING_BACKLOG.md`.
 
 ## Key shape (details in `spec/`)
 

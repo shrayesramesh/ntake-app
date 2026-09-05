@@ -354,7 +354,7 @@ SHELL_PAGE = """<!doctype html>
           extendedProps: {
             location: e.location,
             description: e.description,
-            participantNames: e.participant_names || []
+            participants: e.participants || []
           }
         };
       }
@@ -367,7 +367,7 @@ SHELL_PAGE = """<!doctype html>
         extendedProps: {
           location: e.location,
           description: e.description,
-          participantNames: e.participant_names || []
+          participants: e.participants || []
         }
       };
     }
@@ -387,8 +387,8 @@ SHELL_PAGE = """<!doctype html>
       const props = info.event.extendedProps || {};
       const bits = [];
       if (info.timeText) bits.push(info.timeText);
-      if (Array.isArray(props.participantNames) && props.participantNames.length) {
-        bits.push(props.participantNames.join(', '));
+      if (Array.isArray(props.participants) && props.participants.length) {
+        bits.push(props.participants.join(', '));
       }
       if (props.location) bits.push('@ ' + props.location);
       if (bits.length) {

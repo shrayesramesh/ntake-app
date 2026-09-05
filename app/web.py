@@ -128,9 +128,7 @@ def _event_when(ev: Event) -> str:
     return ev.start_at.strftime("%Y-%m-%d %H:%M") + " UTC"
 
 
-def render_calendar(
-    events: list[Event], member_names: dict[int, str] | None = None
-) -> str:
+def render_calendar(events: list[Event]) -> str:
     """Render events as a simple long list of cards (task 11, fuller render).
 
     Agenda/list only — no grid. Each card shows the id, escaped title, a
@@ -141,7 +139,7 @@ def render_calendar(
     if events:
         parts.append('<ul class="events">')
         for ev in events:
-            parts.append(_render_event_card(ev, member_names))
+            parts.append(_render_event_card(ev))
         parts.append("</ul>")
     else:
         parts.append('<p class="empty">No events.</p>')
@@ -149,13 +147,8 @@ def render_calendar(
     return "".join(parts)
 
 
-def _render_event_card(ev: Event, member_names: dict[int, str] | None = None) -> str:
-    """One event card with full record detail (all free text escaped).
-
-    ``member_names`` maps member id → display name so participant member links
-    render as names (e.g. "Alex") instead of raw ids ("m1"); falls back to the id
-    token when a name isn't provided (the pure renderer has no DB session)."""
-    names_map = member_names or {}
+def _render_event_card(ev: Event) -> str:
+    """One event card with full record detail (all free text escaped)."""
     parts: list[str] = ['<li class="event-card">']
     parts.append('<div class="card-head">')
     parts.append(f'<span class="card-id">e{ev.id}</span>')
@@ -171,17 +164,9 @@ def _render_event_card(ev: Event, member_names: dict[int, str] | None = None) ->
         meta.append(f'<span class="meta loc">@ {escape(ev.location)}</span>')
     participants = getattr(ev, "participants", None) or []
     if participants:
-        names = []
-        for p in participants:
-            if isinstance(p, dict):
-                mid = p.get("member_id")
-                # Prefer an explicit name, else the resolved member name, else id.
-                resolved = names_map.get(mid) if isinstance(mid, int) else None
-                label = p.get("name") or resolved or f"m{mid}"
-                names.append(str(label))
-            else:
-                names.append(str(p))
-        meta.append(f'<span class="meta parts">with {escape(", ".join(names))}</span>')
+        meta.append(
+            f'<span class="meta parts">with {escape(", ".join(participants))}</span>'
+        )
     if meta:
         parts.append(f'<div class="card-meta">{"".join(meta)}</div>')
 

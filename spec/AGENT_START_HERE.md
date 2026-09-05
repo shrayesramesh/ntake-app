@@ -56,9 +56,9 @@ fallback in `spec/calendar_design.md`. Live-surface hardening is done (WAL,
 `manage backup`, SSE reconnect re-sync, PWA). Dev bring-up for live UI testing is
 one command: **`make llm-up` then `make ui-live`** (real household + persistent
 DB + live model + a debug panel showing the LLM prompts/replies). **Not built
-yet:** Phase 5's **labor view**, **on-demand grooming assist**, the **manual
-board-grooming UI** (the `archive_work_item`/`delete_event` *actions* exist; no
-manual UI), and **kiosk soak/failure-surfacing/logging** (see PLAN.md).
+yet:** MVP kiosk soak/failure-surfacing/logging (see PLAN.md). **Follow-on
+scope:** the labor view, on-demand grooming assist, and manual board-grooming UI
+(the `archive_work_item`/`delete_event` *actions* exist; no manual UI).
 
 ## How to work
 

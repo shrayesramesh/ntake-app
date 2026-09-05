@@ -43,12 +43,12 @@ app can improve the prompt, validation, or deterministic post-processing.
 A new event about Sam should carry the resolved participant:
 
 ```json
-{"participants": [{"member_id": 2}]}
+{"participants": ["Sam"]}
 ```
 
 The member-linking pipeline already resolves Sam and supplies his workload to
-PROPOSE; the confirmed event should preserve that attribution unless the model or
-user explicitly indicates another participant set.
+PROPOSE; the model should emit Sam's display name when creating an event about
+him unless the user explicitly indicates another participant set.
 
 **Observed**
 
@@ -66,9 +66,8 @@ context, but no deterministic/create-event attribution contract consumes it.
 
 **Investigation direction**
 
-Decide the deterministic contract: for `create_event`, should the app inject
-`ctx.primary_member_id` as a participant when `params.participants` is absent, or
-should the prompt require the model to emit the member id? Prefer a testable,
+Decide the prompt contract: should it require the model to emit the linked
+member's display name when creating an event about them? Prefer a testable,
 explicit rule that does not overwrite an explicitly supplied participant list.
 
 ---

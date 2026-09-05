@@ -1,19 +1,18 @@
-"""Alembic wiring (app.persistence.migrations) — the baseline reproduces the ORM schema.
+"""Alembic wiring — the baseline reproduces the ORM schema.
 
-The real DB is migration-managed; tests build schema from ``Base.metadata``
-(``create_all``) for speed. This test is the **guard that the two agree**: a blank
-DB migrated to head has exactly the same tables as ``create_all`` would produce.
-If a future model change lands without a matching migration, this fails — the
-whole point of wiring Alembic. Also pins that ``upgrade_to_head`` is idempotent
-and that the ``manage migrate`` CLI drives it.
+The real DB is migration-managed; tests build schema from ``Base.metadata`` for
+speed. These tests guard schema parity, idempotent upgrades, the manage CLI, and
+participant-data migration.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from sqlalchemy import create_engine, inspect
 
+from alembic import command
 from app.persistence.database import build_engine, init_schema
 from app.persistence.migrations import upgrade_to_head
 
@@ -82,3 +81,63 @@ def test_manage_migrate_cli(tmp_path, monkeypatch, capsys):
     assert rc == 0
     assert "head" in capsys.readouterr().out.lower()
     assert "alembic_version" in _tables(url)
+
+
+def test_participant_name_migration_converts_legacy_event_data(tmp_path: Path):
+    """Existing member/name objects become plain display-name strings at head."""
+    from sqlalchemy import text
+
+    from app.persistence.migrations import make_alembic_config
+
+    url = f"sqlite:///{tmp_path / 'legacy-participants.db'}"
+    command.upgrade(make_alembic_config(url), "32cf7ce43767")
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO families (id, name, timezone) VALUES (1, 'Fam', 'UTC')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO members "
+                    "(id, family_id, display_name, role, created_at) "
+                    "VALUES (2, 1, 'Sam', 'child', '2026-09-01T00:00:00Z')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO events "
+                    "(id, family_id, title, all_day, participants, "
+                    "created_at, updated_at) "
+                    "VALUES (1, 1, 'Soccer', 0, :participants, "
+                    ":created_at, :updated_at)"
+                ),
+                {
+                    "participants": json.dumps(
+                        [
+                            {"member_id": 2},
+                            {"name": "Coach Lee"},
+                            "Sam",
+                            {"name": "  coach lee  "},
+                        ]
+                    ),
+                    "created_at": "2026-09-01T00:00:00Z",
+                    "updated_at": "2026-09-01T00:00:00Z",
+                },
+            )
+    finally:
+        engine.dispose()
+
+    upgrade_to_head(url)
+    engine = create_engine(url)
+    try:
+        with engine.connect() as connection:
+            participants = connection.execute(
+                text("SELECT participants FROM events WHERE id = 1")
+            ).scalar_one()
+    finally:
+        engine.dispose()
+
+    assert json.loads(participants) == ["Sam", "Coach Lee"]

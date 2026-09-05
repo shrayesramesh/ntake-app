@@ -12,6 +12,7 @@ import pytest
 
 from app.config import FamilyConfig, config_path, load_config, seed_from_config
 from app.persistence.models import Family, Member
+from tests.fixtures.alex_sam_household import ALEX_SAM_TOML
 
 SAMPLE = """
 [family]
@@ -40,6 +41,17 @@ def test_load_config_parses_family_and_members(tmp_path):
     assert cfg.family.name == "Ramesh"
     assert cfg.family.timezone == "America/New_York"
     assert [m.display_name for m in cfg.members] == ["Adult One", "Wall Display"]
+
+
+def test_alex_sam_household_config_loads(tmp_path):
+    cfg = load_config(_write(tmp_path, ALEX_SAM_TOML))
+
+    assert cfg.family.name == "Alex and Sam Household"
+    assert cfg.family.timezone == "America/New_York"
+    assert [(member.display_name, member.role) for member in cfg.members] == [
+        ("Alex", "adult"),
+        ("Sam", "child"),
+    ]
     assert [m.role for m in cfg.members] == ["adult", "child"]
 
 
