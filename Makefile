@@ -25,7 +25,7 @@ SRC  := app tests
   help setup test \
   test-assistant test-identity test-persistence test-api test-web test-operations \
   update-expectations \
-  run smoke ui-live llm-up llm-down llm-status \
+  run smoke ui-live ui-demo ui-demo-token llm-up llm-down llm-status \
   lint format typecheck coverage check \
   freeze clean
 
@@ -105,8 +105,16 @@ smoke: ## Host integration smoke (real server, temp DB, self-cleaning). --serve 
 	@test -x $(PY) || { echo "No venv found — run 'make setup' first."; exit 1; }
 	$(PY) scripts/integration_smoke_on_host.py
 
-ui-live: ## Live-LLM UI session: real household + persistent DB + local LLM, serves + prints token (needs 'make llm-up' first)
+ui-live: ## Live-LLM UI session: persistent local sandbox + live model (needs 'make llm-up' first)
 	bash scripts/live_llm_ui.sh
+
+ui-demo: ## Live-LLM UI session: fresh Alex/Sam demo DB + live model (needs 'make llm-up' first)
+	bash scripts/live_llm_ui.sh --demo
+
+ui-demo-token: ## Print the active demo UI token (demo must be running)
+	@token_file="$${TMPDIR:-/tmp}/ntake_ui_demo_token"; \
+	  test -r "$$token_file" || { echo "No active demo token — run 'make ui-demo' first." >&2; exit 1; }; \
+	  cat "$$token_file"
 
 llm-up: ## Start the local llamafile model server (dev; PID-tracked, waits ready)
 	bash scripts/llm.sh up

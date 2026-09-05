@@ -38,11 +38,15 @@ def test_board_card_shows_full_record(session, fam_member, work_item_factory):
     session.commit()
     wi.updates = [upd]  # type: ignore[attr-defined]
 
-    html = render_board({"todo": [wi], "on_deck": [], "doing": [], "done": []})
+    html = render_board(
+        {"todo": [wi], "on_deck": [], "doing": [], "done": []},
+        {m.id: m.display_name},
+    )
     assert f"#{wi.id}" in html
     assert "Kitchen tap drips" in html
     assert "due 2026-09-10 09:00 UTC" in html
-    assert f"assignee m{m.id}" in html
+    assert f"assignee {m.display_name}" in html
+    assert f"assignee m{m.id}" not in html
     assert "1 update(s); latest [assistant]: Called the plumber" in html
     assert "household" in html and "urgent" in html
 

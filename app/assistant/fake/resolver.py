@@ -61,6 +61,7 @@ class FakeCaptureResolver(CaptureResolver):
             text=request.text,
             timezone=request.timezone,
             now=request.now,
+            capture_author=f"[m{member.id}] {member.display_name} ({member.role})",
             deep_context=dc,
             resolved_work_item_ids=wi_ids,
             resolved_event_ids=ev_ids,

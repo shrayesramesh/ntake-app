@@ -11,8 +11,8 @@ from __future__ import annotations
 import pytest
 
 from app.config import FamilyConfig, config_path, load_config, seed_from_config
+from app.demo.alex_sam_household import ALEX_SAM_TOML
 from app.persistence.models import Family, Member
-from tests.fixtures.alex_sam_household import ALEX_SAM_TOML
 
 SAMPLE = """
 [family]

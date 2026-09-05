@@ -138,6 +138,7 @@ SHELL_PAGE = """<!doctype html>
     <input id="capture-text"
            placeholder="Capture a note, task, or plan…"
            enterkeyhint="done"
+           onkeydown="captureOnKeydown(event)"
            required>
     <button type="submit">Capture</button>
   </form>
@@ -177,6 +178,15 @@ SHELL_PAGE = """<!doctype html>
       if (t) { localStorage.setItem('ntake_token', t);
                document.getElementById('token-status').textContent = 'saved';
                startSSE(); reloadBoard(); initCalendar(); }
+    }
+
+    // Submit from physical Enter and mobile keyboard Done. Explicitly submit so
+    // browser quirks cannot bypass the form handler; ignore IME composition so
+    // Enter can still confirm an in-progress composed character.
+    function captureOnKeydown(event) {
+      if (event.key !== 'Enter' || event.isComposing) return;
+      event.preventDefault();
+      document.getElementById('capture').requestSubmit();
     }
 
     // Capture: POST free text to /capture (JSON) -> {item, proposals}. Save the

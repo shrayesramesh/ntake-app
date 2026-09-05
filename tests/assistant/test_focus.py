@@ -100,3 +100,4 @@ def test_first_person_capture_deterministically_links_the_author(session, fam_me
 
     assert ctx.resolved_member_ids == [member.id]
     assert ctx.primary_member_id == member.id
+    assert ctx.capture_author == f"[m{member.id}] {member.display_name} ({member.role})"

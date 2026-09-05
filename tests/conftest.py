@@ -326,6 +326,6 @@ def household_scenario(session):
     checklists, assignments, provenance, and participant workload for
     feature-level assistant and UI tests.
     """
-    from tests.fixtures.alex_sam_household import seed_alex_sam_household
+    from app.demo.alex_sam_household import seed_alex_sam_household
 
     return seed_alex_sam_household(session)

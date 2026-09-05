@@ -363,37 +363,34 @@ make smoke        # runs the host integration smoke; --serve keeps the server up
 Confirm real captures produce sane proposals; expect to **tune** prompt wording
 and the timeout against what you observe (the prompt drafts anticipate this).
 
-### 7.6 One-command live-LLM UI session (`make ui-live`)
+### 7.6 One-command live-LLM UI sessions
 
-For hands-on **browser** testing against the live model, `make ui-live` brings
-the whole thing up in one command — the persistent-DB, real-household counterpart
-to `make smoke`:
+For hands-on browser testing against the live model, start the model then choose
+one mode:
 
 ```bash
-make llm-up        # (infra) start the model server first — §7.2
-make ui-live       # bring the app up on the live backend, seed, mint, serve
+make llm-up
+make ui-demo        # recommended: fresh Alex/Sam fixture DB
+make ui-demo-token  # print its token while the demo is running
 ```
 
-What it does (see `scripts/live_llm_ui.sh`, which is self-documented):
-1. **Preflights** the model server at `NTAKE_LLM_BASE_URL` (default `:8080`) and
-   auto-probes the served model id (so `llm health` matches — §7.4).
-2. **Flips** the assistant to `local` for the app process via the §7.4 env
-   override (the committed default stays `fake` — the test suite is unaffected).
-3. Starts the app on the **persistent** `./calendar.db`, seeds sample events, and
-   **mints a device token** for a member (`NTAKE_MEMBER`, default: first adult).
-4. Prints the **URL + token**, then serves (Ctrl-C to stop).
+`make ui-demo` creates a fresh temporary DB/config, seeds the full Alex/Sam demo
+scenario, mints a demo token, and removes its DB/token when the launcher exits.
+It is safe to use repeatedly while tuning prompts and UI behavior.
 
-How it differs from `make smoke`: `make smoke` uses an isolated **temp** DB, a
-hardcoded "Smoke Household", the **fake** assistant, and 12 fake-shaped
-assertions (self-cleaning; proves the plumbing). `make ui-live` uses your real
-`family.toml` household, the persistent DB, and the **live** model — for eyeballing
-real reasoning in the browser. In the UI, expand the **"LLM debug trace"** panel
-under a proposal to see both prompts, the raw model replies, and the resolved ids;
-the board/event cards show full record detail.
+```bash
+make ui-live
+```
 
-Secret handling: if `NTAKE_TOKEN_SECRET` isn't set, the script persists a stable
-one to `<config-dir>/token_secret` (out-of-repo, `chmod 600`) so tokens survive
-re-runs — set the env var yourself to control it.
+`make ui-live` is the separate persistent local sandbox mode. It reuses the
+configured local sandbox DB/token behavior; it is not the eventual production
+household deployment path.
+
+Both modes (see `scripts/live_llm_ui.sh`) preflight the model server, flip the
+assistant to `local` for the app process, print the URL, and serve a debug UI.
+Expand the **"LLM debug trace"** panel under a proposal to inspect prompts, raw
+model replies, and resolved ids. `make smoke` remains isolated fake-assistant
+coverage, not a reasoning-quality test.
 
 ---
 

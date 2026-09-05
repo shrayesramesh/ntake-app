@@ -70,6 +70,7 @@ class FocusedContext(ActionContext):
     text: str
     timezone: str
     now: datetime
+    capture_author: str = ""
     deep_context: str = ""
     resolved_work_item_ids: list[int] = field(default_factory=list)
     resolved_event_ids: list[int] = field(default_factory=list)

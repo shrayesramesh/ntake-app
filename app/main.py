@@ -447,7 +447,13 @@ def board_view(
     """
     columns = _board_columns(session)
     _attach_board_card_details(session, columns)
-    return render_board(columns)
+    member_names = {
+        member.id: member.display_name
+        for member in session.scalars(
+            select(Member).where(Member.family_id == _member.family_id)
+        ).all()
+    }
+    return render_board(columns, member_names)
 
 
 @app.get("/calendar/view", response_class=HTMLResponse)

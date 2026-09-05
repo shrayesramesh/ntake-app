@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from app.assistant.actions.registry import REGISTRY
 from app.assistant.capture import FocusedContext, ProposedAction
 from app.assistant.local_llm.protocol import LLM
-from app.assistant.tools_view import build_tools_view
+from app.assistant.tools_view import build_ntake_tools_view
 from app.persistence.models import TargetType
 from app.routing.engine import ActionRegistry, ActionSpec, AssistantClient
 
@@ -54,6 +54,12 @@ Rules:
   convert every emitted UTC datetime back to the family timezone and verify it
   matches the requested weekday and local clock time. Right now in UTC it is {now}.
 - If nothing sensible applies, return exactly one no_action.
+- When a note reports that work has begun, prefer `start_work_item`. When it
+  reports named checklist items were obtained or completed, prefer
+  `check_off_items` with those names.
+- Use `append_update` only when no structured action captures the reported
+  change. Return multiple actions when a note reports multiple independent
+  structured updates.
 - Prefer one precise action over several speculative ones.
 
 Return JSON exactly:
@@ -63,22 +69,29 @@ Return JSON exactly:
 PROPOSE_CONTEXT = """\
 {tools_view}
 
+CAPTURE:
+FROM: {capture_author}
+NOTE: "{note}"
+
 CONTEXT:
 {deep_context}
-
-THE NOTE:
-"{note}"
 """
 
 
 def build_propose_prompt(
-    *, tools_view: str, deep_context: str, note: str, now: datetime, timezone: str
+    *,
+    tools_view: str,
+    capture_author: str,
+    deep_context: str,
+    note: str,
+    now: datetime,
+    timezone: str,
 ):
     """Return (system, user) for the PROPOSE call.
 
-    ``tools_view`` is ``build_tools_view(registry)``; ``deep_context`` is a
-    rendering of the deep-fetched records for the linked ids (target item + its
-    update history, linked events); ``note`` is the raw capture text.
+    ``tools_view`` is the grouped ntake action menu; ``capture_author`` and
+    ``note`` form the capture header; ``deep_context`` is the rendering of the
+    deep-fetched records for linked ids.
     """
     aware_now = now.replace(tzinfo=UTC) if now.tzinfo is None else now
     local_now = aware_now.astimezone(ZoneInfo(timezone))
@@ -89,7 +102,10 @@ def build_propose_prompt(
         local_weekday=local_now.strftime("%A"),
     )
     user = PROPOSE_CONTEXT.format(
-        tools_view=tools_view, deep_context=deep_context, note=note
+        tools_view=tools_view,
+        capture_author=capture_author,
+        deep_context=deep_context,
+        note=note,
     )
     return system, user
 
@@ -321,7 +337,8 @@ class LocalLlmAssistant(AssistantClient[FocusedContext]):
 
     def propose(self, ctx: FocusedContext) -> list[ProposedAction]:
         system, user = build_propose_prompt(
-            tools_view=build_tools_view(self._registry),
+            tools_view=build_ntake_tools_view(self._registry),
+            capture_author=ctx.capture_author or "(unknown)",
             deep_context=ctx.deep_context,
             note=ctx.text,
             now=ctx.now,

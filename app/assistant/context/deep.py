@@ -246,15 +246,15 @@ def _render(
     linked_members: list[Member],
     zone: ZoneInfo,
 ) -> str:
-    lines = [f"NOTE FROM: [m{member.id}] {member.display_name} ({member.role})"]
+    lines: list[str] = []
 
-    # People the note is about (beyond the author) — their workload/events are
+    # People the note is about beyond the author; their workload/events are
     # folded into the sections below so the model can judge what to do for them.
     others = [lm for lm in linked_members if lm.id != member.id]
     if others:
         who = ", ".join(f"[m{lm.id}] {lm.display_name} ({lm.role})" for lm in others)
         lines.append(f"ALSO ABOUT: {who}")
-    lines.append("")
+        lines.append("")
 
     lines += _render_work_item_context(session, items, zone)
     lines += _render_event_context(events, zone)
@@ -272,6 +272,8 @@ def _render_work_item_context(
         due = f", due {_fmt_dt(wi.due_at, zone)}" if wi.due_at else ""
         tags = f" [tags: {', '.join(wi.tags)}]" if wi.tags else ""
         lines.append(f"- [w{wi.id}] {wi.title} ({wi.status}{due}){tags}")
+        if wi.description:
+            lines.append(f"    DESCRIPTION: {wi.description}")
 
         checklist = _item_checklist(session, wi.id)
         if checklist:

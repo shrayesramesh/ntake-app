@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.persistence.models import ChecklistItem, Family, WorkItem
+from app.persistence.models import ChecklistItem, Family, Member, WorkItem
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
@@ -113,5 +113,30 @@ def test_capture_form_uses_native_submit_and_mobile_done_hint(client):
 
     assert '<form id="capture" onsubmit="return onCapture(event)">' in html
     assert 'id="capture-text"' in html
+    assert 'onkeydown="captureOnKeydown(event)"' in html
     assert 'enterkeyhint="done"' in html
     assert '<button type="submit">Capture</button>' in html
+    assert "function captureOnKeydown(event)" in html
+    assert "requestSubmit()" in html
+
+
+def test_board_view_resolves_assignee_name(client, session, auth_headers):
+    family = session.query(Family).first()
+    member = session.query(Member).filter_by(display_name="Tester").one()
+    assert family is not None
+    session.add(
+        WorkItem(
+            family_id=family.id,
+            assigned_to=member.id,
+            title="Assigned task",
+            status="todo",
+            created_at=NOW,
+            updated_at=NOW,
+        )
+    )
+    session.commit()
+
+    html = client.get("/board/view", headers=auth_headers).text
+
+    assert "assignee Tester" in html
+    assert f"assignee m{member.id}" not in html

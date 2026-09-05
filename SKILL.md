@@ -50,6 +50,9 @@
 | `make format` | ruff auto-fix + format (mutates files) |
 | `make typecheck` | mypy |
 | `make check` | **lint + typecheck + test — the gate before finishing** |
+| `make ui-live` | persistent local live-LLM sandbox UI session |
+| `make ui-demo` | fresh Alex/Sam demo UI session with live local LLM |
+| `make ui-demo-token` | print the active demo token while ui-demo is running |
 | `make run` | dev server on 127.0.0.1:8000 |
 | `make clean` | remove venv/caches/db |
 

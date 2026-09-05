@@ -415,3 +415,17 @@ def test_deep_context_renders_event_tags(session, fam_member):
     out = deep_context(session, member, [], [event.id])
 
     assert "[tags: school, sports]" in out
+
+
+def test_deep_context_renders_work_item_description(session, fam_member):
+    family, member = fam_member
+    item = _wi(
+        session,
+        family.id,
+        "Plan Pittsburgh trip",
+        description="Trip for Sam and Beau, September 14-16",
+    )
+
+    out = deep_context(session, member, [item.id], [])
+
+    assert "DESCRIPTION: Trip for Sam and Beau, September 14-16" in out

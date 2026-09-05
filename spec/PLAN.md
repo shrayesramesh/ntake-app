@@ -46,8 +46,9 @@ checks). What exists:
   `refetchEvents()`, stable kiosk height, and title-first compact event metadata.
   It is read-only; mutations remain propose-and-confirm. FullCalendar is the
   documented fallback in `spec/calendar_design.md`. **Dev live-UI bring-up:** `make llm-up` + `make
-  ui-live` (real household, persistent DB, seeded data + token, and an in-UI debug
-  panel showing the LINK/PROPOSE prompts + raw model replies + resolved ids).
+  ui-demo` (fresh Alex/Sam demo DB; token via `make ui-demo-token`; in-UI debug
+  panel showing LINK/PROPOSE prompts + raw replies + resolved ids). `make ui-live`
+  remains the separate persistent local sandbox mode.
 - Makefile, setup.sh, pinned requirements, ruff + mypy config.
 
 **Remaining MVP work:** live-assistant prompt/behavior tuning and kiosk launch
@@ -139,7 +140,8 @@ calendar mutations only on confirm.
 > (`base.py`) with `get_capture_resolver(config)`; stage 2 is `AssistantClient`
 > with `get_assistant(config)`. The backend is chosen by an in-code
 > **`AssistantConfig`** (`kind` = `fake` | `off` | `local`), NOT an env var — the
-> committed default is `fake`; `make ui-live` flips to `local` via an opt-in
+> committed default is `fake`; `make ui-demo` and `make ui-live` flip to `local`
+> via an opt-in
 > `NTAKE_ASSISTANT_KIND=local` env override read only in `get_assistant_config`
 > (so tests stay on fake). The two backends are **parallel packages** —
 > `app/assistant/fake/` and `app/assistant/local_llm/`, **both built**; the live

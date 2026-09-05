@@ -1,16 +1,10 @@
 # Assistant Actions — the LLM capability registry
 
-> **Status:** BUILT (both fake + live local-LLM backends). The v1 toolset was
-> seeded at 6 actions then **expanded to 18** for richer LLM context (status
-> lifecycle, assignment, reschedule, archive, checklist, delete). Current v1 set:
-> `set_due_date`, `complete_work_item`, `start_work_item`, `move_to_on_deck`,
-> `move_to_todo`, `reopen_work_item`, `assign_work_item`, `archive_work_item`,
-> `add_checklist_items`, `create_timed_event`, `create_all_day_event`,
-> `reschedule_timed_event`, `reschedule_all_day_event`, `delete_event`,
-> `create_work_item`, `append_update`, `no_action`, `deconflict_events`. Each row's scope column
-> below is the source of truth for what's built (**v1**) vs. backlog (v2 /
-> deferred). This file remains the registry + scope reference; the live contract
-> lives in `app/assistant/actions.py` (`ActionSpec.params`). Each spec also carries
+> **Status:** BUILT (both fake + live local-LLM backends). The registry began with
+> a small seed and has expanded as richer prompt context and explicit confirmable
+> mutations proved useful. The current registry below is the source of truth for
+> built (**v1**) versus backlog (v2 / deferred). The live contract lives in
+> `app/assistant/actions/` (`ActionSpec.params`). Each spec also carries
 > an optional pure `render_card(params, resolved)` that produces the proposal
 > card's verbose, id-resolved detail lines (the app supplies the `resolved`
 > member-name / target-label maps; the engine stays session-free).

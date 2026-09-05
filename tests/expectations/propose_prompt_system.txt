@@ -32,6 +32,12 @@ Rules:
   convert every emitted UTC datetime back to the family timezone and verify it
   matches the requested weekday and local clock time. Right now in UTC it is 2026-09-03T12:00:00+00:00.
 - If nothing sensible applies, return exactly one no_action.
+- When a note reports that work has begun, prefer `start_work_item`. When it
+  reports named checklist items were obtained or completed, prefer
+  `check_off_items` with those names.
+- Use `append_update` only when no structured action captures the reported
+  change. Return multiple actions when a note reports multiple independent
+  structured updates.
 - Prefer one precise action over several speculative ones.
 
 Return JSON exactly:

@@ -55,10 +55,10 @@ workload into the PROPOSE context. The calendar is now a locally served
 SSE `refetchEvents()`, stable kiosk region, title-first event metadata); it stays
 read-only so mutations remain propose-and-confirm. FullCalendar is the documented
 fallback in `spec/calendar_design.md`. Live-surface hardening is done (WAL,
-`manage backup`, SSE reconnect re-sync, PWA). Dev bring-up for live UI testing is
-one command: **`make llm-up` then `make ui-live`** (real household + persistent
-DB + live model + a debug panel showing the LLM prompts/replies). **Not built
-yet:** MVP kiosk soak/failure-surfacing/logging (see PLAN.md). **Follow-on
+`manage backup`, SSE reconnect re-sync, PWA). Dev bring-up for safe live UI
+testing is **`make llm-up` then `make ui-demo`** (fresh Alex/Sam demo DB + live
+model + debug trace). `make ui-live` remains the separate persistent local
+sandbox mode. **Not built yet:** MVP kiosk soak/failure-surfacing/logging (see PLAN.md). **Follow-on
 scope:** the labor view, on-demand grooming assist, and manual board-grooming UI
 (the `archive_work_item`/`delete_event` *actions* exist; no manual UI).
 

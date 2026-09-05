@@ -67,12 +67,13 @@ worker for add-to-home-screen.
 
 **Live local LLM (done):** the `local_llm/` backend runs against llamafile (or any
 OpenAI-style localhost endpoint) and is verified end-to-end. For hands-on browser
-testing: **`make llm-up` then `make ui-live`** brings the app up on the live model
-with the real household, a persistent DB, sample data, a minted token, and an
-in-UI debug panel showing the exact LINK/PROPOSE prompts + raw model replies +
-resolved ids (see `HOST_SETUP_GUIDE` §7.4/§7.6). The backend selection stays
-config-in-code (`AssistantConfig`); `make ui-live` flips it via the opt-in
-`NTAKE_ASSISTANT_KIND=local` env override so the committed default (and the tests)
+testing: **`make llm-up` then `make ui-demo`** starts a resettable Alex/Sam demo
+DB with the live model, a demo token (retrieve it with `make ui-demo-token` while
+the session is running), and the in-UI LINK/PROPOSE debug trace.
+**`make ui-live`** remains the separate persistent local sandbox mode. Both bind
+only localhost (see `HOST_SETUP_GUIDE` §7.4/§7.6). The backend selection stays
+config-in-code (`AssistantConfig`); these targets flip it via the opt-in
+`NTAKE_ASSISTANT_KIND=local` env override so the committed default (and tests)
 stay on `fake`.
 
 **Next MVP work:** finish live-assistant prompt/behavior tuning and kiosk launch

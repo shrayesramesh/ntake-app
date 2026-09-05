@@ -14,60 +14,23 @@ from app.assistant.tools_view import build_tools_view
 from app.routing.engine import ActionRegistry, ActionSpec, DataType, Param
 
 
-def test_tools_view_full_render_over_the_real_registry():
-    # The exact prompt text the model sees. If this changes, it's a deliberate
-    # change to the tool contract — update the snapshot on purpose.
-    expected = (
-        "AVAILABLE TOOLS:\n"
-        "- create_work_item: Create a new work item (a task/todo). — params: "
-        "title: string, description: string?, tags: array<string>?, "
-        "checklist_items: array<string>?\n"
-        "- append_update: Append assistant context to an existing work item. — params: "
-        "body: string\n"
-        "- set_due_date: Set a work item's due date. — params: due_at: datetime\n"
-        "- complete_work_item: Mark a work item done. — params: (no params)\n"
-        "- start_work_item: Start work on an item (move it to Doing). — params: "
-        "(no params)\n"
-        "- move_to_on_deck: Move a work item to On deck (queued up next). — params: "
-        "(no params)\n"
-        "- move_to_todo: Move a work item back to Todo. — params: (no params)\n"
-        "- reopen_work_item: Reopen a completed item (back to Todo; clears "
-        "completion). — params: (no params)\n"
-        "- assign_work_item: Assign a work item to a family member. — params: "
-        "member_id: integer\n"
-        "- set_work_item_tags: Replace a work item's complete shared tag list. — "
-        "params: tags: array<string>\n"
-        "- archive_work_item: Archive a work item (only a done item may be "
-        "archived). — params: (no params)\n"
-        "- archive_all_done: Archive every unarchived Done work item in the family. — "
-        "params: (no params)\n"
-        "- add_checklist_items: Add checklist items (e.g. a grocery list) to a "
-        "work item. — params: items: array<string>\n"
-        "- check_off_items: Mark named checklist items complete. — params: "
-        "items: array<string>\n"
-        "- create_timed_event: Create a timed calendar event. — params: "
-        "title: string, start_at: datetime, end_at: datetime, description: string?, "
-        "location: string?, participants: array<string>?, tags: array<string>?\n"
-        "- create_all_day_event: Create an all-day calendar event. — params: "
-        "title: string, start_date: date, end_date: date?, description: string?, "
-        "location: string?, participants: array<string>?, tags: array<string>?\n"
-        "- reschedule_timed_event: Move an existing event to a timed range. — params: "
-        "start_at: datetime, end_at: datetime\n"
-        "- reschedule_all_day_event: Move an existing event to all-day date(s). — "
-        "params: start_date: date, end_date: date?\n"
-        "- set_event_location: Set an existing event's location. — params: "
-        "location: string\n"
-        "- add_event_participants: Add people by name to an existing event. — params: "
-        "participants: array<string>\n"
-        "- set_event_tags: Replace an existing event's complete shared tag list. — "
-        "params: tags: array<string>\n"
-        "- delete_event: Delete an existing event (e.g. it was cancelled). — "
-        "params: (no params)\n"
-        "- deconflict_events: Move an event to the next day to resolve a "
-        "same-time conflict. — params: (no params)\n"
-        "- no_action: Nothing to suggest. — params: (no params)"
-    )
-    assert build_tools_view(REGISTRY) == expected
+def test_ntake_tools_view_groups_the_real_registry_by_intent():
+    from app.assistant.tools_view import build_ntake_tools_view
+
+    out = build_ntake_tools_view(REGISTRY)
+
+    assert out.startswith("AVAILABLE TOOLS:")
+    assert "WORK ITEMS — create and state" in out
+    assert "WORK ITEMS — details" in out
+    assert "CHECKLISTS" in out
+    assert "EVENTS — create and timing" in out
+    assert "EVENTS — details" in out
+    assert "NO ACTION" in out
+    assert out.index("start_work_item") < out.index("check_off_items")
+    assert out.index("check_off_items") < out.index("create_timed_event")
+    assert out.index("create_timed_event") < out.index("set_event_location")
+    for name in REGISTRY.names():
+        assert name in out
 
 
 def test_tools_view_lists_every_registered_action():

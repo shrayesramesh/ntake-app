@@ -59,6 +59,7 @@ def test_link_prompt_forbids_phantom_ids_and_prefers_no_link_when_unsure():
 def test_propose_prompt_fills_and_embeds_inputs():
     system, user = build_propose_prompt(
         tools_view="AVAILABLE TOOLS:\n- set_due_date: ... — params: due_at: datetime",
+        capture_author="[m1] Alex (adult)",
         deep_context="[w1] call plumber (doing)\n  - update: left a voicemail",
         note="he's coming friday at 3",
         now=NOW,
@@ -68,6 +69,9 @@ def test_propose_prompt_fills_and_embeds_inputs():
     assert _no_unfilled_placeholders(user)
     assert TZ in system and NOW.isoformat() in system
     assert "set_due_date" in user  # tools view embedded
+    assert "FROM: [m1] Alex (adult)" in user
+    assert 'NOTE: "he\'s coming friday at 3"' in user
+    assert "CONTEXT:" in user
     assert "left a voicemail" in user  # deep context (update history) embedded
     assert "he's coming friday at 3" in user
     # propose output contract + the id-free / no_action rules
@@ -78,7 +82,12 @@ def test_propose_prompt_fills_and_embeds_inputs():
 
 def test_propose_prompt_states_utc_and_one_of_rules():
     system, _ = build_propose_prompt(
-        tools_view="x", deep_context="y", note="z", now=NOW, timezone=TZ
+        tools_view="x",
+        capture_author="[m1] Alex (adult)",
+        deep_context="y",
+        note="z",
+        now=NOW,
+        timezone=TZ,
     )
     assert "UTC" in system
     assert "exactly one" in system.lower()  # the exclusive-params guidance
@@ -86,7 +95,12 @@ def test_propose_prompt_states_utc_and_one_of_rules():
 
 def test_propose_prompt_states_a_local_clock_and_explicit_time_check():
     system, _ = build_propose_prompt(
-        tools_view="x", deep_context="y", note="z", now=NOW, timezone=TZ
+        tools_view="x",
+        capture_author="[m1] Alex (adult)",
+        deep_context="y",
+        note="z",
+        now=NOW,
+        timezone=TZ,
     )
 
     assert "2026-09-03T08:00:00-04:00" in system
@@ -97,7 +111,12 @@ def test_propose_prompt_states_a_local_clock_and_explicit_time_check():
 
 def test_propose_prompt_states_create_vs_modify_contract():
     system, _ = build_propose_prompt(
-        tools_view="x", deep_context="y", note="z", now=NOW, timezone=TZ
+        tools_view="x",
+        capture_author="[m1] Alex (adult)",
+        deep_context="y",
+        note="z",
+        now=NOW,
+        timezone=TZ,
     )
 
     assert "no relevant work item" in system.lower()
@@ -130,7 +149,7 @@ def test_assembled_link_prompt_over_populated_family(session, populated_family):
 def test_assembled_propose_prompt_over_populated_family(session, populated_family):
     from app.assistant.actions.registry import REGISTRY
     from app.assistant.context.deep import deep_context
-    from app.assistant.tools_view import build_tools_view
+    from app.assistant.tools_view import build_ntake_tools_view
     from app.persistence.models import Member
     from tests.expectations import assert_matches_expectation
 
@@ -138,7 +157,8 @@ def test_assembled_propose_prompt_over_populated_family(session, populated_famil
     alex = session.get(Member, p.members["Alex"])
     dc = deep_context(session, alex, [p.items["doing"]], [])  # LINK resolved plumber
     system, user = build_propose_prompt(
-        tools_view=build_tools_view(REGISTRY),
+        tools_view=build_ntake_tools_view(REGISTRY),
+        capture_author="[m1] Alex (adult)",
         deep_context=dc,
         note="he's coming friday at 3",
         now=p.now,
@@ -146,3 +166,19 @@ def test_assembled_propose_prompt_over_populated_family(session, populated_famil
     )
     assert_matches_expectation("propose_prompt_system", system)
     assert_matches_expectation("propose_prompt_user", user)
+
+
+def test_propose_prompt_prefers_structured_lifecycle_and_checklist_actions():
+    system, _ = build_propose_prompt(
+        tools_view="x",
+        capture_author="[m1] Alex (adult)",
+        deep_context="y",
+        note="z",
+        now=NOW,
+        timezone=TZ,
+    )
+
+    assert "start_work_item" in system
+    assert "check_off_items" in system
+    assert "Use `append_update` only" in system
+    assert "multiple actions" in system

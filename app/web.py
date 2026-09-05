@@ -26,7 +26,9 @@ def _fmt_dt_utc(dt: object) -> str:
     return ""
 
 
-def render_board(columns: dict[str, list[WorkItem]]) -> str:
+def render_board(
+    columns: dict[str, list[WorkItem]], member_names: dict[int, str] | None = None
+) -> str:
     """Render the read-only 4-column board as an HTML fragment.
 
     ``columns`` maps each status code to its list of (non-archived) work items.
@@ -45,7 +47,7 @@ def render_board(columns: dict[str, list[WorkItem]]) -> str:
         elif items:
             parts.append('<ul class="cards">')
             for wi in items:
-                parts.append(_render_work_item_card(wi))
+                parts.append(_render_work_item_card(wi, member_names))
             parts.append("</ul>")
         else:
             parts.append('<p class="empty">—</p>')
@@ -54,7 +56,9 @@ def render_board(columns: dict[str, list[WorkItem]]) -> str:
     return "".join(parts)
 
 
-def _render_work_item_card(wi: WorkItem) -> str:
+def _render_work_item_card(
+    wi: WorkItem, member_names: dict[int, str] | None = None
+) -> str:
     """One work-item card with full record detail (all free text escaped)."""
     parts: list[str] = ['<li class="card">']
     parts.append('<div class="card-head">')
@@ -71,7 +75,9 @@ def _render_work_item_card(wi: WorkItem) -> str:
         meta.append(f'<span class="meta due">due {escape(due)}</span>')
     assignee = getattr(wi, "assigned_to", None)
     if assignee is not None:
-        meta.append(f'<span class="meta assignee">assignee m{assignee}</span>')
+        names = member_names or {}
+        label = names.get(assignee, f"m{assignee}")
+        meta.append(f'<span class="meta assignee">assignee {escape(label)}</span>')
     # Update-log summary: count + latest body snippet (source-tagged).
     updates = getattr(wi, "updates", None) or []
     if updates:
