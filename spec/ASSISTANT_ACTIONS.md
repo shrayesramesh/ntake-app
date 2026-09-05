@@ -121,7 +121,7 @@ no cleaner verb.
 | key | params | applies to | grounds | scope |
 |---|---|---|---|---|
 | `add_checklist_items` | `work_item_id`, `items: [str]` | inserts `checklist_items` rows | WORKITEM-6 ("add milk and eggs") | **v1** |
-| `check_off_items` | `work_item_id`, `items: [str] \| item_ids: [int]` | sets `checked = true` | WORKITEM-6 ("we got the milk") | v2 |
+| `check_off_items` | `work_item_id`, `items: [str]` | sets matching checklist entries `checked = true` | WORKITEM-6 | **v1** |
 | `uncheck_items` | `work_item_id`, `items \| item_ids` | sets `checked = false` | WORKITEM-6 (inverse) | deferred |
 | `remove_checklist_items` | `work_item_id`, `items \| item_ids` | deletes `checklist_items` rows | WORKITEM-6 ("take bread off") | deferred |
 | `reorder_checklist` | `work_item_id`, `ordered_item_ids: [int]` | sets `position` order | WORKITEM-6 | deferred |
@@ -153,7 +153,7 @@ no cleaner verb.
 |---|---|---|---|---|
 | `archive_work_item` | `work_item_id` | sets `archived_at` (invariant: only `done` may be archived) | GROOM-2/4 | **v1** (assistant action; board UI is Phase 5) |
 | `unarchive_work_item` | `work_item_id` | clears `archived_at` | GROOM-3 | deferred |
-| `archive_all_done` | *(none)* | archives every current-family `done` item | GROOM-3 | follow-on grooming backlog |
+| `archive_all_done` | *(none)* | archives every current-family unarchived `done` item | GROOM-3 | **v1** assistant action; manual grooming UI remains follow-on |
 
 ### F. Relational / grooming-adjacent
 
@@ -190,10 +190,10 @@ Excluded write actions (would violate a design stance):
 
 ## v1 cut — LOCKED
 
-## v1 cut — the built toolset (seeded at 6, now 20)
+## v1 cut — the built toolset (seeded at 6, now 22)
 
 The v1 was **seeded** with the 6 below (the minimal architecture-proving set),
-then expanded to its current **20 actions** as richer prompt context and explicit
+then expanded to its current **22 actions** as richer prompt context and explicit
 confirmable mutations proved useful. Everything still-unbuilt in the registry is
 a pre-shaped slot (add later by registering the entry — no rework of the flow).
 
@@ -226,8 +226,8 @@ a pre-shaped slot (add later by registering the entry — no rework of the flow)
    timed/all-day choice.
 10. **`archive_work_item`** — done-only invariant (ActionError otherwise). The
     assistant action is built; the board's manual grooming UI is follow-on scope.
-11. **`add_checklist_items`** — the easy grocery-list slice (`items: [str]`);
-    check/uncheck/remove deferred (they need by-name/by-id addressing).
+11. **`add_checklist_items` / `check_off_items`** — grocery-list creation and
+    name-addressed completion; removal/reordering remain deferred.
 12. **`delete_event`** — explicit event-only cancellation/deletion, kept separate
     from work-item log attribution.
 13. **`append_update`** — assistant-composed context for an existing resolved

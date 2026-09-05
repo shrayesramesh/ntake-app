@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 
 from app.persistence.models import ChecklistItem, Member, TargetType, WorkItem
 from app.routing.engine import ActionError, ActionSpec, DataType, Param, require_params
@@ -108,6 +108,26 @@ def _apply_archive_work_item(ctx: NtakeActionContext, params: dict) -> str:
     return "Archived"
 
 
+def _apply_archive_all_done(ctx: NtakeActionContext, params: dict) -> str:
+    """Archive every unarchived Done item in the confirming member's family."""
+    now = datetime.now(UTC)
+    items = list(
+        ctx.session.scalars(
+            select(WorkItem).where(
+                WorkItem.family_id == ctx.member.family_id,
+                WorkItem.status == "done",
+                WorkItem.archived_at.is_(None),
+            )
+        ).all()
+    )
+    for item in items:
+        item.archived_at = now
+        item.updated_at = now
+    count = len(items)
+    noun = "item" if count == 1 else "items"
+    return f"Archived {count} done work {noun}"
+
+
 def _validated_checklist_items(value: object) -> list[str]:
     """Return a non-empty list of non-blank checklist strings or raise."""
     if (
@@ -140,6 +160,41 @@ def _apply_add_checklist_items(ctx: NtakeActionContext, params: dict) -> str:
         pos += 1
     note = f"Added {len(items)} checklist item(s)"
     _append_assistant_update(ctx.session, ctx.member, wi.id, note)
+    return note
+
+
+def _apply_check_off_items(ctx: NtakeActionContext, params: dict) -> str:
+    """Mark named checklist entries complete on the target work item."""
+    require_params(params, ["items"])
+    requested = _validated_checklist_items(params["items"])
+    work_item = _load_item(ctx.session, ctx.target_id)
+    checklist = list(
+        ctx.session.scalars(
+            select(ChecklistItem)
+            .where(ChecklistItem.work_item_id == work_item.id)
+            .order_by(ChecklistItem.position, ChecklistItem.id)
+        ).all()
+    )
+    requested_names = {item.strip().casefold() for item in requested}
+    matched_names = {
+        item.text.strip().casefold()
+        for item in checklist
+        if item.text.strip().casefold() in requested_names
+    }
+    missing = requested_names - matched_names
+    if missing:
+        raise ActionError(f"checklist items not found: {', '.join(sorted(missing))}")
+
+    matched = [
+        item for item in checklist if item.text.strip().casefold() in requested_names
+    ]
+    for item in matched:
+        item.checked = True
+    work_item.updated_at = datetime.now(UTC)
+    count = len(matched)
+    noun = "item" if count == 1 else "items"
+    note = f"Checked off {count} checklist {noun}"
+    _append_assistant_update(ctx.session, ctx.member, work_item.id, note)
     return note
 
 
@@ -212,11 +267,22 @@ def _describe_archive(params: dict) -> str:
     return "Archive the (done) work item"
 
 
+def _describe_archive_all_done(params: dict) -> str:
+    return "Archive all Done work items"
+
+
 def _describe_add_checklist_items(params: dict) -> str:
     items = params.get("items")
     if isinstance(items, list) and items:
         return f"Add checklist items: {', '.join(str(i) for i in items)}"
     return "Add checklist items"
+
+
+def _describe_check_off_items(params: dict) -> str:
+    items = params.get("items")
+    if isinstance(items, list) and items:
+        return f"Check off checklist items: {', '.join(str(item) for item in items)}"
+    return "Check off checklist items"
 
 
 def _describe_create_work_item(params: dict) -> str:
@@ -265,6 +331,13 @@ def _render_add_checklist_items(params: dict, resolved: dict) -> list[str]:
     items = params.get("items")
     if isinstance(items, list) and items:
         return [f"Items: {', '.join(str(i) for i in items)}"]
+    return []
+
+
+def _render_check_off_items(params: dict, resolved: dict) -> list[str]:
+    items = params.get("items")
+    if isinstance(items, list) and items:
+        return [f"Check off: {', '.join(str(item) for item in items)}"]
     return []
 
 
@@ -352,6 +425,14 @@ WORK_ITEM_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         apply=_apply_archive_work_item,
         describe=_describe_archive,
     ),
+    "archive_all_done": ActionSpec(
+        name="archive_all_done",
+        description="Archive every unarchived Done work item in the family.",
+        target_type=None,
+        logs=False,
+        apply=_apply_archive_all_done,
+        describe=_describe_archive_all_done,
+    ),
     "add_checklist_items": ActionSpec(
         name="add_checklist_items",
         description="Add checklist items (e.g. a grocery list) to a work item.",
@@ -360,5 +441,14 @@ WORK_ITEM_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         apply=_apply_add_checklist_items,
         describe=_describe_add_checklist_items,
         render_card=_render_add_checklist_items,
+    ),
+    "check_off_items": ActionSpec(
+        name="check_off_items",
+        description="Mark named checklist items complete.",
+        params=[Param("items", DataType.ARRAY_STRING, required=True)],
+        target_type=TargetType.WORK_ITEM,
+        apply=_apply_check_off_items,
+        describe=_describe_check_off_items,
+        render_card=_render_check_off_items,
     ),
 }

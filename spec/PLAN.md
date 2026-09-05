@@ -145,13 +145,14 @@ calendar mutations only on confirm.
 > `app/assistant/fake/` and `app/assistant/local_llm/`, **both built**; the live
 > one (`LocalLlmCaptureResolver` + `LocalLlmAssistant` over a `LocalLlmClient`) is
 > **verified end-to-end** against llamafile/Llama 3.1 8B on `localhost:8080`. The
-> toolset is now **20 actions**: `set_due_date`, `complete_work_item`,
+> toolset is now **22 actions**: `set_due_date`, `complete_work_item`,
 > `start_work_item`, `move_to_on_deck`, `move_to_todo`, `reopen_work_item`,
 > `assign_work_item` (whitelist-validated member), `archive_work_item` (done-only),
-> `add_checklist_items`, `create_timed_event`, `create_all_day_event`,
-> `reschedule_timed_event`, `reschedule_all_day_event`, `set_event_location`,
-> `add_event_participants`, `delete_event`, `create_work_item`, `append_update`,
-> `no_action`, `deconflict_events`. LINK
+> `archive_all_done`, `add_checklist_items`, `check_off_items`,
+> `create_timed_event`, `create_all_day_event`, `reschedule_timed_event`,
+> `reschedule_all_day_event`, `set_event_location`, `add_event_participants`,
+> `delete_event`, `create_work_item`, `append_update`, `no_action`,
+> `deconflict_events`. LINK
 > resolves `{work_item_ids, event_ids, member_ids}` (all family-whitelisted);
 > `deep_context` folds each linked member's workload footprint in. Both prompt
 > views are built (`build_world_view`, `build_tools_view`). Capture is propose-only
@@ -182,9 +183,9 @@ display survives days of uptime; failures are visible.
   design spike on output shape before implementation.
 - **On-demand grooming assist** for the ~monthly review.
 - **Manual board grooming UI:** archive a Done item, unarchive, and simple
-  review-time moves. Add the no-target `archive_all_done` assistant action for the
-  monthly grooming event; it must archive only current-family Done items. The
-  existing assistant actions remain available independently of this deferred UI.
+  review-time moves. The no-target `archive_all_done` assistant action is built
+  for the monthly grooming event; it archives only current-family unarchived Done
+  items. These actions remain available independently of the deferred UI.
 
 ## Deferred (explicitly not built)
 - SMS/text capture channel (DESIGN-sms-deferred.md).

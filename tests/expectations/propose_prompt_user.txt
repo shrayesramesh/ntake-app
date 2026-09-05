@@ -9,7 +9,9 @@ AVAILABLE TOOLS:
 - reopen_work_item: Reopen a completed item (back to Todo; clears completion). — params: (no params)
 - assign_work_item: Assign a work item to a family member. — params: member_id: integer
 - archive_work_item: Archive a work item (only a done item may be archived). — params: (no params)
+- archive_all_done: Archive every unarchived Done work item in the family. — params: (no params)
 - add_checklist_items: Add checklist items (e.g. a grocery list) to a work item. — params: items: array<string>
+- check_off_items: Mark named checklist items complete. — params: items: array<string>
 - create_timed_event: Create a timed calendar event. — params: title: string, start_at: datetime, end_at: datetime, description: string?, location: string?, participants: array<string>?
 - create_all_day_event: Create an all-day calendar event. — params: title: string, start_date: date, end_date: date?, description: string?, location: string?, participants: array<string>?
 - reschedule_timed_event: Move an existing event to a timed range. — params: start_at: datetime, end_at: datetime

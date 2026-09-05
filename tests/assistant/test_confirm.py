@@ -20,7 +20,14 @@ from datetime import UTC, datetime
 
 from app.assistant.capture import FocusedContext
 from app.assistant.fake import FakeAssistant
-from app.persistence.models import Event, Family, Member, WorkItem, WorkItemUpdate
+from app.persistence.models import (
+    ChecklistItem,
+    Event,
+    Family,
+    Member,
+    WorkItem,
+    WorkItemUpdate,
+)
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
@@ -414,3 +421,53 @@ def test_proposals_expose_proposal_id_and_no_target_ref():
     for p in FakeAssistant().propose(_propose_ctx("dentist appointment monday")):
         assert hasattr(p, "proposal_id")
         assert p.target_ref is None  # v1: no dangling dependency
+
+
+def test_confirm_work_item_lifecycle(client, session, auth_headers):
+    """Confirm the complete implemented lifecycle through the real endpoint."""
+    family = session.query(Family).first()
+    assert family is not None
+    sam = Member(
+        family_id=family.id,
+        display_name="Sam",
+        role="child",
+        created_at=NOW,
+    )
+    session.add(sam)
+    session.commit()
+
+    def confirm(name: str, params: dict, target_id: int | None = None) -> None:
+        response = client.post(
+            "/actions/confirm",
+            json={"name": name, "params": params, "target_id": target_id},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200, response.text
+
+    confirm("create_work_item", {"title": "Grocery list"})
+    item = session.query(WorkItem).filter_by(title="Grocery list").one()
+
+    confirm("add_checklist_items", {"items": ["milk", "bread"]}, item.id)
+    confirm("check_off_items", {"items": ["milk"]}, item.id)
+    confirm("assign_work_item", {"member_id": sam.id}, item.id)
+    confirm("move_to_on_deck", {}, item.id)
+    confirm("complete_work_item", {}, item.id)
+    confirm("archive_work_item", {}, item.id)
+
+    session.expire_all()
+    completed = session.get(WorkItem, item.id)
+    checklist = (
+        session.query(ChecklistItem)
+        .filter_by(work_item_id=item.id)
+        .order_by(ChecklistItem.position)
+        .all()
+    )
+    assert completed.assigned_to == sam.id
+    assert completed.status == "done"
+    assert completed.completed_at is not None
+    assert completed.archived_at is not None
+    assert [(entry.text, entry.checked) for entry in checklist] == [
+        ("milk", True),
+        ("bread", False),
+    ]
+    assert session.query(WorkItemUpdate).filter_by(work_item_id=item.id).count() == 7

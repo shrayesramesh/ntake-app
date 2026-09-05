@@ -200,8 +200,16 @@ def test_full_schema_snapshot_over_the_real_registry():
                             ),
                         ),
                         action("archive_work_item", empty_params),
+                        action("archive_all_done", empty_params),
                         action(
                             "add_checklist_items",
+                            obj(
+                                {"items": arr_s},
+                                required=["items"],
+                            ),
+                        ),
+                        action(
+                            "check_off_items",
                             obj(
                                 {"items": arr_s},
                                 required=["items"],

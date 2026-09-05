@@ -20,7 +20,9 @@ def test_registry_has_v1_actions():
         "reopen_work_item",
         "assign_work_item",
         "archive_work_item",
+        "archive_all_done",
         "add_checklist_items",
+        "check_off_items",
         "create_work_item",
         "append_update",
         "reschedule_timed_event",
@@ -66,6 +68,7 @@ def test_all_actions_are_wellformed():
         assert isinstance(spec.required, list), name
     # Exactly the actions that don't operate on an existing item skip a target.
     assert ACTIONS["create_work_item"].needs_target is False
+    assert ACTIONS["archive_all_done"].needs_target is False
     assert ACTIONS["no_action"].needs_target is False
     # Non-logging actions: no_action (meta) and event-only actions (no work item
     # to log against, e.g. deconflict_events / reschedule_timed_event).
@@ -77,6 +80,7 @@ def test_all_actions_are_wellformed():
         "delete_event",
         "set_event_location",
         "add_event_participants",
+        "archive_all_done",
     }
 
 

@@ -45,7 +45,7 @@ paths, `/capture` (propose-only) and `/actions/confirm`; config-seeded identity 
 token CLI; change-event seam → SSE live sync; and the assistant as a reusable
 engine (`app/routing/`) + ntake plugin (`app/assistant/`) with two swappable seams
 (`CaptureResolver`, `AssistantClient`), **both a `fake/` and a live `local_llm/`
-backend**, a 20-action toolset, and the two prompt views (`build_world_view`,
+backend**, a 22-action toolset, and the two prompt views (`build_world_view`,
 `build_tools_view`). The two-call pipeline links work items, events, **and
 members** from free text (`{work_item_ids, event_ids, member_ids}`) and folds each
 linked member's workload into the PROPOSE context; proposal cards render verbose,

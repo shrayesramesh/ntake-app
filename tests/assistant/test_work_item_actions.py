@@ -308,3 +308,93 @@ def test_render_card_append_update_shows_body():
     lines = _card("append_update", {"body": "Vendor confirmed the delay."})
 
     assert "Vendor confirmed the delay." in " ".join(lines)
+
+
+def test_archive_all_done_archives_only_current_family_open_done_items(
+    session, fam_member_item
+):
+    family, member, todo = fam_member_item
+    done_one = WorkItem(
+        family_id=family.id,
+        title="Done one",
+        status="done",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    done_two = WorkItem(
+        family_id=family.id,
+        title="Done two",
+        status="done",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    already_archived = WorkItem(
+        family_id=family.id,
+        title="Already archived",
+        status="done",
+        created_at=NOW,
+        updated_at=NOW,
+        archived_at=NOW,
+    )
+    other_family = Family(name="Other", timezone="UTC")
+    session.add_all([done_one, done_two, already_archived, other_family])
+    session.flush()
+    foreign_done = WorkItem(
+        family_id=other_family.id,
+        title="Foreign done",
+        status="done",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    session.add(foreign_done)
+    session.commit()
+
+    summary = apply_action(session, member, "archive_all_done", None, {})
+
+    session.expire_all()
+    assert summary == "Archived 2 done work items"
+    assert session.get(WorkItem, done_one.id).archived_at is not None
+    assert session.get(WorkItem, done_two.id).archived_at is not None
+    assert session.get(WorkItem, todo.id).archived_at is None
+    assert session.get(WorkItem, already_archived.id).archived_at == NOW.replace(
+        tzinfo=None
+    )
+    assert session.get(WorkItem, foreign_done.id).archived_at is None
+    assert session.query(WorkItemUpdate).count() == 0
+
+
+def test_check_off_items_marks_named_checklist_items_and_logs(session, fam_member_item):
+    from app.persistence.models import ChecklistItem
+
+    _family, member, work_item = fam_member_item
+    milk = ChecklistItem(work_item_id=work_item.id, text="milk", position=1)
+    bread = ChecklistItem(work_item_id=work_item.id, text="bread", position=2)
+    session.add_all([milk, bread])
+    session.commit()
+
+    summary = apply_action(
+        session,
+        member,
+        "check_off_items",
+        work_item.id,
+        {"items": [" Milk "]},
+    )
+
+    session.expire_all()
+    assert summary == "Checked off 1 checklist item"
+    assert session.get(ChecklistItem, milk.id).checked is True
+    assert session.get(ChecklistItem, bread.id).checked is False
+    assert session.query(WorkItemUpdate).one().body == "Checked off 1 checklist item"
+
+
+def test_check_off_items_rejects_unknown_checklist_names(session, fam_member_item):
+    _family, member, work_item = fam_member_item
+
+    with pytest.raises(ActionError):
+        apply_action(
+            session,
+            member,
+            "check_off_items",
+            work_item.id,
+            {"items": ["not on this list"]},
+        )

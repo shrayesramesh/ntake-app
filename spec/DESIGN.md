@@ -401,7 +401,7 @@ FocusedContext {text, tz, now, resolved_work_item_ids,
   inspects it; each plugin binds its own (`ActionRegistry[NtakeActionContext]`,
   `AssistantClient[FocusedContext]`). No `Any`.
 - **Plugin — `app/assistant/`**: registers ntake's actions into an engine
-  `ActionRegistry` — a **20-action** v1 set spanning create/modify/status/assign/
+  `ActionRegistry` — a **22-action** v1 set spanning create/modify/status/assign/
   archive/checklist/delete across work-item, event, and no-target actions (e.g.
   `set_due_date`, `create_event`, `complete_work_item`, the status-lifecycle verbs,
   `assign_work_item`, `reschedule_event`, `archive_work_item`, `add_checklist_items`,
