@@ -38,7 +38,11 @@ def render_board(columns: dict[str, list[WorkItem]]) -> str:
         items = columns.get(code, [])
         parts.append('<section class="column">')
         parts.append(f"<h2>{escape(COLUMN_LABELS[code])} ({len(items)})</h2>")
-        if items:
+        if code == "done" and items:
+            count = len(items)
+            noun = "item" if count == 1 else "items"
+            parts.append(f'<p class="done-summary">{count} done {noun}</p>')
+        elif items:
             parts.append('<ul class="cards">')
             for wi in items:
                 parts.append(_render_work_item_card(wi))
@@ -80,6 +84,17 @@ def _render_work_item_card(wi: WorkItem) -> str:
         )
     if meta:
         parts.append(f'<div class="card-meta">{"".join(meta)}</div>')
+
+    checklist = getattr(wi, "checklist", None) or []
+    if checklist:
+        parts.append('<ul class="card-checklist">')
+        for item in checklist:
+            checked = bool(getattr(item, "checked", False))
+            mark = "☑" if checked else "☐"
+            state = " checked" if checked else ""
+            text = escape(str(getattr(item, "text", "")))
+            parts.append(f'<li class="checklist-item{state}">{mark} {text}</li>')
+        parts.append("</ul>")
 
     tags = "".join(f'<span class="tag">{escape(t)}</span>' for t in (wi.tags or []))
     if tags:

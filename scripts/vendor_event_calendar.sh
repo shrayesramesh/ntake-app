@@ -30,4 +30,4 @@ cp package/dist/event-calendar.min.js "$DEST/"
 cp package/dist/event-calendar.min.css "$DEST/"
 
 echo "Vendored $PACKAGE assets to $DEST"
-echo "Review the diff and update $DEST/THIRD_PARTY_NOTICES.md before committing."
+echo "Review the diff and update $REPO_DIR/THIRD_PARTY_NOTICES.md before committing."

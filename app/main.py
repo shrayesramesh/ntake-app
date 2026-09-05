@@ -414,6 +414,50 @@ def app_icon() -> Response:
     return Response(APP_ICON_SVG, media_type="image/svg+xml")
 
 
+def _attach_board_card_details(
+    session: Session, columns: dict[str, list[WorkItem]]
+) -> None:
+    """Attach card-only updates and checklists in two batch queries.
+
+    Completed cards render as a compact count rather than individual cards, so
+    they deliberately receive no detail queries or transient attributes.
+    """
+    visible_items = [
+        wi for status, items in columns.items() if status != "done" for wi in items
+    ]
+    work_item_ids = [wi.id for wi in visible_items]
+    if not work_item_ids:
+        return
+
+    updates_by_item: dict[int, list[WorkItemUpdate]] = {
+        work_item_id: [] for work_item_id in work_item_ids
+    }
+    for update in session.scalars(
+        select(WorkItemUpdate)
+        .where(WorkItemUpdate.work_item_id.in_(work_item_ids))
+        .order_by(
+            WorkItemUpdate.work_item_id,
+            WorkItemUpdate.created_at,
+            WorkItemUpdate.id,
+        )
+    ).all():
+        updates_by_item[update.work_item_id].append(update)
+
+    checklist_by_item: dict[int, list[ChecklistItem]] = {
+        work_item_id: [] for work_item_id in work_item_ids
+    }
+    for item in session.scalars(
+        select(ChecklistItem)
+        .where(ChecklistItem.work_item_id.in_(work_item_ids))
+        .order_by(ChecklistItem.work_item_id, ChecklistItem.position, ChecklistItem.id)
+    ).all():
+        checklist_by_item[item.work_item_id].append(item)
+
+    for wi in visible_items:
+        wi.updates = updates_by_item[wi.id]  # type: ignore[attr-defined]
+        wi.checklist = checklist_by_item[wi.id]  # type: ignore[attr-defined]
+
+
 @app.get("/board/view", response_class=HTMLResponse)
 def board_view(
     session: Session = Depends(get_session),
@@ -421,18 +465,13 @@ def board_view(
 ) -> str:
     """Read-only board as an HTML fragment (HTMX swaps it; SSE triggers reload).
 
-    Attaches each work item's update log as a transient ``.updates`` attribute so
-    the richer card (app/web.py) can show a log summary. Not persisted — just
-    decorating the ORM objects for this render.
+    Batch-loads each visible card's update log and full ordered checklist for the
+    renderer. Done cards are intentionally collapsed to a count, so their detail
+    rows are neither loaded nor rendered. Nothing is persisted; these are only
+    transient render attributes.
     """
     columns = _board_columns(session)
-    for items in columns.values():
-        for wi in items:
-            wi.updates = session.scalars(  # type: ignore[attr-defined]
-                select(WorkItemUpdate)
-                .where(WorkItemUpdate.work_item_id == wi.id)
-                .order_by(WorkItemUpdate.created_at, WorkItemUpdate.id)
-            ).all()
+    _attach_board_card_details(session, columns)
     return render_board(columns)
 
 

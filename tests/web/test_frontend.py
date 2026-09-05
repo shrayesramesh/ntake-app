@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.persistence.models import Family, WorkItem
+from app.persistence.models import ChecklistItem, Family, WorkItem
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
@@ -79,3 +79,30 @@ def test_board_view_escapes_html_in_titles(client, session, auth_headers):
     html = client.get("/board/view", headers=auth_headers).text
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;" in html  # escaped
+
+
+def test_board_view_loads_full_checklist_for_open_cards(client, session, auth_headers):
+    family = session.query(Family).first()
+    assert family is not None
+    item = WorkItem(
+        family_id=family.id,
+        title="Groceries",
+        status="todo",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    session.add(item)
+    session.flush()
+    session.add_all(
+        [
+            ChecklistItem(work_item_id=item.id, text="bread", checked=True, position=2),
+            ChecklistItem(work_item_id=item.id, text="milk", position=1),
+        ]
+    )
+    session.commit()
+
+    html = client.get("/board/view", headers=auth_headers).text
+
+    assert "☐ milk" in html
+    assert "☑ bread" in html
+    assert html.index("milk") < html.index("bread")

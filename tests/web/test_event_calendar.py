@@ -25,6 +25,12 @@ def test_event_calendar_assets_are_served(client):
     assert "EventCalendar" in js.text
 
 
+def test_static_tree_excludes_third_party_notices(client):
+    """Attribution belongs in repository documentation, not a public asset URL."""
+    response = client.get("/static/event-calendar/THIRD_PARTY_NOTICES.md")
+    assert response.status_code == 404
+
+
 def test_shell_mounts_read_only_event_calendar(client):
     html = client.get("/").text
 

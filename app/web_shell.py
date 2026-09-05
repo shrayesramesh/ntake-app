@@ -68,6 +68,10 @@ SHELL_PAGE = """<!doctype html>
                        border-radius: 4px; padding: 0 .35rem; }
     .card-meta .due { background: #fef3c7; }
     .card-tags { margin-top: .3rem; }
+    .card-checklist { list-style: none; margin: .45rem 0 0; padding: 0; }
+    .checklist-item { font-size: .82rem; margin-top: .15rem; }
+    .checklist-item.checked { color: #71717a; text-decoration: line-through; }
+    .done-summary { color: #71717a; font-size: .82rem; text-align: center; }
     .tag { display: inline-block; font-size: .7rem; background: #e0e7ff;
            border-radius: 4px; padding: 0 .35rem; margin-left: .35rem; }
     .empty { color: #a1a1aa; text-align: center; }
