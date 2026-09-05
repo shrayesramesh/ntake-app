@@ -18,9 +18,9 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 from app.assistant.capture import CaptureRequest, FocusedContext, ProposedAction
-from app.assistant.local_llm.assistant import LocalLlmAssistant
+from app.assistant.local_llm.link import LocalLlmCaptureResolver
+from app.assistant.local_llm.propose import LocalLlmAssistant
 from app.assistant.local_llm.protocol import LLM, Json
-from app.assistant.local_llm.resolver import LocalLlmCaptureResolver
 from app.models import Member
 
 

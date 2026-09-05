@@ -36,7 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.assistant.base import CaptureRequest, CaptureResolver, FocusedContext
-from app.assistant.deep_context import deep_context
+from app.assistant.context.deep import deep_context
 from app.models import Event, Member, WorkItem
 
 

@@ -1,6 +1,6 @@
 """The LLM protocol — the one injected effect the local-LLM backend depends on.
 
-Task 7 Track A step 1 (spec/NEXT_SESSION.md): pin the ``LLM`` contract
+Task 7 Track A step 1 (LLD): pin the ``LLM`` contract
 (``complete(system, user, schema) -> dict``) and the ``ScriptedLLM`` test double
 that every step below tests against. ``ScriptedLLM`` returns canned JSON keyed
 off the call (a substring of the ``user`` message), so link/propose tests can

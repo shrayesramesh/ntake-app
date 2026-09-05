@@ -17,8 +17,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.assistant.base import CaptureRequest, CaptureResolver, FocusedContext
+from app.assistant.local_llm.link import LocalLlmCaptureResolver
 from app.assistant.local_llm.protocol import ScriptedLLM
-from app.assistant.local_llm.resolver import LocalLlmCaptureResolver
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 

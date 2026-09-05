@@ -1,17 +1,10 @@
-"""Task 12 — generalize the action target (work item | event | None).
-
-An action may target a work item, an event, or nothing. The universal
-"append a source=assistant work_item_update on confirm" rule is CONDITIONAL:
-it fires only when the action targets a WORK ITEM. Event-only actions mutate the
-event and append NO work-item update (events aren't part of the labor log,
-WORKITEM-3). A standalone event create just inserts the event.
-"""
+"""Cross-domain target and labor-log semantics for assistant actions."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.assistant.actions import apply_action
+from app.assistant.actions.registry import apply_action
 from app.models import Event, WorkItem, WorkItemUpdate
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
@@ -25,9 +18,6 @@ def _event_params():
         "start_at": start.isoformat(),
         "end_at": end.isoformat(),
     }
-
-
-# --- standalone event: no work item, no work-item update ------------------
 
 
 def test_create_timed_event_standalone_creates_event_without_work_item_update(
@@ -73,9 +63,6 @@ def test_create_timed_event_explicit_event_target_type_also_standalone(
     assert session.query(WorkItemUpdate).count() == 0
 
 
-# --- event FROM a work item: link + log -----------------------------------
-
-
 def test_create_timed_event_from_work_item_links_and_logs(session, fam_member_item):
     fam, m, wi = fam_member_item
 
@@ -96,9 +83,6 @@ def test_create_timed_event_from_work_item_links_and_logs(session, fam_member_it
     # ...and the update is on that work item, authored by the confirmer.
     assert upd.work_item_id == wi.id
     assert upd.author_id == m.id
-
-
-# --- work-item actions still log (conditional rule unchanged for them) -----
 
 
 def test_set_due_date_still_logs_a_work_item_update(session, fam_member_item):
@@ -154,9 +138,6 @@ def test_create_work_item_logs_on_the_new_item(session, fam_member):
         .count()
         == 1
     )
-
-
-# --- target_type defaults (backwards compatible) --------------------------
 
 
 def test_apply_action_target_type_defaults_to_work_item_semantics(

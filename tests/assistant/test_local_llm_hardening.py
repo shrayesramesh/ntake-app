@@ -1,6 +1,6 @@
 """Step 6 — parsing / graceful-degrade hardening.
 
-The request-path contract (LLD + NEXT_SESSION): a bad model, a bad transport, or
+The request-path contract (LLD): a bad model, a bad transport, or
 bad model output must **degrade to fewer/zero proposals, never raise**. The
 engine's ``propose_bounded`` bounds the wall-clock and swallows a raise as a last
 resort, but the client + parse layers must not raise on their own — these tests
@@ -23,8 +23,8 @@ from datetime import UTC, datetime
 import httpx
 
 from app.assistant.capture import FocusedContext
-from app.assistant.local_llm.assistant import LocalLlmAssistant
 from app.assistant.local_llm.client import LocalLlmClient
+from app.assistant.local_llm.propose import LocalLlmAssistant
 from app.assistant.local_llm.protocol import ScriptedLLM
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)

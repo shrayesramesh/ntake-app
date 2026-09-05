@@ -1,23 +1,4 @@
-"""``LocalLlmAssistant`` — the PROPOSE call (LLM call 2).
-
-Stage-2 seam (:class:`AssistantClient`) backed by a real model. It composes the
-already-built pieces — ``build_propose_prompt`` (the prompt) + ``build_tools_schema``
-(the constrained-output schema) — calls the injected :class:`LLM` seam, then turns
-the reply into ``[ProposedAction]``: parse the actions array, keep only calls
-that name a registered action **and** whose params satisfy that action's contract
-(``ActionSpec.accepts`` — required present + exactly one exclusive group), and
-attach the server-known target from the resolved ids in the ``FocusedContext``.
-
-The model emits **id-free** ``{name, params}``; ids never come from the model. The
-target is attached here (LLD OQ-4, v1): type-based, ≤1 resolved entity per type,
-driven by the action's declared ``ActionSpec.target_type`` (the single source both
-assistants read) — ``"work_item"`` → the primary work-item id, ``"event"`` → the
-primary event id, ``None`` (a creator / ``no_action``) → no target.
-
-Depends on the ``LLM`` protocol, never on httpx. Parse here is deliberately
-lenient (drop what doesn't fit) so a sloppy model degrades to fewer/zero
-proposals rather than raising; the exhaustive adversarial hardening is step 6.
-"""
+"""PROPOSE stage: prompt/tools schema, tolerant parsing, and action planning."""
 
 from __future__ import annotations
 
@@ -25,14 +6,152 @@ import re
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from app.assistant.actions import REGISTRY
+from app.assistant.actions.registry import REGISTRY
 from app.assistant.capture import FocusedContext, ProposedAction
 from app.assistant.local_llm.protocol import LLM
-from app.assistant.local_llm.tools_schema import build_tools_schema
-from app.assistant.prompts import build_propose_prompt
 from app.assistant.tools_view import build_tools_view
 from app.models import TargetType
-from app.routing.engine import ActionRegistry, AssistantClient
+from app.routing.engine import ActionRegistry, ActionSpec, AssistantClient
+
+# --- CALL 2: PROPOSE (action planning) ------------------------------------
+# Input: the tools view (menu) + the DEEP, NARROW context (full records —
+# incl. the target work item's whole update history — for only the linked ids)
+# + the note. Output: zero or more tool calls, WITHOUT ids (the server attaches
+# the target from what LINK resolved).
+
+PROPOSE_SYSTEM = """\
+You are a household assistant. A family member typed a short note. Propose the
+actions from AVAILABLE TOOLS that carry out what they mean — nothing more.
+
+You are also given CONTEXT: the specific item(s)/event(s) the note is about,
+including a work item's recent update history, so you can reason about what has
+already happened.
+
+Rules:
+- Propose ONLY tools from AVAILABLE TOOLS, using their exact names and parameter
+  names. If a tool lists "(exactly one of: ...)", supply exactly one such group.
+- Do NOT include any entity id in params — the item/event being acted on is
+  already known from CONTEXT and is attached for you. Only supply the payload
+  params a tool lists.
+- Create versus modify: use a work-item modifier (for example,
+  `add_checklist_items`, `append_update`, or `move_to_on_deck`) only when
+  CONTEXT contains its existing resolved work item. If no relevant work item is
+  in CONTEXT, use `create_work_item` for a new task/list or `no_action`; never
+  propose a work-item modifier without that existing target. `create_work_item`
+  needs only a title; include optional `checklist_items` only when the note
+  supplies concrete entries.
+  Similarly, use an event modifier only for an existing resolved event. Use
+  `create_timed_event` when the note supplies times, or `create_all_day_event`
+  for an all-day date range.
+- Calendar frame: the family timezone is {timezone}; its current local date and
+  time is {local_now} ({local_weekday}). A bare weekday means its next occurrence
+  after the current local date.
+- Resolve relative dates/times in that family timezone and emit datetimes as UTC
+  ISO-8601 (e.g. 2026-09-04T19:00:00Z). For an explicit weekday or clock time,
+  convert every emitted UTC datetime back to the family timezone and verify it
+  matches the requested weekday and local clock time. Right now in UTC it is {now}.
+- If nothing sensible applies, return exactly one no_action.
+- Prefer one precise action over several speculative ones.
+
+Return JSON exactly:
+{{"actions": [{{"name": "<tool>", "params": {{ ... }}}}, ...]}}
+"""
+
+PROPOSE_CONTEXT = """\
+{tools_view}
+
+CONTEXT:
+{deep_context}
+
+THE NOTE:
+"{note}"
+"""
+
+
+def build_propose_prompt(
+    *, tools_view: str, deep_context: str, note: str, now: datetime, timezone: str
+):
+    """Return (system, user) for the PROPOSE call.
+
+    ``tools_view`` is ``build_tools_view(registry)``; ``deep_context`` is a
+    rendering of the deep-fetched records for the linked ids (target item + its
+    update history, linked events); ``note`` is the raw capture text.
+    """
+    aware_now = now.replace(tzinfo=UTC) if now.tzinfo is None else now
+    local_now = aware_now.astimezone(ZoneInfo(timezone))
+    system = PROPOSE_SYSTEM.format(
+        timezone=timezone,
+        now=aware_now.isoformat(),
+        local_now=local_now.isoformat(),
+        local_weekday=local_now.strftime("%A"),
+    )
+    user = PROPOSE_CONTEXT.format(
+        tools_view=tools_view, deep_context=deep_context, note=note
+    )
+    return system, user
+
+
+def build_tools_schema(registry: ActionRegistry) -> dict:
+    """Render every registered action as the PROPOSE call's output JSON schema.
+
+    Returns the full ``{actions: [oneOf: [...]]}`` schema (a ``dict``); one
+    ``oneOf`` branch per action, in registry order.
+    """
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["actions"],
+        "properties": {
+            "actions": {
+                "type": "array",
+                "items": {
+                    "oneOf": [_action_item(spec) for spec in registry.all()],
+                },
+            }
+        },
+    }
+
+
+def _action_item(spec: ActionSpec) -> dict:
+    """One action rendered as a ``oneOf`` branch: ``{name: const, params: {...}}``."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["name", "params"],
+        "properties": {
+            "name": {"const": spec.name},
+            "params": _params_schema(spec),
+        },
+    }
+
+
+def _params_schema(spec: ActionSpec) -> dict:
+    """The ``params`` object schema for one action, from its ``Param`` list.
+
+    Typed properties (mapped from ``datatype``), a ``required`` list derived from
+    the required params (omitted when none), and an ``oneOf`` over the
+    ``exclusive_params`` groups when present (each group required in addition to
+    the action's own required params).
+    """
+    schema: dict = {
+        "type": "object",
+        "properties": {
+            # Each param's JSON-Schema fragment is declared on its DataType (the
+            # single source shared with the tools view) — we just assemble them.
+            p.name: p.datatype.json_schema
+            for p in spec.params
+        },
+        "additionalProperties": False,
+    }
+    required = spec.required
+    if required:
+        schema["required"] = required
+    if spec.exclusive_params:
+        schema["oneOf"] = [
+            {"required": required + group} for group in spec.exclusive_params
+        ]
+    return schema
+
 
 _EVENT_TIMING_ACTIONS = frozenset(
     {

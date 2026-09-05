@@ -18,8 +18,8 @@ from app.assistant.factory import (
     get_capture_resolver,
 )
 from app.assistant.fake import FakeAssistant, FakeCaptureResolver
-from app.assistant.local_llm.assistant import LocalLlmAssistant
-from app.assistant.local_llm.resolver import LocalLlmCaptureResolver
+from app.assistant.local_llm.link import LocalLlmCaptureResolver
+from app.assistant.local_llm.propose import LocalLlmAssistant
 
 
 def _cfg(kind: str) -> AssistantConfig:

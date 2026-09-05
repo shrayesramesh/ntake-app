@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from app.assistant.world_view import (
+from app.assistant.context.world import (
     _EventRow,
     _fmt_event,
     _MemberRow,

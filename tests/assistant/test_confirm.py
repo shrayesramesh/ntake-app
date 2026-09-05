@@ -39,6 +39,65 @@ def _create(session) -> int:
     return wi.id
 
 
+def test_capture_then_confirm_happy_paths(client, session, auth_headers):
+    """Exercise the user-visible propose-and-confirm workflow end to end.
+
+    The fake backend yields deterministic proposals, so this crosses the actual
+    HTTP capture and confirm boundaries without a model dependency: first a new
+    work item, then a standalone calendar event. In both cases capture itself is
+    side-effect free; only confirmation persists the proposed action.
+    """
+    work_capture = client.post(
+        "/capture", json={"text": "buy milk"}, headers=auth_headers
+    )
+    assert work_capture.status_code == 201
+    work_proposal = next(
+        proposal
+        for proposal in work_capture.json()["proposals"]
+        if proposal["name"] == "create_work_item"
+    )
+    assert session.query(WorkItem).count() == 0
+
+    work_confirm = client.post(
+        "/actions/confirm",
+        json={
+            "name": work_proposal["name"],
+            "params": work_proposal["params"],
+            "target_id": work_proposal["target_id"],
+            "target_type": work_proposal["target_type"],
+        },
+        headers=auth_headers,
+    )
+    assert work_confirm.status_code == 200
+    assert session.query(WorkItem).count() == 1
+    assert session.query(WorkItemUpdate).filter_by(source="assistant").count() == 1
+
+    event_capture = client.post(
+        "/capture", json={"text": "dentist appointment friday"}, headers=auth_headers
+    )
+    assert event_capture.status_code == 201
+    event_proposal = next(
+        proposal
+        for proposal in event_capture.json()["proposals"]
+        if proposal["name"] in {"create_timed_event", "create_all_day_event"}
+    )
+
+    event_confirm = client.post(
+        "/actions/confirm",
+        json={
+            "name": event_proposal["name"],
+            "params": event_proposal["params"],
+            "target_id": event_proposal["target_id"],
+            "target_type": event_proposal["target_type"],
+        },
+        headers=auth_headers,
+    )
+    assert event_confirm.status_code == 200
+    assert session.query(Event).count() == 1
+    # A standalone event is not attributed to a work-item log.
+    assert session.query(WorkItemUpdate).filter_by(source="assistant").count() == 1
+
+
 def test_confirm_requires_auth(client):
     r = client.post(
         "/actions/confirm",

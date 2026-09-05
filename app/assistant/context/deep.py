@@ -1,29 +1,4 @@
-"""deep_context.py — turn the LINK call's ids into the PROPOSE call's deep context.
-
-Named for its output (the ``deep_context`` string) and to avoid colliding with the
-``CaptureResolver`` seam impl in ``fake/resolver.py`` — this module is the shared
-deep-fetch *stage* between the two LLM calls, not a seam.
-
-Stage between the two LLM calls (see spec/LLD-assistant-pipeline.md):
-
-    LINK JSON {work_item_ids, event_ids}
-        → parse_ids()        tolerant parse of untrusted model output
-        → deep_context()     validate (whitelist to family) + union the member's
-                             footprint + render full records → the deep_context
-                             string handed to build_propose_prompt
-
-Two deliberate properties:
-
-* **Validate, don't trust.** The prompt asks the model not to invent ids, but we
-  enforce it: only ids that exist AND belong to the capturing member's family
-  survive; anything else is silently dropped (graceful-degrade).
-* **Member footprint is always included.** Beyond what the note linked, the
-  capturing member's own work is context — their **assigned work items** and the
-  **events they participate in** (their id in the event's ``participants``) are
-  unioned in (deduped) so PROPOSE can reason about the member's load.
-
-App-coupled (takes a Session), like world_view.py; returns a plain string.
-"""
+"""Validate LINK ids and render narrow, detailed context for PROPOSE."""
 
 from __future__ import annotations
 
@@ -37,53 +12,6 @@ from app.models import ChecklistItem, Event, Family, Member, WorkItem, WorkItemU
 
 _DATETIME_FMT = "%a %b %-d, %-I:%M %p"
 _DATE_FMT = "%a %b %-d"
-
-
-def parse_ids(link_json: dict) -> tuple[list[int], list[int], list[int]]:
-    """Parse the LINK call's JSON into (work_item_ids, event_ids, member_ids).
-
-    Tolerant of untrusted model output: missing keys → empty; non-list values →
-    empty. Each entry is coerced to the entity's **integer** id (see
-    ``_coerce_ids``): an int, a numeric string, or the matching-prefix token
-    (``w`` for work items, ``e`` for events, ``m`` for members,
-    case-insensitive); anything else is dropped.
-    """
-    return (
-        _coerce_ids(link_json.get("work_item_ids"), "w"),
-        _coerce_ids(link_json.get("event_ids"), "e"),
-        _coerce_ids(link_json.get("member_ids"), "m"),
-    )
-
-
-def _coerce_ids(value: object, prefix: str) -> list[int]:
-    """Coerce a list of untrusted id tokens to ints for one entity kind.
-
-    Accepts: a bare ``int`` (not ``bool``); a numeric string (``"5"``); or the
-    kind's token ``<prefix><digits>`` (``"e8"``, case-insensitive). Drops
-    everything else (wrong prefix, non-numeric, floats, None).
-    """
-    if not isinstance(value, list):
-        return []
-    out: list[int] = []
-    for x in value:
-        coerced = _coerce_one(x, prefix)
-        if coerced is not None:
-            out.append(coerced)
-    return out
-
-
-def _coerce_one(x: object, prefix: str) -> int | None:
-    if isinstance(x, bool):  # bool subclasses int — never an id
-        return None
-    if isinstance(x, int):
-        return x
-    if isinstance(x, str):
-        token = x.strip()
-        # Strip one leading matching-prefix letter (w3/e8), case-insensitive.
-        if token[:1].lower() == prefix:
-            token = token[1:]
-        return int(token) if token.isdigit() else None
-    return None
 
 
 def resolve_ids(

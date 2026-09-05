@@ -8,13 +8,19 @@ source of truth. Read this fully before doing anything.
 
 1. **REQUIREMENTS.md** — what the system does and for whom (solution-neutral).
 2. **DESIGN.md** — how it's built: architecture, data model, flows, front end.
-3. **PLAN.md** — phased checkpoints; what's already built vs. next.
+3. **PLAN.md** — phased checkpoints, current priorities, and what is deferred.
 4. **SKILL.md** *(at repo root, with the code)* — how to work in this repo (the
    check gate, conventions).
 
-Deferred/reference (only if relevant): **DESIGN-sms-deferred.md** (a parked text
-channel), and the `research/` notes at repo root (reasoning trail + operational
-setup like Tailscale/hardware/stack).
+Use these only when the task makes them relevant:
+
+- **LLD-assistant-pipeline.md** — LINK → context → PROPOSE stage contracts.
+- **BUGLIST.md** — reproducible correctness issues and their evidence.
+- **UI_TESTING_BACKLOG.md** — product, interaction, and visual follow-ups.
+- **HOST_SETUP_GUIDE.md** *(at repo root)* — operator-only local-LLM and host
+  setup; do not perform those steps as an agent.
+- **DESIGN-sms-deferred.md** and the `research/` notes — deferred/reference
+  material only.
 
 ## The code (already exists, at repo root — not in this folder)
 

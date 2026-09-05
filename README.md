@@ -75,8 +75,8 @@ stay on `fake`.
 `archive_work_item` / `delete_event` *actions* exist; no manual UI yet), and
 **kiosk hardening** (always-on soak, failure surfacing, logging). Plus the planned
 one-time **backfill** from Trello / Google Calendar (`manage import`, designed in
-DESIGN §6a — a fresh install starts empty otherwise). See `spec/PLAN.md` and
-`spec/NEXT_SESSION.md`.
+DESIGN §6a — a fresh install starts empty otherwise). See `spec/PLAN.md`,
+`spec/BUGLIST.md`, and `spec/UI_TESTING_BACKLOG.md`.
 
 ## Key shape (details in `spec/`)
 

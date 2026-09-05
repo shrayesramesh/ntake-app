@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.assistant.actions import ACTIONS
+from app.assistant.actions.registry import ACTIONS
 from app.assistant.capture import FocusedContext, ProposedAction
 from app.assistant.fake import FakeAssistant
 

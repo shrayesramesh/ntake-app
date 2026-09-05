@@ -213,8 +213,7 @@ browser behavior)
 **Current state**
 
 The documented EventCalendar implementation now renders title-first cards with
-local time, participant names, and location when present. `README.md` and
-`NEXT_SESSION.md` describe this code as landed, but it has not been visually
+local time, participant names, and location when present. `README.md` and `PLAN.md` describe this code as landed, but it has not been visually
 verified on the intended month/week/day and device surfaces.
 
 **Expected**

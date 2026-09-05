@@ -27,9 +27,9 @@ from typing import Literal
 
 from app.assistant.base import AssistantClient, CaptureResolver, NullAssistant
 from app.assistant.fake import FakeAssistant, FakeCaptureResolver
-from app.assistant.local_llm.assistant import LocalLlmAssistant
 from app.assistant.local_llm.client import LocalLlmClient
-from app.assistant.local_llm.resolver import LocalLlmCaptureResolver
+from app.assistant.local_llm.link import LocalLlmCaptureResolver
+from app.assistant.local_llm.propose import LocalLlmAssistant
 
 AssistantKind = Literal["fake", "off", "local"]
 
@@ -43,7 +43,7 @@ class AssistantConfig:
     ``base_url`` are the runtime knobs (swapping llamafile → Ollama is just a
     different ``base_url``), and ``timeout`` is the per-call bound — much larger
     than the fake's, because the local path is two sequential model calls and the
-    first after idle pays a cold-start load (see NEXT_SESSION).
+    first after idle pays a cold-start load (the local path makes two calls).
     """
 
     kind: AssistantKind = "fake"

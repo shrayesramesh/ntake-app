@@ -11,7 +11,8 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
-from app.assistant.prompts import build_link_prompt, build_propose_prompt
+from app.assistant.local_llm.link import build_link_prompt
+from app.assistant.local_llm.propose import build_propose_prompt
 
 NOW = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)
 TZ = "America/New_York"
@@ -112,7 +113,7 @@ def test_propose_prompt_states_create_vs_modify_contract():
 
 
 def test_assembled_link_prompt_over_populated_family(session, populated_family):
-    from app.assistant.world_view import build_world_view
+    from app.assistant.context.world import build_world_view
     from tests.expectations import assert_matches_expectation
 
     p = populated_family
@@ -125,8 +126,8 @@ def test_assembled_link_prompt_over_populated_family(session, populated_family):
 
 
 def test_assembled_propose_prompt_over_populated_family(session, populated_family):
-    from app.assistant.actions import REGISTRY
-    from app.assistant.deep_context import deep_context
+    from app.assistant.actions.registry import REGISTRY
+    from app.assistant.context.deep import deep_context
     from app.assistant.tools_view import build_tools_view
     from app.models import Member
     from tests.expectations import assert_matches_expectation

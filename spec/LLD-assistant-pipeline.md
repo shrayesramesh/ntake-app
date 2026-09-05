@@ -145,8 +145,7 @@ rather than hard-coding (v2 nicety; v1's six actions fetch the obvious slice).
   the propose model still emits id-free `{name, params}` (no id-guessing in the
   reasoning call). This is the richer product: "the plumber is coming friday"
   resolves to the real plumber item + its history. **Cost accepted for v1:** two
-  sequential local-model calls in the request path (see the cold-start / timeout
-  note in NEXT_SESSION — matters more now), and `focus()` is NOT deterministic
+  sequential local-model calls in the request path (see DESIGN §4.1's synchronous-latency limitation), and `focus()` is NOT deterministic
   (`LocalLlmCaptureResolver` is a real LLM component in v1). This **supersedes** the
   earlier "deterministic v1 focus / one call" lean.
 - **OQ-2 — `WorldView` window.** Built as `window_days=7` (past window, forward
@@ -168,8 +167,9 @@ rather than hard-coding (v2 nicety; v1's six actions fetch the obvious slice).
   "drive Sam to practice"), unioned with the note-linked entities (deduped), with a
   member header (`NOTE FROM:` the author + `ALSO ABOUT:` any linked others) so
   PROPOSE can reason about each named person's load (the labor-visibility core).
-  Built in `app/assistant/deep_context.py` (`parse_ids` → 3-tuple incl.
-  `member_ids`, `resolve_ids` family-whitelist, `deep_context`). The `Event.participants` column (JSON list of
+  Built in `app/assistant/local_llm/link.py` (`parse_ids` → 3-tuple incl.
+  `member_ids`) and `app/assistant/context/deep.py` (`resolve_ids` family-
+  whitelist + `deep_context`). The `Event.participants` column (JSON list of
   `{member_id?, name}`, EVENT-5) was added for this; `create_event` writes it and
   `seed_event` accepts it. *(Was deferred as QQ-6 pending the participants column —
   now resolved.)*

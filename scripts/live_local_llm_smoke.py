@@ -127,7 +127,7 @@ def _run_debug(base_url: str, model: str) -> int:
     from app.assistant.capture import CaptureRequest
     from app.assistant.local_llm.client import LocalLlmClient
     from app.assistant.local_llm.protocol import LLM
-    from app.assistant.local_llm.resolver import LocalLlmCaptureResolver
+    from app.assistant.local_llm.link import LocalLlmCaptureResolver
 
     class RecordingLLM:
         """Wraps a real LLM and prints each call's user prompt + parsed reply."""
@@ -152,7 +152,7 @@ def _run_debug(base_url: str, model: str) -> int:
     init_schema(engine)
     _token, fam_id = _seed()
 
-    from app.assistant.local_llm.assistant import LocalLlmAssistant
+    from app.assistant.local_llm.propose import LocalLlmAssistant
     from app.models import Member
 
     resolver = LocalLlmCaptureResolver(rec)

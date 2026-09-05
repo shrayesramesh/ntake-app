@@ -117,7 +117,7 @@ focus(request, session, member):
   `test_deconflict.py`, `test_fake_assistant.py`, `test_confirm.py` (proposal
   tests). Keep assertions on *actions*; drop/relocate assertions on the retired
   fields.
-- Update `spec/NEXT_SESSION.md` (remove the "EventSummary cleanup — deferred"
+- Update the durable planning documents if this work changes their status.
   note; it's done) and the LLD if the `FocusedContext` shape section needs it.
 
 ## Risks / watch-outs
@@ -130,7 +130,7 @@ focus(request, session, member):
 - **Deconflict decision** (Step 4) is the one real behavior question — get the
   owner's nod on dropping it from the fake vs. re-deriving conflicts.
 - **`make smoke`** still references the old `work_item_id`-on-capture shape (noted
-  in NEXT_SESSION) — out of scope here, but don't let this work make it worse.
+  in the former handoff) — out of scope here, but don't let this work make it worse.
 
 ## Definition of done
 - `FocusedContext` reshaped; `EventSummary`/`calendar_window` gone; fake path runs

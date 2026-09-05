@@ -20,7 +20,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.assistant.capture import FocusedContext, ProposedAction
-from app.assistant.local_llm.assistant import LocalLlmAssistant
+from app.assistant.local_llm.propose import LocalLlmAssistant
 from app.assistant.local_llm.protocol import ScriptedLLM
 from app.routing.engine import AssistantClient
 
@@ -155,8 +155,8 @@ def test_create_timed_event_is_a_creator_passing_event_params_through_no_target(
 
 
 def test_explicit_event_variants_have_single_timing_shapes_in_tools_schema():
-    from app.assistant.actions import REGISTRY
-    from app.assistant.local_llm.tools_schema import build_tools_schema
+    from app.assistant.actions.registry import REGISTRY
+    from app.assistant.local_llm.propose import build_tools_schema
 
     branches = build_tools_schema(REGISTRY)["properties"]["actions"]["items"]["oneOf"]
     by_name = {branch["properties"]["name"]["const"]: branch for branch in branches}

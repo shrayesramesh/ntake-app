@@ -31,12 +31,14 @@ from sse_starlette.sse import EventSourceResponse
 
 import app.db as db
 from app import __version__
-from app.assistant.actions import REGISTRY, ActionError, apply_action
-from app.assistant.capture import CaptureRequest, FocusedContext
-from app.assistant.factory import (
-    AssistantConfig,
-    get_assistant,
-    get_capture_resolver,
+from app.assistant.actions.registry import apply_action
+from app.assistant.capture import CaptureRequest
+from app.assistant.factory import AssistantConfig, get_capture_resolver
+from app.assistant.proposals import (
+    family_member_names,
+    family_target_labels,
+    propose,
+    to_proposal_read,
 )
 from app.auth import current_member, current_member_stream
 from app.config import config_path, load_config, seed_from_config
@@ -52,27 +54,20 @@ from app.models import (
     WorkItem,
     WorkItemUpdate,
 )
-from app.routing.engine import ProposedAction, propose_bounded
+from app.routing.engine import ActionError
 from app.schemas import (
     CaptureCreate,
     CaptureResponse,
     ChecklistItemRead,
     ConfirmAction,
     EventRead,
-    ProposalRead,
     WorkItemCreate,
     WorkItemRead,
     WorkItemUpdateCreate,
     WorkItemUpdateRead,
 )
-from app.web import (
-    APP_ICON_SVG,
-    MANIFEST,
-    SERVICE_WORKER,
-    SHELL_PAGE,
-    render_board,
-    render_calendar,
-)
+from app.web import render_board, render_calendar
+from app.web_shell import APP_ICON_SVG, MANIFEST, SERVICE_WORKER, SHELL_PAGE
 
 
 def _warm_local_model_in_background() -> None:
@@ -469,55 +464,6 @@ def calendar_view(
 # --- Capture with proposals (Phase 4, task 4) ----------------------------
 
 
-def _to_proposal_read(
-    action: ProposedAction,
-    index: int,
-    target_label: str | None,
-    member_names: dict[int, str] | None = None,
-    labels: dict[str, dict[int, str]] | None = None,
-) -> ProposalRead:
-    """Pure map: an engine ProposedAction -> the app's ProposalRead DTO.
-
-    Assigns a batch-local proposal_id from ``index`` (unless the action already
-    carries one) and derives ``action_summary`` from the registry (ground truth,
-    NOT the model's text). If the action's params carry a ``member_id`` and
-    ``member_names`` resolves it, the summary is enriched with the member's name
-    (so a card reads "…to Sam", not "…to member 2") — the describe fns stay pure
-    (no session); the session-derived name map is applied here. No I/O.
-    """
-    summary = REGISTRY.describe(action.name, action.params)
-    names = member_names or {}
-    # Resolve the target's title from the per-type label map if not passed in.
-    if target_label is None and action.target_id is not None and action.target_type:
-        label_maps = labels or {}
-        target_label = (label_maps.get(action.target_type) or {}).get(action.target_id)
-    mid = action.params.get("member_id")
-    if isinstance(mid, int) and mid in names:
-        summary = f"{summary} ({names[mid]})"
-
-    # Verbose, id-resolved card body: the action's OWN render_card (pure), given a
-    # resolved bag built from the ALREADY-existing member-name map + target_label
-    # (DRY — no new resolution here). None ⇒ no extra lines.
-    spec = REGISTRY.get(action.name)
-    detail_lines: list[str] = []
-    if spec is not None and spec.render_card is not None:
-        resolved = {"member_names": names, "target_label": target_label}
-        detail_lines = spec.render_card(action.params, resolved)
-
-    return ProposalRead(
-        name=action.name,
-        params=action.params,
-        action_summary=summary,
-        llm_rationale=action.llm_rationale,
-        target_id=action.target_id,
-        target_type=action.target_type,
-        proposal_id=action.proposal_id or f"p{index}",
-        target_ref=action.target_ref,
-        target_label=target_label,
-        detail_lines=detail_lines,
-    )
-
-
 def get_assistant_config() -> AssistantConfig:
     """FastAPI dependency: the assistant's runtime config (config-in-code).
 
@@ -542,61 +488,6 @@ def get_assistant_config() -> AssistantConfig:
         base_url=os.environ.get("NTAKE_LLM_BASE_URL", base.base_url),
         timeout=float(os.environ.get("NTAKE_LLM_TIMEOUT", base.timeout)),
     )
-
-
-def _family_member_names(session: Session, family_id: int) -> dict[int, str]:
-    """Member id -> display name for a family (for enriching proposal summaries
-    like assign_work_item, and any other member-id-bearing render)."""
-    return {
-        m.id: m.display_name
-        for m in session.scalars(
-            select(Member).where(Member.family_id == family_id)
-        ).all()
-    }
-
-
-def _family_target_labels(
-    session: Session, family_id: int
-) -> dict[str, dict[int, str]]:
-    """Per-type id -> title maps for resolving a proposal's target_label on the
-    card: ``{"work_item": {id: title}, "event": {id: title}}``. Reused (DRY) by
-    _to_proposal_read to name the target of reschedule/assign/etc."""
-    wi = {
-        w.id: w.title
-        for w in session.scalars(
-            select(WorkItem).where(WorkItem.family_id == family_id)
-        ).all()
-    }
-    ev = {
-        e.id: e.title
-        for e in session.scalars(
-            select(Event).where(Event.family_id == family_id)
-        ).all()
-    }
-    return {"work_item": wi, "event": ev}
-
-
-def _propose_bounded(
-    ctx: FocusedContext,
-    target_label: str | None,
-    config: AssistantConfig,
-    member_names: dict[int, str] | None = None,
-    labels: dict[str, dict[int, str]] | None = None,
-) -> list[ProposalRead]:
-    """Get proposals from the configured assistant (bounded; degrade to []) and
-    map them to the app DTO.
-
-    Orchestration only: the bounded-timeout + graceful-degrade wrapper is the
-    engine's ``propose_bounded`` (the per-call bound is ``config.timeout``); the
-    per-action mapping is the pure :func:`_to_proposal_read`. ``target_label`` is
-    echoed onto each proposal so the confirm card shows context; ``member_names``
-    resolves member ids and ``labels`` resolves the target's title.
-    """
-    actions = propose_bounded(get_assistant(config), ctx, config.timeout)
-    return [
-        _to_proposal_read(a, i, target_label, member_names, labels)
-        for i, a in enumerate(actions, start=1)
-    ]
 
 
 @app.post("/capture", response_model=CaptureResponse, status_code=201)
@@ -637,18 +528,18 @@ def capture_with_proposals(
             base_url=config.base_url, model=config.model, timeout=config.timeout
         )
         ctx, actions, dbg = run_capture_with_debug(inner, request, session, member)
-        member_names = _family_member_names(session, member.family_id)
-        labels = _family_target_labels(session, member.family_id)
+        member_names = family_member_names(session, member.family_id)
+        labels = family_target_labels(session, member.family_id)
         proposals = [
-            _to_proposal_read(a, i, None, member_names, labels)
+            to_proposal_read(a, i, None, member_names, labels)
             for i, a in enumerate(actions, start=1)
         ]
         return CaptureResponse(item=None, proposals=proposals, debug=vars(dbg))
 
     ctx = get_capture_resolver(config).focus(request, session, member)
-    member_names = _family_member_names(session, member.family_id)
-    labels = _family_target_labels(session, member.family_id)
-    proposals = _propose_bounded(
+    member_names = family_member_names(session, member.family_id)
+    labels = family_target_labels(session, member.family_id)
+    proposals = propose(
         ctx,
         target_label=None,
         config=config,

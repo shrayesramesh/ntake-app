@@ -39,7 +39,8 @@
 | Command | Does |
 |---|---|
 | `make setup` | venv + install + verify (run once / after deps change) |
-| `make test` | run pytest |
+| `make test` | run the full pytest suite |
+| `make test-assistant` | run the focused assistant / local-LLM pipeline suite |
 | `make lint` | ruff check + format-check (no changes) |
 | `make format` | ruff auto-fix + format (mutates files) |
 | `make typecheck` | mypy |
@@ -47,8 +48,13 @@
 | `make run` | dev server on 127.0.0.1:8000 |
 | `make clean` | remove venv/caches/db |
 
-Typical loop while coding: write test → write code → `make format` → `make check`
-→ fix findings → repeat until `make check` is clean.
+Typical loop while coding:
+1. Run the focused feature suite while iterating (`make test-assistant` for
+   assistant/pipeline work).
+2. Write or update the relevant test, then code.
+3. Run `make format` as needed.
+4. Before finishing a checkpoint or creating a commit, run the full `make check`
+   gate and fix every finding.
 
 ## Conventions
 
@@ -63,7 +69,7 @@ Typical loop while coding: write test → write code → `make format` → `make
   **tz-naive** datetimes even when you stored tz-aware ones — they represent UTC.
   When comparing or formatting a value read back from the DB, attach UTC first
   (`dt.replace(tzinfo=UTC)`) / compare against a naive-UTC bound. See
-  `app/assistant/world.py`.
+  `app/assistant/context/world.py`.
 - **App binds to 127.0.0.1 only.** A Tailscale reverse proxy fronts it in
   production — that is a human-run concern, not the agent's.
 - **Formatting** is Black-compatible via ruff; let `make format` handle it, don't
@@ -87,6 +93,21 @@ there's a concrete reason not to; deviating is fine but call it out.
   existence. (We removed the `app/routing/__init__` re-export facade because it
   wrapped a single module; we kept the world-view row dataclasses only once a
   direct `_render` test used them.)
+- **Organize by feature and data flow, not generic technical buckets.** Prefer
+  cohesive modules and concrete directory names (`context/world.py`,
+  `context/deep.py`, `local_llm/link.py`, `local_llm/propose.py`) over broad
+  `utils.py` or `helpers.py` files.
+- **Treat ~500 lines as a soft module-size ceiling.** When a module approaches
+  it, look for an earned functional boundary; do not split solely for line count
+  or separate a type from its validation/rendering/application behavior.
+- **Package initializers are not facades.** Keep `__init__.py` documentation-only
+  unless a genuine package-level public API is needed. Import from the explicit
+  owner module (`actions.registry`, `local_llm.link`, `context.deep`) rather than
+  adding convenience re-exports.
+- **Keep `shared.py` narrowly scoped.** It may hold helpers shared by sibling
+  modules in one bounded feature package. If a helper has a clearer concern, use
+  a descriptive module (`validation.py`, `formatting.py`, `queries.py`); never
+  create a repository-wide utility junk drawer.
 - **Cohesion: data renders/validates itself.** Put rendering next to the fields it
   renders and validation next to the contract it checks — as methods/properties on
   the type, not free functions elsewhere. (`ActionSpec.prompt_line` renders the
@@ -101,11 +122,25 @@ there's a concrete reason not to; deviating is fine but call it out.
   `fastapi` (enforced by a boundary test). App-coupled work (DB, ORM) lives in
   `app/assistant/`. Vocabulary marks the boundary: **"actions" are what we execute
   (internal); "tools" are how they're presented to the LLM.**
-- **Config-selected, swappable backends behind one switch.** The assistant has two
-  seams (`CaptureResolver`, `AssistantClient`) chosen by `NTAKE_ASSISTANT` via
-  `app/assistant/factory.py`; backends are parallel packages (`fake/`, later
-  `local_llm/`). Stateless singleton strategies — request-scoped state (the DB
-  `Session`) flows in as a method arg, never stored on the strategy.
+- **Assistant flow has explicit stage ownership.** `AssistantConfig.kind` selects
+  both seams; `NTAKE_ASSISTANT_KIND=local` is only the opt-in development/UI
+  override. Both parallel backends are built: `fake/` is deterministic and
+  `local_llm/` uses the live local model.
+  - `context/world.py` renders broad state for LINK.
+  - `local_llm/link.py` owns the LINK prompt, constrained schema, tolerant ID
+    parsing, and resolver.
+  - `context/deep.py` family-whitelists resolved ids and renders narrow, detailed
+    context for PROPOSE.
+  - `local_llm/propose.py` owns the PROPOSE prompt, tools schema, tolerant action
+    parsing, and the stage-2 assistant.
+  Stateless singleton strategies receive request-scoped DB `Session` values as
+  method arguments and never retain them.
+- **Tests follow feature boundaries.** Add unit tests beside the owning feature
+  suite (`tests/assistant/` for LINK, PROPOSE, context, and actions). Keep HTTP
+  capture/confirm tests as feature-level integration coverage. Prefer a small
+  number of end-to-end happy paths for cross-boundary behavior while retaining
+  unit tests for validation, serialization, time handling, and other edge-heavy
+  contracts.
 - **Test fixtures for seeding, not copied helpers.** Use the `conftest.py`
   factories (`family_factory`/`member_factory`/`work_item_factory`/`event_factory`)
   and composites (`fam_member`, `fam_member_item`, `populated_family`) rather than

@@ -2,7 +2,7 @@
 
 The machine-side twin of ``build_tools_view`` (test_tools_view pins the human
 menu; this pins the schema the model's output is *forced* to obey). Task 7 Track
-A step 2 (spec/NEXT_SESSION.md): a pure fn ``ActionRegistry`` →
+A step 2 (LLD): a pure fn ``ActionRegistry`` →
 ``{actions:[{name, params}]}`` JSON schema, with each action's ``params`` built
 from its ``Param`` list (``datatype`` → JSON-Schema ``type``) and
 ``exclusive_params`` → ``oneOf``.
@@ -15,8 +15,8 @@ the emitted schema like the views.
 
 from __future__ import annotations
 
-from app.assistant.actions import REGISTRY
-from app.assistant.local_llm.tools_schema import build_tools_schema
+from app.assistant.actions.registry import REGISTRY
+from app.assistant.local_llm.propose import build_tools_schema
 from app.routing.engine import ActionRegistry, ActionSpec, DataType, Param
 
 

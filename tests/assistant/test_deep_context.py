@@ -1,23 +1,17 @@
-"""deep_context.py — LINK ids → validated → deep context for the PROPOSE call.
+"""Deep context — validated LINK ids → detailed context for the PROPOSE call.
 
-The LINK LLM returns ``{"work_item_ids": [...], "event_ids": [...]}``. These tests
-cover: tolerant parsing of that (untrusted) JSON; server-side **validation**
-(whitelist to the member's family — the "never invent an id" rule enforced, not
-just asked); the **member footprint** union (the capturing member's assigned work
-items are always included, even if the note didn't link them); the rendered deep
-context (a member header + each work item WITH its full update history + linked
-events).
-
-NOTE (flagged in the LLD): "events the member participates in" is deferred — the
-Event model has no ``participants`` column yet. Member footprint here = assigned
-work items; linked events still appear by id.
+The LINK LLM returns ids for work items, events, and members. These tests cover:
+tolerant parsing of the untrusted model JSON; server-side family whitelisting; the
+capturing and linked members' workload footprint; and detailed rendering of work
+items, updates, checklists, and participating events.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.assistant.deep_context import deep_context, parse_ids, resolve_ids
+from app.assistant.context.deep import deep_context, resolve_ids
+from app.assistant.local_llm.link import parse_ids
 from app.models import Event, WorkItem, WorkItemUpdate
 
 NOW = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)

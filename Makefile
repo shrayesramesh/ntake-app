@@ -21,7 +21,7 @@ SRC  := app tests
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup test run lint format typecheck check coverage smoke ui-live llm-up llm-down llm-status freeze clean update-expectations
+.PHONY: help setup test test-assistant run lint format typecheck check coverage smoke ui-live llm-up llm-down llm-status freeze clean update-expectations
 
 help: ## Show available targets
 	@echo "Targets:"
@@ -36,9 +36,13 @@ test: ## Run the test suite
 	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
 	$(PYTEST) -v -W ignore
 
+test-assistant: ## Run the focused assistant/pipeline suite
+	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
+	$(PYTEST) -v -W ignore tests/assistant
+
 update-expectations: ## Regenerate golden-file prompt/LLM expectations (review the diff!)
 	@test -x $(PYTEST) || { echo "No venv found — run 'make setup' first."; exit 1; }
-	NTAKE_UPDATE_EXPECTATIONS=1 $(PYTEST) -q -W ignore tests/test_prompts.py
+	NTAKE_UPDATE_EXPECTATIONS=1 $(PYTEST) -q -W ignore tests/assistant/test_prompts.py
 	@echo "Expectations regenerated — review 'git diff tests/expectations/'."
 
 run: ## Run the dev server (127.0.0.1:8000)
