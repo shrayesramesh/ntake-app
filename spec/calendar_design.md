@@ -2,10 +2,10 @@
 
 **Author:** shrayesr  
 **Date:** 2026-09-04  
-**Status:** Draft — starting point for iteration  
-**Scope:** Replace the current agenda-list calendar display with a standard,
-read-only calendar grid. This document resolves the initial direction but leaves
-interaction details open until the first working slice is reviewed.
+**Status:** Draft — first slice implemented; visual/on-device verification pending  
+**Scope:** Replace the former agenda-list calendar display with a standard,
+read-only calendar grid. The initial EventCalendar slice is implemented; this
+document remains the place to iterate on interaction and wall-display details.
 
 ## Summary
 
@@ -144,18 +144,26 @@ origin. Do not use a CDN. Exact package/version and asset build/copy mechanism a
 implementation details to decide during the first slice after checking the
 project's dependency tooling.
 
-## 6. First implementation boundary
+## 6. First implementation boundary — implemented
 
-The first implementation is intentionally read-only:
+The first implementation is intentionally read-only. The following are built and
+covered by the app/test contract:
 
-1. Add locally served EventCalendar assets.
-2. Mount a month-grid calendar in the existing shell.
-3. Fetch and adapt the existing `/events` data with bearer auth.
-4. Add Month / Week / Day and Previous / Today / Next controls.
-5. On SSE change, call `calendar.refetchEvents()`.
-6. Preserve the current assistant-only event mutation flow.
-7. Test all-day inclusive-to-exclusive conversion, timed timezone rendering, auth,
-   view navigation, and SSE refetch behavior.
+1. Locally served pinned EventCalendar 5.12.2 assets, with a third-party notice
+   and reproducible vendor script.
+2. Month-grid calendar mounted in the existing shell, with Month / Week / Day and
+   Previous / Today / Next controls.
+3. Bearer-authenticated `/events` source, family-scoped response, participant
+   names, SQLite UTC normalization, and app-inclusive → calendar-exclusive all-day
+   end conversion.
+4. SSE change path calls `calendar.refetchEvents()`; the kiosk mount has stable
+   height across views.
+5. Read-only config preserves assistant Confirm as the only mutation path.
+6. Title-first custom event content restores compact time/participant/location
+   metadata over the library default.
+
+Still pending is visual/on-device verification: actual wall/phone layout, title
+truncation/overflow, week/day scrolling, all-day placement, and live SSE refresh.
 
 Out of scope for the first grid:
 

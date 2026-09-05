@@ -20,7 +20,7 @@ setup like Tailscale/hardware/stack).
 
 `app/`, `tests/`, `Makefile`, `setup.sh`, `requirements.txt`, `pyproject.toml`.
 Current state: phases 0–3 and **Phase 4 including the live local-LLM backend
-(task 7)** are built and green (`make check` → 408 tests pass; + `make smoke`,
+(task 7)** are built and green (`make check` green, ≥95% coverage; + `make smoke`,
 12 real-stack checks). Events + work-item/board + live SSE + config-seeded
 identity are in; the assistant runs as a two-stage pipeline (`CaptureResolver` →
 `AssistantClient`) over a reusable engine, with both a deterministic `fake/`
@@ -28,7 +28,11 @@ backend and the **`local_llm/` backend (llamafile / any OpenAI-style localhost
 endpoint), verified end-to-end against Llama 3.1 8B on `localhost:8080` — no
 Tailscale**. The live pipeline links work items, events, **and members**
 (`{work_item_ids, event_ids, member_ids}`) and folds each linked member's
-workload into the PROPOSE context. Live-surface hardening is done (WAL,
+workload into the PROPOSE context. The calendar is now a locally served
+**EventCalendar** grid (month default; week/day optional; authenticated `/events`,
+SSE `refetchEvents()`, stable kiosk region, title-first event metadata); it stays
+read-only so mutations remain propose-and-confirm. FullCalendar is the documented
+fallback in `spec/calendar_design.md`. Live-surface hardening is done (WAL,
 `manage backup`, SSE reconnect re-sync, PWA). Dev bring-up for live UI testing is
 one command: **`make llm-up` then `make ui-live`** (real household + persistent
 DB + live model + a debug panel showing the LLM prompts/replies). **Not built

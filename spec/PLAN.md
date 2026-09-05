@@ -8,7 +8,7 @@
 ## Current state (already built & passing)
 
 Phases 0–3 and **Phase 4 including the live local-LLM backend** are built and
-green (`make check` → 408 tests pass, ≥95% cov; plus `make smoke`, 12 real-stack
+green (`make check` green, ≥95% coverage; plus `make smoke`, 12 real-stack
 checks). What exists:
 - FastAPI app; `GET /health`, `GET /events`, the work-item/board read + append
   paths, `/capture` (propose-only) and `/actions/confirm`.
@@ -40,7 +40,12 @@ checks). What exists:
   member's workload footprint so PROPOSE can reason about it. Proposals carry a
   registry-derived `action_summary` (member ids resolved to names) + the model's
   `llm_rationale` + verbose, id-resolved `detail_lines` from each action's own
-  `ActionSpec.render_card`. **Dev live-UI bring-up:** `make llm-up` + `make
+  `ActionSpec.render_card`. The calendar is a locally served **EventCalendar**
+  grid (month default; week/day optional) with a bearer-authenticated `/events`
+  source, inclusive all-day end → exclusive grid-end adapter, SSE
+  `refetchEvents()`, stable kiosk height, and title-first compact event metadata.
+  It is read-only; mutations remain propose-and-confirm. FullCalendar is the
+  documented fallback in `spec/calendar_design.md`. **Dev live-UI bring-up:** `make llm-up` + `make
   ui-live` (real household, persistent DB, seeded data + token, and an in-UI debug
   panel showing the LINK/PROPOSE prompts + raw model replies + resolved ids).
 - Makefile, setup.sh, pinned requirements, ruff + mypy config.
@@ -100,8 +105,13 @@ via config + CLI ✅.
 - Board view (grooming): 4 columns; **manual archive** of Done (+ "archive all
   Done"); unarchive. App-invariant: only Done archivable.
 - `events.source_update_id` now a real FK → `work_item_updates`.
-- Read-mostly HTMX views: calendar (events + due work items, tag-colored) + board;
-  simple tap/form actions.
+- Read-mostly HTMX board plus a locally served **EventCalendar** display: month
+  default with week/day controls, authenticated event source, SSE refetch, stable
+  kiosk region, title-first compact event content. Calendar remains read-only;
+  assistant Confirm is the mutation path. **Implemented after the original
+  Phase-3 agenda slice; visual wall-display verification remains pending.**
+- Manual board-grooming controls (archive/unarchive/move) remain deferred despite
+  the underlying assistant actions.
 
 **Exit:** family members add/update work items and events from phones; every
 device (incl. wall display) reflects it live.

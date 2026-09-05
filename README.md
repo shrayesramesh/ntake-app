@@ -35,7 +35,7 @@ household/emotional labor **visible for recognition and fairness**.
 ## Current status
 
 Phases 0–3 and **Phase 4 including the live local-LLM backend** are built and
-passing (`make check` → 408 tests green, ≥95% cov; plus a real-stack `make smoke`,
+passing (`make check` green, ≥95% coverage; plus a real-stack `make smoke`,
 12 checks): FastAPI app; `/health`, `/events`, the work-item + board read/append
 paths, `/capture` (propose-only) and `/actions/confirm`; config-seeded identity +
 token CLI; change-event seam → SSE live sync; and the assistant as a reusable
@@ -47,8 +47,10 @@ members** from free text (`{work_item_ids, event_ids, member_ids}`) and folds ea
 linked member's workload into the PROPOSE context; proposal cards render verbose,
 id-resolved detail via each action's own `ActionSpec.render_card`. The calendar is
 a locally served **EventCalendar** grid (month default; week/day optional) backed
-by authenticated `/events`, with SSE-driven `refetchEvents()`; it remains
-read-only so mutations stay propose-and-confirm.
+by authenticated `/events`, with SSE-driven `refetchEvents()`, stable kiosk height,
+and title-first compact event metadata (time, participant names, location). It
+remains read-only so mutations stay propose-and-confirm; FullCalendar is the
+documented fallback in `spec/calendar_design.md`.
 
 **Live-surface hardening (done):** SQLite WAL + `synchronous=NORMAL`
 (crash-safety); Alembic **migrations** as the real-DB schema path (startup runs

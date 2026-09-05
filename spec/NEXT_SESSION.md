@@ -9,7 +9,7 @@ the repo root (how to work here + conventions).
 ## Current state (one paragraph)
 
 Phases 0–3 and **Phase 4 including the live local-LLM backend** are built and
-green (`make check` → 408 tests, ≥95% cov; + `make smoke`, 12 real-stack checks).
+green (`make check` → 412 tests, ≥95% cov; + `make smoke`, 12 real-stack checks).
 The app (FastAPI + SQLite): events, work-items + append-only update log, board,
 `/capture` (propose-only) + `/actions/confirm`, config-seeded identity + token
 CLI, and live SSE. The assistant is a reusable engine (`app/routing/`) + ntake
@@ -20,7 +20,12 @@ end-to-end** against Llama 3.1 8B on `localhost:8080`, no Tailscale). The two-ca
 pipeline links work items, events, **and members** (`{work_item_ids, event_ids,
 member_ids}`) and folds each linked member's workload footprint into the PROPOSE
 context; proposals render verbose, id-resolved cards via each action's
-`ActionSpec.render_card`. **Dev bring-up for live UI testing:** `make llm-up` +
+`ActionSpec.render_card`. The calendar is now a locally served **EventCalendar**
+grid (month default; week/day controls; authenticated `/events`; SSE
+`refetchEvents()`; stable kiosk height; title-first compact event metadata). It
+stays read-only so event mutations remain propose-and-confirm; FullCalendar is the
+documented fallback in `spec/calendar_design.md`. **Dev bring-up for live UI
+testing:** `make llm-up` +
 `make ui-live` (real household + persistent DB + seeded data + token + an in-UI
 debug panel showing the LINK/PROPOSE prompts + raw model replies + resolved ids).
 **Live-surface hardening is done:** SQLite WAL + `synchronous=NORMAL`; Alembic
@@ -58,19 +63,33 @@ rejects the nested form was wrong for this build — verified by live test.)*
   **`make ui-live`** (`scripts/live_llm_ui.sh`).
 - Idempotent + participant-attaching `seed_sample_events`; calendar resolves
   participant member ids → names.
+- **EventCalendar grid (implemented, visual verification pending):** locally
+  vendored MIT `@event-calendar/build@5.12.2`, month default + week/day,
+  authenticated `/events`, all-day inclusive-end adapter, UTC normalization,
+  SSE `refetchEvents()`, stable kiosk height, and title-first compact event cards
+  (time/participants/location). Read-only; FullCalendar remains the fallback in
+  `spec/calendar_design.md`.
 
 **Remaining now is prompt-quality tuning + Phase 5, not the build:**
 1. **Prompt/behavior tuning against the live 8B** — date arithmetic (it picks the
    wrong weekday by a day sometimes), occasional over-/under-linking, occasional
    empty PROPOSE. Model-quality, defended by validate-don't-trust; tune
-   `LINK_SYSTEM` / `build_propose_prompt`. **Running finds tracked in
-   `spec/UI_TESTING_BACKLOG.md`** (e.g. deep-context tags; first-person "I" →
-   capturing member).
-2. **`manage llm health` model-name mismatch** — llamafile reports the served id
+   `LINK_SYSTEM` / `build_propose_prompt`. **Running finds are split by type:**
+   `spec/UI_TESTING_BACKLOG.md` holds product/interaction work (tags, first-person
+   "I", Enter/Done capture, tag colors); `spec/BUGLIST.md` holds reproducible
+   correctness bugs (linked member not attached to create_event, weekday/UTC
+   arithmetic, phantom LINK ids, unlabeled UTC deep context, start-only events).
+   Resolve the explicit contracts before relying on model-only tuning.
+2. **EventCalendar visual/on-device verification** — app-level tests and static
+   assets pass, but inspect the title-first event cards, month/week/day layout,
+   stable kiosk height, all-day placement, and SSE refetch on the actual wall and
+   phone browsers. Calendar work is in `spec/calendar_design.md`; BUG-005 was
+   implemented but needs this visual confirmation.
+3. **`manage llm health` model-name mismatch** — llamafile reports the served id
    as the gguf *path*; `make ui-live` already sets `NTAKE_LLM_MODEL` to the served
    id so the app path is green, but the standalone CLI still uses the fake default
    name. Cosmetic; reconcile if it annoys.
-3. **Phase 5** — labor view (design spike first), on-demand grooming assist,
+4. **Phase 5** — labor view (design spike first), on-demand grooming assist,
    manual board-grooming UI, kiosk soak/failure-surfacing/logging.
 
 **To resume live testing:** `make llm-up`, then `make ui-live` (prints URL +
