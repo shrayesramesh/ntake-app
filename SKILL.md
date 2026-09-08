@@ -169,9 +169,10 @@ there's a concrete reason not to; deviating is fine but call it out.
   compact for world/prompt snapshots; use `household_scenario` for the richer
   Alex-and-Sam config-backed database with assignments, logs, checklists, and
   events.
-- **Keep the docs in sync as part of the change.** Update `spec/` (and this file)
-  in the same session as the code — stale status/action-lists/test-counts are a
-  recurring drift source.
+- **Keep durable docs in sync.** Update `spec/` for product decisions,
+  architecture boundaries, and operator workflows. Do **not** duplicate volatile
+  implementation inventories (such as action names, parameters, or test counts)
+  in documentation; point to the code and focused tests instead.
 
 ## Out of scope for the agent
 

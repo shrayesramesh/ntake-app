@@ -46,16 +46,17 @@ token CLI; change-event seam → SSE live sync; and the assistant as a reusable
 engine (`app/routing/`) + ntake plugin (`app/assistant/`) with two swappable seams
 (`CaptureResolver`, `AssistantClient`), **both a `fake/` and a live `local_llm/`
 backend**, and the two prompt views (`build_world_view`, `build_tools_view`). The
-live action registry and parameters are documented only in
-`spec/ASSISTANT_ACTIONS.md`. The two-call pipeline links work items, events, **and
+live action registry and parameter contract are implementation-owned in
+`app/assistant/actions/` and guarded by focused tests. The two-call pipeline links
+work items, events, **and
 members** from free text (`{work_item_ids, event_ids, member_ids}`) and folds each
 linked member's workload into the PROPOSE context; proposal cards render verbose,
 id-resolved detail via each action's own `ActionSpec.render_card`. The calendar is
 a locally served **EventCalendar** grid (month default; week/day optional) backed
 by authenticated `/events`, with SSE-driven `refetchEvents()`, stable kiosk height,
 and title-first compact event metadata (time, participant names, location). It
-remains read-only so mutations stay propose-and-confirm; FullCalendar is the
-documented fallback in `spec/calendar_design.md`.
+remains read-only so mutations stay propose-and-confirm; FullCalendar remains a
+fallback if on-device validation exposes a blocking EventCalendar limitation.
 
 **Live-surface hardening (done):** SQLite WAL + `synchronous=NORMAL`
 (crash-safety); Alembic **migrations** as the real-DB schema path (startup runs

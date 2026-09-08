@@ -83,8 +83,8 @@ if python -m pytest -q; then
   echo "Next:"
   echo "  • Run the app:   source .venv/bin/activate && uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
   echo "  • Health check:  curl -s http://127.0.0.1:8000/health"
-  echo "  • Agent tasks:   see AGENT_START_HERE.md (checkpoints 1d, 1e next)"
-  echo "  • Tailscale (human-only): shovel-ready/tasks_tailscale_host_serve.md"
+  echo "  • Agent tasks:   see spec/AGENT_START_HERE.md"
+  echo "  • Tailscale (human-only): see HOST_SETUP_GUIDE.md"
 else
   echo
   err "Tests failed. The environment or code is not correct yet — see output above."

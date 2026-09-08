@@ -44,8 +44,9 @@ checks). What exists:
   grid (month default; week/day optional) with a bearer-authenticated `/events`
   source, inclusive all-day end → exclusive grid-end adapter, SSE
   `refetchEvents()`, stable kiosk height, and title-first compact event metadata.
-  It is read-only; mutations remain propose-and-confirm. FullCalendar is the
-  documented fallback in `spec/calendar_design.md`. **Dev live-UI bring-up:** `make llm-up` + `make
+  It is read-only; mutations remain propose-and-confirm. FullCalendar remains a
+  fallback if on-device validation exposes a blocking EventCalendar limitation.
+  **Dev live-UI bring-up:** `make llm-up` + `make
   ui-demo` (fresh Alex/Sam demo DB; token via `make ui-demo-token`; in-UI debug
   panel showing LINK/PROPOSE prompts + raw replies + resolved ids). `make ui-live`
   remains the separate persistent local sandbox mode.
@@ -147,8 +148,8 @@ calendar mutations only on confirm.
 > `app/assistant/fake/` and `app/assistant/local_llm/`, **both built**; the live
 > one (`LocalLlmCaptureResolver` + `LocalLlmAssistant` over a `LocalLlmClient`) is
 > **verified end-to-end** against llamafile/Llama 3.1 8B on `localhost:8080`. The
-> action registry and parameters are documented in `spec/ASSISTANT_ACTIONS.md`.
-> LINK resolves `{work_item_ids, event_ids, member_ids}` (all family-whitelisted);
+> `app/assistant/actions/` owns the live action registry and parameters. LINK
+> resolves `{work_item_ids, event_ids, member_ids}` (all family-whitelisted);
 > `deep_context` folds each linked member's workload footprint in. Both prompt
 > views are built (`build_world_view`, `build_tools_view`). Capture is propose-only
 > and always new; proposals carry a registry `action_summary` (member ids →
@@ -183,7 +184,8 @@ display survives days of uptime; failures are visible.
   items. These actions remain available independently of the deferred UI.
 
 ## Deferred (explicitly not built)
-- SMS/text capture channel (DESIGN-sms-deferred.md).
+- SMS/text capture channel (deferred: it would reintroduce public ingress and
+  stateful confirmation).
 - `.ics` import/export (INTEROP), recurrence (assistant-from-log evolution).
 - **One-time backfill from Trello / Google Calendar** — a file-based
   `manage import` CLI (Trello JSON → work items + initial updates; `.ics` →
@@ -221,8 +223,9 @@ action-router) that other projects can consume. The split:
   the bounded-timeout + graceful-degrade wrapper; the `{actions:[{name,params}]}`
   contract + a local-LLM JSON-constrained client that builds its JSON schema
   from the registered actions. No `Session`, no `Member`, no ORM models.
-- **Plugin (this app):** registers ntake's actions (`set_due_date`,
-  `create_event`, …); each handler receives an **opaque context** the app injects
+- **Plugin (this app):** registers ntake's actions (due-date, event-creation,
+  and other family-domain actions); each handler receives an **opaque context**
+  the app injects
   (here `(session, member, target_id)`) and does the ORM mutation +
   `source=assistant` append. The engine never sees SQLAlchemy.
 

@@ -73,7 +73,7 @@ if [ "$MODE" = "demo" ]; then
   rm -f "$DEMO_TOKEN_FILE"
   export NTAKE_CONFIG="$DEMO_DIR/family.toml"
   export CALENDAR_DB_URL="sqlite:///$DEMO_DIR/calendar.db"
-  export NTAKE_TOKEN_SECRET="$($PY -c 'import secrets; print(secrets.token_urlsafe(32))')"
+  export NTAKE_TOKEN_SECRET="$("$PY" -c 'import secrets; print(secrets.token_urlsafe(32))')"
   "$PY" - "$NTAKE_CONFIG" <<'PYEOF'
 from pathlib import Path
 import sys
@@ -98,7 +98,7 @@ else
     SECRET_FILE="$(dirname "$NTAKE_CONFIG")/token_secret"
     if [ ! -f "$SECRET_FILE" ]; then
       umask 077
-      $PY -c 'import secrets;print(secrets.token_urlsafe(32))' > "$SECRET_FILE"
+      "$PY" -c 'import secrets;print(secrets.token_urlsafe(32))' > "$SECRET_FILE"
       echo "Wrote a stable token secret to $SECRET_FILE (chmod 600, out-of-repo)."
     fi
     export NTAKE_TOKEN_SECRET="$(cat "$SECRET_FILE")"
@@ -127,8 +127,7 @@ export NTAKE_LLM_BASE_URL="$BASE_URL"
 [ -n "$SERVED_MODEL" ] && export NTAKE_LLM_MODEL="$SERVED_MODEL"
 
 # --- 3. start the app (startup migrates DB to head + seeds from config) ---
-LOG=/tmp/ntake_live_ui.log
-[ "$MODE" = "demo" ] && LOG=/tmp/ntake_demo_ui.log
+LOG="/tmp/ntake_${MODE}_ui.log"
 echo "Starting app on http://$HOST:$PORT (log: $LOG) ..."
 "$UVICORN" app.main:app --host "$HOST" --port "$PORT" > "$LOG" 2>&1 &
 APP_PID=$!

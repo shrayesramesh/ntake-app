@@ -7,8 +7,8 @@ records for the resolved ids). It is the app-coupled capture stage (it touches
 the DB); the ``FocusedContext`` it returns is the session-free value object that
 crosses into stage 2.
 
-``fake_link`` is the fake analog of the pipeline's LINK call
-(spec/LLD-assistant-pipeline.md): map a capture note to the existing entities it
+``fake_link`` is the fake analog of the pipeline's LINK call: map a capture note
+to the existing entities it
 refers to, with a deterministic rule instead of an LLM. Matching rule
 (intentionally an MVP — a real LINK matches on meaning):
 

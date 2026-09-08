@@ -14,15 +14,14 @@ source of truth. Read this fully before doing anything.
 
 Use these only when the task makes them relevant:
 
-- **LLD-assistant-pipeline.md** — LINK → context → PROPOSE stage contracts.
-- **ASSISTANT_ACTIONS.md** — the live assistant action registry, parameters, and
-  scope; read this before changing assistant behavior.
+- Before changing assistant behavior, read `app/assistant/` and the focused
+  `tests/assistant/` coverage; the action contract is implementation-owned.
 - **BUGLIST.md** — reproducible correctness issues and their evidence.
 - **UI_TESTING_BACKLOG.md** — product, interaction, and visual follow-ups.
 - **HOST_SETUP_GUIDE.md** *(at repo root)* — operator-only local-LLM and host
   setup; do not perform those steps as an agent.
-- **DESIGN-sms-deferred.md** and the `research/` notes — deferred/reference
-  material only.
+- SMS/text capture is deferred; do not revive it without a new scoped decision.
+  The `research/` notes are reference material only.
 
 ## The code (already exists, at repo root — not in this folder)
 
@@ -53,8 +52,9 @@ Tailscale**. The live pipeline links work items, events, **and members**
 workload into the PROPOSE context. The calendar is now a locally served
 **EventCalendar** grid (month default; week/day optional; authenticated `/events`,
 SSE `refetchEvents()`, stable kiosk region, title-first event metadata); it stays
-read-only so mutations remain propose-and-confirm. FullCalendar is the documented
-fallback in `spec/calendar_design.md`. Live-surface hardening is done (WAL,
+read-only so mutations remain propose-and-confirm. FullCalendar remains the
+fallback if on-device validation exposes a blocking EventCalendar limitation.
+Live-surface hardening is done (WAL,
 `manage backup`, SSE reconnect re-sync, PWA). Dev bring-up for safe live UI
 testing is **`make llm-up` then `make ui-demo`** (fresh Alex/Sam demo DB + live
 model + debug trace). `make ui-live` remains the separate persistent local

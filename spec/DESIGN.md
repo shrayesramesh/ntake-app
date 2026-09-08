@@ -3,7 +3,7 @@
 > Clean, reconciled technical design (supersedes the earlier DESIGN.md and the
 > research notes it draws from). Describes **how** the system is built.
 > References requirement IDs from REQUIREMENTS.md. Implementation phasing is in
-> PLAN.md; the deferred SMS/text channel is in DESIGN-sms-deferred.md.
+> PLAN.md. The SMS/text channel is explicitly deferred.
 
 ---
 
@@ -259,9 +259,10 @@ FocusedContext {text, timezone, now,
 - Both stages sit behind config-selected seams for TDD: a `FakeAssistant`
   (stage 2) reasons over a hand-built `FocusedContext` with zero DB, and the
   `FakeCaptureResolver` (stage 1) produces focused contexts from seeded rows.
-  Both are chosen by `NTAKE_ASSISTANT` via `app/assistant/factory.py`
-  (`get_assistant()` / `get_capture_resolver()`); the local-LLM implementations
-  (built) drop into the same seams behind the same switch.
+  Both use `AssistantConfig.kind`; local UI tooling can opt into the live backend,
+  while the committed default remains `fake`. The selected config drives
+  `get_assistant()` and `get_capture_resolver()`, so the two implementations remain
+  paired.
 
 The rest of this section describes the confirm half of the loop.
 
@@ -276,7 +277,7 @@ Member enters an event capture or a work-item update (free text) in the PWA
 [ Save (existing item only) ]  a capture onto an EXISTING work item appends a
         source=human note to its log immediately (WORKITEM-2). A NEW-item
         capture saves NOTHING — bare text does not auto-create a work item; it
-        becomes a create_work_item / create_event proposal to confirm.
+        becomes a work-item or event creation proposal to confirm.
         │
         ▼
 [ Assistant (local GPU), same request ]  parse + interpret in context (this
@@ -317,8 +318,8 @@ Member enters an event capture or a work-item update (free text) in the PWA
   persistence). Only confirmed **outcomes** persist (a log entry + the field
   change).
 - **Capture is always a NEW propose-only capture (v1).** It takes only free text
-  (no `work_item_id`): bare text saves nothing until the human confirms a
-  `create_work_item` / `create_event` proposal. Appending a `source=human` note
+  (no `work_item_id`): bare text saves nothing until the human confirms a new
+  work-item or event proposal. Appending a `source=human` note
   to a *specific* existing item is a separate, explicit action —
   `POST /work-items/{id}/updates` — not the capture path. (Resolving a target
   work item *from the text* is a v2/local-LLM focuser capability; see §4.1a.)
@@ -380,9 +381,9 @@ FocusedContext {text, tz, now, resolved_work_item_ids,
 
 - **Contracts — `app/assistant/base.py`**: the two seams a backend implements —
   `CaptureResolver` (stage 1) and the re-exported `AssistantClient` (stage 2) —
-  plus the shared value types. `app/assistant/factory.py` selects a backend per
-  the `NTAKE_ASSISTANT` switch: `get_capture_resolver()` (stage 1) and
-  `get_assistant()` (stage 2), one switch driving both.
+  plus the shared value types. Application configuration selects the backend
+  through `AssistantConfig.kind`; local UI tooling can opt into the live backend
+  while the committed default remains `fake`.
 - **Backends (parallel packages):** `app/assistant/fake/` (`FakeCaptureResolver`
   + `FakeAssistant` — dev/tests, deterministic) and `app/assistant/local_llm/`
   (`LocalLlmCaptureResolver` + `LocalLlmAssistant` — built + verified; llamafile as
@@ -402,8 +403,9 @@ FocusedContext {text, tz, now, resolved_work_item_ids,
   `AssistantClient[FocusedContext]`). No `Any`.
 - **Plugin — `app/assistant/`**: registers ntake's actions into an engine
   `ActionRegistry` — the v1 action set spanning create/modify/status/assign/
-  archive/checklist/delete across work-item, event, and no-target actions (see
-  `spec/ASSISTANT_ACTIONS.md` for the live registry and parameters). Each handler receives the opaque
+  archive/checklist/delete across work-item, event, and no-target actions. The
+  implementation-owned action contract lives in `app/assistant/actions/`. Each
+  handler receives the opaque
   `NtakeActionContext(session, member, target_id, target_type)` and does the ORM
   mutation plus — only when it targets a work item — the `source=assistant`
   update append (WORKITEM-3; conditional per the generalized target). The
@@ -435,8 +437,9 @@ second consumer appears — package-shape now, not a published package). See PLA
   is the app-coupled seam — it's *meant* to touch the DB — so it lives in
   `app/assistant/`, not the engine; taking a `Session` there costs no generic
   purity.
-- **One switch.** `NTAKE_ASSISTANT` drives *both* stages (no separate
-  `NTAKE_RESOLVER`); revisit only if we need to mix stages for debugging.
+- **One configuration selector.** `AssistantConfig.kind` drives both stages;
+  local UI tooling may opt into the live backend without a separate resolver
+  override. Revisit only if we need to mix stages for debugging.
 - **Local-LLM runtime: runtime-agnostic, llamafile as reference.** The live
   backend (`local`, task 7) is named for what it *is* — a local LLM behind an
   OpenAI-style localhost HTTP seam (`LocalLlmClient`) — not for a specific server.
@@ -454,8 +457,9 @@ second consumer appears — package-shape now, not a published package). See PLA
   action becomes a tool only at the model boundary.
 - **Param contract is typed data on the spec.** `ActionSpec.params: list[Param]`
   (`Param(name, datatype, required)`, where `datatype` is a `DataType` enum member
-  carrying both its `human_token` and its JSON-Schema fragment) + `exclusive_params`
-  (mutually-exclusive groups, e.g. create_event's timed-vs-all-day); `required` is
+  carrying both its `human_token` and its JSON-Schema fragment). Event timing is
+  modeled as separate timed and all-day action specifications, each with one
+  unambiguous parameter shape. `required` is
   derived, `prompt_line` renders the tool line, and the local-LLM JSON-schema
   generator reads the same specs — so the tools view and tools schema both derive
   from one source and cannot desync. Lightest-engine / verbose-authoring, no
@@ -573,9 +577,8 @@ Alembic's job) and is deliberately **not** ongoing sync.
 
 ## 7. Deferred / out of scope
 
-- **SMS / text capture channel** — full design parked in
-  DESIGN-sms-deferred.md (reintroduces public ingress, stateful confirmation,
-  free-text parsing as primary).
+- **SMS / text capture channel** — deferred; it would reintroduce public ingress
+  and stateful confirmation.
 - **Two-tier availability split** (§1) — future NFR-UPTIME mitigation.
 - **`.ics` interop** (§6), **recurrence** (assistant-from-log evolution),
   **automatic archiving**, **background/scheduled assistant passes**,
