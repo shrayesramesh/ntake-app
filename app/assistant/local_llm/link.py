@@ -31,12 +31,15 @@ members — if any — the note is about.
 Rules:
 - Reference ONLY ids that appear in THE WORLD. Never invent an id or infer the
   next numeric id.
+- Decide members separately from work items and events. If a person is directly
+  named or clearly described as the subject of the note, include that member id
+  even when the note describes a new task or new event.
+- For an existing work item or event, require evidence that distinguishes that
+  exact entity: a matching title, person, date, location, or clear semantic
+  alias. A shared topic or similarly named activity alone is not enough.
 - A note may refer to nothing existing (a brand-new task/event): return empty
-  lists. It may refer to more than one. If uncertain whether an existing entity
-  is intended, prefer an empty list to a guessed link.
-- Include a member id in member_ids when the note is ABOUT that person (e.g.
-  "Alex's day off" -> that member; "drive Sam to practice" -> Sam), so their
-  existing workload/events can inform what to do. Match people by name.
+  work_item_ids and event_ids rather than guessing. It may refer to more than
+  one existing entity.
 - Match on meaning, not just words ("the sink guy" -> a plumber item; "friday's
   game" -> an event on that date). Resolve relative dates in the family timezone
   ({timezone}); right now it is {now}.
