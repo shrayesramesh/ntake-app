@@ -25,7 +25,7 @@ SRC  := app tests
   help setup test \
   test-assistant test-identity test-persistence test-api test-web test-operations \
   update-expectations \
-  run smoke ui-live ui-demo ui-demo-token llm-up llm-down llm-status \
+  run smoke ui-live ui-demo ui-demo-token llm-up llm-down llm-status prompt \
   lint format typecheck coverage check \
   freeze clean
 
@@ -145,3 +145,12 @@ clean: ## Remove venv, caches, and the runtime SQLite DB
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 	rm -f calendar.db
 	@echo "cleaned."
+
+prompt: ## Prompt evaluator: MODE=benchmark or evaluate; STAGE=link, propose, or both
+	@test -x $(PY) || { echo "No venv found — run 'make setup' first."; exit 1; }
+	@test -n "$(MODE)" || { echo "Set MODE=benchmark or MODE=evaluate." >&2; exit 2; }
+	@test -n "$(STAGE)" || { echo "Set STAGE=link, STAGE=propose, or STAGE=both." >&2; exit 2; }
+	$(PY) scripts/prompt_optimizer.py $(MODE) --stage $(STAGE) \
+	  $(if $(BENCHMARK),--benchmark $(BENCHMARK)) \
+	  $(if $(SOURCE),--source $(SOURCE)) \
+	  $(if $(VARIANTS_FILE),--variants-file $(VARIANTS_FILE))
