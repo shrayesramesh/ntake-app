@@ -6,12 +6,43 @@ import json
 from collections import Counter
 from typing import Any
 
+from app.assistant.actions.registry import REGISTRY
+from app.routing.engine import DataType
+
 from .models import ActionCall, LinkLabels, Score
+
+# MVP evaluation judges whether the model selected the right action and supplied
+# machine-actionable time/date or identifier values. Titles, descriptions,
+# locations, tags, and display-name strings remain free-text payloads and do not
+# affect action recall/precision.
+_SCORABLE_PARAM_TYPES = frozenset(
+    {DataType.DATE, DataType.DATETIME, DataType.INTEGER, DataType.ARRAY_INTEGER}
+)
 
 
 def action_key(action: ActionCall) -> tuple[str, str]:
-    """Canonical identity for an id-free action call."""
+    """Canonical full identity used for source-benchmark validation only."""
     return action.name, json.dumps(action.params, sort_keys=True, separators=(",", ":"))
+
+
+def scoring_action_key(name: str, params: dict[str, Any]) -> tuple[str, str]:
+    """Return MVP action identity without free-text payload values.
+
+    The action name always participates. When the action is registered, only
+    date/time and identifier parameters participate; every free-text value is
+    deliberately ignored. Unknown actions retain their supplied params for a
+    stable diagnostic key, though their unknown name already prevents a match.
+    """
+    spec = REGISTRY.get(name)
+    if spec is None:
+        retained = params
+    else:
+        retained = {
+            param.name: params[param.name]
+            for param in spec.params
+            if param.datatype in _SCORABLE_PARAM_TYPES and param.name in params
+        }
+    return name, json.dumps(retained, sort_keys=True, separators=(",", ":"))
 
 
 def score_links(
@@ -30,20 +61,24 @@ def score_links(
 
 
 def score_actions(*, actual: list[dict[str, Any]], required: list[ActionCall]) -> Score:
-    """Score id-free PROPOSE action envelopes as an order-independent multiset."""
+    """Score PROPOSE actions by name plus time/date and identifier params.
+
+    Action order and duplicate calls are preserved by the multiset comparison.
+    Free-text payload values intentionally do not influence the MVP metric.
+    """
     actual_counter: Counter[tuple[str, str]] = Counter()
     for raw in actual:
         name = raw.get("name")
         params = raw.get("params", {})
         if isinstance(name, str) and isinstance(params, dict):
-            actual_counter[
-                (name, json.dumps(params, sort_keys=True, separators=(",", ":")))
-            ] += 1
+            actual_counter[scoring_action_key(name, params)] += 1
         else:
             actual_counter[
                 ("<malformed>", json.dumps(raw, sort_keys=True, default=str))
             ] += 1
-    required_counter = Counter(action_key(action) for action in required)
+    required_counter = Counter(
+        scoring_action_key(action.name, action.params) for action in required
+    )
     return _score_counter(actual=actual_counter, required=required_counter)
 
 

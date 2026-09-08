@@ -159,3 +159,77 @@ def test_action_score_tracks_missing_required_action():
     )
     assert score.required_recall == 0.0
     assert score.forbidden_precision == 0.0
+
+
+def test_action_score_ignores_free_text_payload_values():
+    required = [
+        ActionCall(
+            name="create_work_item",
+            params={
+                "title": "Field day kit",
+                "description": "Pack items for Friday",
+                "checklist_items": ["sunscreen", "water bottles"],
+            },
+        )
+    ]
+    actual = [
+        {
+            "name": "create_work_item",
+            "params": {
+                "title": "Field-day supplies",
+                "description": "Bring supplies to school",
+                "checklist_items": ["sunblock", "drinks"],
+            },
+        }
+    ]
+
+    score = score_actions(actual=actual, required=required)
+
+    assert score.required_recall == 1.0
+    assert score.forbidden_precision == 1.0
+
+
+def test_action_score_retains_datetime_params_but_not_event_title():
+    required = [
+        ActionCall(
+            name="create_timed_event",
+            params={
+                "title": "Milo school play",
+                "start_at": "2026-09-09T21:00:00Z",
+                "end_at": "2026-09-09T22:00:00Z",
+            },
+        )
+    ]
+    matching_time = [
+        {
+            "name": "create_timed_event",
+            "params": {
+                "title": "School play for Milo",
+                "start_at": "2026-09-09T21:00:00Z",
+                "end_at": "2026-09-09T22:00:00Z",
+            },
+        }
+    ]
+    wrong_time = [
+        {
+            "name": "create_timed_event",
+            "params": {
+                "title": "Milo school play",
+                "start_at": "2026-09-09T22:00:00Z",
+                "end_at": "2026-09-09T23:00:00Z",
+            },
+        }
+    ]
+
+    assert score_actions(actual=matching_time, required=required).required_recall == 1.0
+    assert score_actions(actual=wrong_time, required=required).required_recall == 0.0
+
+
+def test_action_score_retains_identifier_params():
+    required = [ActionCall(name="assign_work_item", params={"member_id": 2})]
+    actual = [{"name": "assign_work_item", "params": {"member_id": 3}}]
+
+    score = score_actions(actual=actual, required=required)
+
+    assert score.required_recall == 0.0
+    assert score.forbidden_precision == 0.0
