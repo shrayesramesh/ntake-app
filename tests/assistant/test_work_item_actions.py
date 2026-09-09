@@ -15,9 +15,9 @@ NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
 def test_set_due_date_sets_field_and_logs(session, fam_member_item):
     fam, m, wi = fam_member_item
-    due = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)
+    local_due = "2026-09-05T19:00:00"
 
-    apply_action(session, m, "set_due_date", wi.id, {"due_at": due.isoformat()})
+    apply_action(session, m, "set_due_date", wi.id, {"local_due_at": local_due})
 
     session.expire_all()
     got = session.get(WorkItem, wi.id)
@@ -181,7 +181,7 @@ def test_apply_to_missing_work_item_raises(session, fam_member_item):
 def test_invalid_datetime_param_raises(session, fam_member_item):
     fam, m, wi = fam_member_item
     with pytest.raises(ActionError):
-        apply_action(session, m, "set_due_date", wi.id, {"due_at": "not-a-date"})
+        apply_action(session, m, "set_due_date", wi.id, {"local_due_at": "not-a-date"})
 
 
 def test_assign_work_item_sets_assignee_and_logs(session, fam_member_item):
@@ -290,7 +290,7 @@ def test_render_card_assign_falls_back_to_id_without_map():
 
 
 def test_render_card_set_due_date_shows_the_date():
-    lines = _card("set_due_date", {"due_at": "2026-09-10T14:00:00Z"})
+    lines = _card("set_due_date", {"local_due_at": "2026-09-10T14:00:00"})
     assert any("2026-09-10" in ln for ln in lines)
 
 
@@ -421,3 +421,22 @@ def test_set_work_item_tags_replaces_and_clears_tags(session, fam_member_item):
         "Set tags: Household, urgent",
         "Set tags: (none)",
     ]
+
+
+def test_set_due_date_uses_the_server_trusted_family_timezone(session, fam_member_item):
+    family, member, work_item = fam_member_item
+    family.timezone = "America/Chicago"
+    session.commit()
+
+    apply_action(
+        session,
+        member,
+        "set_due_date",
+        work_item.id,
+        {"local_due_at": "2026-09-10T20:00:00"},
+    )
+
+    session.expire_all()
+    stored = session.get(WorkItem, work_item.id)
+    assert stored.due_at == datetime(2026, 9, 11, 1, 0)
+    assert "timezone" not in {param.name for param in ACTIONS["set_due_date"].params}

@@ -54,6 +54,7 @@ from app.persistence.models import (
     WorkItem,
     WorkItemUpdate,
 )
+from app.persistence.temporal import stored_utc_to_family_local
 from app.routing.engine import ActionError
 from app.schemas import (
     CaptureCreate,
@@ -159,7 +160,19 @@ def list_events(
             .order_by(Event.start_at)
         ).all()
     )
-    return [EventRead.model_validate(event) for event in events]
+    family = session.get(Family, member.family_id)
+    timezone = family.timezone if family is not None else "UTC"
+    return [_event_read(event, timezone) for event in events]
+
+
+def _event_read(event: Event, timezone: str) -> EventRead:
+    """Map a UTC-timed row to the family-local public event contract."""
+    dto = EventRead.model_validate(event)
+    if event.start_at is not None:
+        dto.local_start_at = stored_utc_to_family_local(event.start_at, timezone)
+    if event.end_at is not None:
+        dto.local_end_at = stored_utc_to_family_local(event.end_at, timezone)
+    return dto
 
 
 def _format_change(entity: str, entity_id: int, op: str) -> dict:
@@ -225,8 +238,16 @@ def _load_work_item(session: Session, work_item_id: int) -> WorkItem:
     return wi
 
 
-def _work_item_detail(session: Session, wi: WorkItem) -> WorkItemRead:
-    """Build the detail DTO: the item + its update log + checklist."""
+def _family_timezone(session: Session, family_id: int) -> str:
+    """Read the server-trusted household timezone for an application boundary."""
+    family = session.get(Family, family_id)
+    return family.timezone if family is not None else "UTC"
+
+
+def _work_item_detail(
+    session: Session, wi: WorkItem, family_timezone: str
+) -> WorkItemRead:
+    """Build the detail DTO with a family-local due-time contract."""
     updates = session.scalars(
         select(WorkItemUpdate)
         .where(WorkItemUpdate.work_item_id == wi.id)
@@ -238,6 +259,8 @@ def _work_item_detail(session: Session, wi: WorkItem) -> WorkItemRead:
         .order_by(ChecklistItem.position)
     ).all()
     dto = WorkItemRead.model_validate(wi)
+    if wi.due_at is not None:
+        dto.local_due_at = stored_utc_to_family_local(wi.due_at, family_timezone)
     dto.updates = [WorkItemUpdateRead.model_validate(u) for u in updates]
     dto.checklist = [ChecklistItemRead.model_validate(c) for c in checklist]
     return dto
@@ -263,7 +286,7 @@ def create_work_item(
     session.add(wi)
     session.commit()  # commit publishes {work_items, id, create} via the 1d seam
     session.refresh(wi)
-    return _work_item_detail(session, wi)
+    return _work_item_detail(session, wi, _family_timezone(session, member.family_id))
 
 
 @app.get("/work-items", response_model=list[WorkItemRead])
@@ -273,7 +296,8 @@ def list_work_items(
 ) -> list[WorkItemRead]:
     """List work items (detail DTOs, each with its log + checklist)."""
     items = session.scalars(select(WorkItem).order_by(WorkItem.id)).all()
-    return [_work_item_detail(session, wi) for wi in items]
+    timezone = _family_timezone(session, _member.family_id)
+    return [_work_item_detail(session, wi, timezone) for wi in items]
 
 
 @app.get("/work-items/{work_item_id}", response_model=WorkItemRead)
@@ -284,7 +308,7 @@ def get_work_item(
 ) -> WorkItemRead:
     """Read one work item with its update log + checklist."""
     wi = _load_work_item(session, work_item_id)
-    return _work_item_detail(session, wi)
+    return _work_item_detail(session, wi, _family_timezone(session, _member.family_id))
 
 
 @app.post(
@@ -350,8 +374,9 @@ def get_board(
     Ordered within each column by ``position`` then ``id``. No archive/move
     actions here (GROOM is deferred); updates flow via the Phase 4 capture loop.
     """
+    timezone = _family_timezone(session, _member.family_id)
     return {
-        col: [_work_item_detail(session, wi) for wi in items]
+        col: [_work_item_detail(session, wi, timezone) for wi in items]
         for col, items in _board_columns(session).items()
     }
 
@@ -453,7 +478,11 @@ def board_view(
             select(Member).where(Member.family_id == _member.family_id)
         ).all()
     }
-    return render_board(columns, member_names)
+    return render_board(
+        columns,
+        member_names,
+        _family_timezone(session, _member.family_id),
+    )
 
 
 @app.get("/calendar/view", response_class=HTMLResponse)
@@ -472,7 +501,7 @@ def calendar_view(
             select(Event).order_by(Event.start_at, Event.start_date, Event.id)
         ).all()
     )
-    return render_calendar(events)
+    return render_calendar(events, _family_timezone(session, _member.family_id))
 
 
 # --- Capture with proposals (Phase 4, task 4) ----------------------------

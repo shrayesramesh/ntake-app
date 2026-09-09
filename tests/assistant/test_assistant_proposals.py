@@ -37,7 +37,7 @@ def test_to_proposal_read_resolves_target_label_from_labels_map():
 
     action = ProposedAction(
         name="reschedule_timed_event",
-        params={"start_at": "2026-09-10T14:00:00Z"},
+        params={},
         target_id=1,
         target_type="event",
     )

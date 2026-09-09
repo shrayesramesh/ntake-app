@@ -101,13 +101,13 @@ def test_drops_call_missing_a_required_param():
 
 
 def test_drops_call_with_empty_required_param():
-    a = _assistant([{"name": "set_due_date", "params": {"due_at": ""}}])
+    a = _assistant([{"name": "set_due_date", "params": {"local_due_at": ""}}])
     assert a.propose(_ctx(work_item_id=3)) == []
 
 
 def test_keeps_call_with_required_param_present():
     a = _assistant(
-        [{"name": "set_due_date", "params": {"due_at": "2026-09-05T19:00:00Z"}}]
+        [{"name": "set_due_date", "params": {"local_due_at": "2026-09-05T19:00:00"}}]
     )
     out = a.propose(_ctx(work_item_id=3))
     assert [p.name for p in out] == ["set_due_date"]
@@ -125,8 +125,8 @@ def test_drops_removed_overloaded_event_action():
                 "name": "create_event",
                 "params": {
                     "title": "Dentist",
-                    "start_at": "2026-09-05T19:00:00Z",
-                    "end_at": "2026-09-05T20:00:00Z",
+                    "local_start_at": "2026-09-05T19:00:00",
+                    "local_end_at": "2026-09-05T20:00:00",
                     "start_date": "2026-09-05",
                     "end_date": "2026-09-05",
                 },
@@ -143,8 +143,8 @@ def test_keeps_explicit_timed_action_with_complete_pair():
                 "name": "create_timed_event",
                 "params": {
                     "title": "Dentist",
-                    "start_at": "2026-09-05T19:00:00Z",
-                    "end_at": "2026-09-05T20:00:00Z",
+                    "local_start_at": "2026-09-05T19:00:00",
+                    "local_end_at": "2026-09-05T20:00:00",
                 },
             }
         ]
@@ -176,21 +176,22 @@ def _friday_ctx(text: str) -> FocusedContext:
     )
 
 
-def test_drops_event_with_wrong_explicit_weekday_or_local_time():
+def test_does_not_apply_a_propose_only_weekday_correction_guard():
     a = _assistant(
         [
             {
                 "name": "create_timed_event",
                 "params": {
                     "title": "Soccer game",
-                    "start_at": "2026-09-07T17:00:00Z",
-                    "end_at": "2026-09-07T18:00:00Z",
+                    "local_start_at": "2026-09-07T17:00:00",
+                    "local_end_at": "2026-09-07T18:00:00",
                 },
             }
         ]
     )
 
-    assert a.propose(_friday_ctx("soccer game Wednesday 5-6 PM")) == []
+    proposals = a.propose(_friday_ctx("soccer game Wednesday 5-6 PM"))
+    assert [proposal.name for proposal in proposals] == ["create_timed_event"]
 
 
 def test_keeps_event_matching_explicit_weekday_and_local_time():
@@ -200,8 +201,8 @@ def test_keeps_event_matching_explicit_weekday_and_local_time():
                 "name": "create_timed_event",
                 "params": {
                     "title": "Soccer game",
-                    "start_at": "2026-09-09T21:00:00Z",
-                    "end_at": "2026-09-09T22:00:00Z",
+                    "local_start_at": "2026-09-09T17:00:00",
+                    "local_end_at": "2026-09-09T18:00:00",
                 },
             }
         ]
@@ -219,10 +220,27 @@ def test_drops_event_with_wrong_explicit_single_clock_time():
                 "name": "create_timed_event",
                 "params": {
                     "title": "Sam meal prep",
-                    "start_at": "2026-09-08T13:00:00Z",
+                    "local_start_at": "2026-09-08T13:00:00Z",
                 },
             }
         ]
     )
 
     assert a.propose(_friday_ctx("sam meal prep wed 1pm")) == []
+
+
+def test_drops_utc_timed_model_values_instead_of_exposing_them_as_proposals():
+    assistant = _assistant(
+        [
+            {
+                "name": "create_timed_event",
+                "params": {
+                    "title": "Dentist",
+                    "local_start_at": "2026-09-05T19:00:00Z",
+                    "local_end_at": "2026-09-05T20:00:00Z",
+                },
+            }
+        ]
+    )
+
+    assert assistant.propose(_ctx()) == []

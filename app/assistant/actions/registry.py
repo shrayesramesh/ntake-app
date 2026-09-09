@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.persistence.models import Member
-from app.routing.engine import ActionRegistry, ActionSpec
+from app.persistence.models import Family, Member
+from app.routing.engine import ActionError, ActionRegistry, ActionSpec
 
 from .context import NtakeActionContext
 from .events import EVENT_ACTIONS
@@ -42,9 +42,13 @@ def apply_action(
     """
     if target_type is None and target_id is not None:
         target_type = "work_item"
+    family = session.get(Family, member.family_id)
+    if family is None:
+        raise ActionError(f"family not found: {member.family_id}")
     context = NtakeActionContext(
         session=session,
         member=member,
+        family_timezone=family.timezone,
         target_id=target_id,
         target_type=target_type,
     )

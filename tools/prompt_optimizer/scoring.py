@@ -16,7 +16,13 @@ from .models import ActionCall, LinkLabels, Score
 # locations, tags, and display-name strings remain free-text payloads and do not
 # affect action recall/precision.
 _SCORABLE_PARAM_TYPES = frozenset(
-    {DataType.DATE, DataType.DATETIME, DataType.INTEGER, DataType.ARRAY_INTEGER}
+    {
+        DataType.DATE,
+        DataType.DATETIME,
+        DataType.LOCAL_DATETIME,
+        DataType.INTEGER,
+        DataType.ARRAY_INTEGER,
+    }
 )
 
 

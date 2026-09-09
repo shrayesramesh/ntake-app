@@ -23,8 +23,9 @@ checks). What exists:
   real-socket integration test. The front end **re-syncs on SSE (re)connect** so
   a change during a disconnect isn't missed (DISP-2/5).
 - **PWA:** manifest + minimal (pass-through) service worker so the phones + wall
-  tablet install via add-to-home-screen. Install/SW registration is verified
-  on-device over HTTPS (Tailscale) — a documented second smoke.
+  tablet can install via add-to-home-screen. Code and automated shell coverage are
+  complete; the real HTTPS/Tailscale device smoke is deferred until observability
+  and the kiosk access boundary are complete.
 - **Backup:** `VACUUM INTO` consistent snapshot via `python -m app.manage backup`
   (weekly *scheduling* is a documented host cron/systemd step; same-disk v1).
 - Config-seeded identity (`family.toml`) + token CLI (`python -m app.manage`);
@@ -52,8 +53,28 @@ checks). What exists:
   remains the separate persistent local sandbox mode.
 - Makefile, setup.sh, pinned requirements, ruff + mypy config.
 
-**Remaining MVP work:** live-assistant prompt/behavior tuning and kiosk launch
-hardening (always-on soak, failure surfacing, logging). **Follow-on scope:** the
+**Remaining MVP work — execute in this order:**
+
+1. **Capture-to-confirm observability:** implement privacy-preserving local logs
+   and clear failure feedback for the capture → assistant → proposal → Confirm
+   response flow. This is the next coding task.
+2. **Kiosk access boundary:** decide and implement the wall-display contract
+   before installing real devices. The current PWA shell is shared by every
+   authenticated device; its calendar/board are read-only, but it still exposes
+   capture and Confirm. Do not claim a role- or route-enforced read-only kiosk
+   until a dedicated kiosk surface or mutation denial exists.
+3. **Human device installation and smoke:** after the access decision is
+   implemented (or explicitly accepted as a physical-use convention), the owner
+   installs the PWA on the tablet and phones over Tailscale HTTPS and verifies
+   auth, capture, Confirm, calendar rendering, and SSE reconnect.
+4. **Kiosk soak:** keep the wall display running for days and investigate any
+   failure surfaced by the new diagnostics.
+5. **Operator completion:** schedule the existing weekly backup command and
+   finalize the household-specific device guide (URL and Tailscale enrollment).
+
+Live-assistant behavior, including the former bug-list captures, is now fixed and
+validated for the current MVP. Further prompt experimentation is optional and
+uses the evaluator when a new quality issue appears. **Follow-on scope:** the
 labor view, on-demand grooming assist, and manual board-grooming UI; the
 underlying `archive_work_item` / `delete_event` actions already exist but no manual
 UI does. *(Phase-4 task 7 — the live local-LLM backend — is DONE, see the
@@ -93,7 +114,9 @@ Buildable, tested skeleton; `make check` green.
   the hash and prints the plaintext once; `revoke`/`list-tokens` manage them. The
   display gets a low-priv (`child`) token. Chosen for simplicity given the
   single-household trust model; an admin UI/bootstrap remains a possible future.
-- **Adds `families.timezone` usage**, role gating (adult vs. non-adult).
+- **Adds `families.timezone` usage**. Member roles are seeded and available for
+  attribution, but they do **not** currently gate routes or create a read-only
+  kiosk; that MVP boundary is tracked in Phase 5.
 
 **Exit:** no request succeeds without a valid token ✅; devices enrolled/revoked
 via config + CLI ✅.
@@ -158,20 +181,48 @@ calendar mutations only on confirm.
 > (both prompts, raw model replies, resolved ids) via
 > `app/assistant/debug_capture.py` (a `RecordingLLM` wrapping the real client),
 > rendered as a collapsible panel; `make ui-live` is the one-command bring-up.
-> **Remaining is tuning, not build:** prompt/behavior tuning against the live 8B
-> (date arithmetic, over-/under-linking) + operator host deploy.
+> **Family-local temporal contract — DONE:** prompts, tools, action-facing timed
+> values, action output, REST read contracts, and rendered cards use
+> offset-free family-local wall times. Timed values cross to/from UTC only in the
+> small persistence mapper; SQLite's tz-naive reads are treated as stored UTC.
+> All-day values remain local dates. Ambiguous and nonexistent DST wall times are
+> rejected. The former UTC prompt instruction and narrow PROPOSE-only correction
+> guard are retired; focused persistence, action, API, prompt/schema, and web
+> tests cover the boundary.
+>
+> **Validated assistant incidents — DONE:** the former BUG-001 through BUG-008
+> live captures are fixed and validated. Preserve their concise closure record in
+> BUGLIST.md; do not reopen general prompt tuning without a new reproducible
+> regression.
+>
+> **Next coding task:** Phase 5 capture-to-confirm observability. Instrument the
+> request flow without logging device tokens or raw household note text by
+> default: capture received, LINK/PROPOSE outcome, proposal count/action names,
+> Confirm request/result, and categorized failures. Pair logs with actionable UI
+> feedback, then run `make check` before handing device-install work back to the
+> human owner.
 
 ### Phase 5 — MVP launch hardening
-- **Persistence/resiliency ✅ (done this session):** WAL mode +
-  `synchronous=NORMAL`; the **one scheduled job** — weekly consistent snapshot
-  (`VACUUM INTO` via `manage backup`, same-disk v1). *Scheduling* itself is a
-  documented host cron/systemd step (not in-app).
-- **Kiosk hardening — partly done:** PWA manifest + service worker ✅; SSE
-  reconnect re-sync ✅. **Remaining:** always-on soak (days of uptime — on-device),
-  failure surfacing in the UI, basic logging.
+- **Persistence/resiliency ✅:** WAL mode + `synchronous=NORMAL`; the weekly
+  consistent snapshot command (`VACUUM INTO` via `manage backup`). Scheduling is
+  still a host cron/systemd step.
+- **PWA + live sync ✅ (code):** manifest/service worker and SSE reconnect
+  re-sync are built. Real tablet/phone installation and HTTPS verification remain
+  human acceptance work.
+- **Next implementation:** capture-to-confirm observability — privacy-preserving
+  local logs plus actionable UI failure feedback across capture, assistant,
+  proposal, Confirm, and response.
+- **Kiosk contract decision:** the app does not yet expose a separate read-only
+  kiosk UI or enforce read-only behavior by member role. Decide and implement
+  that boundary before representing the wall tablet as technically read-only.
+- **After implementation (human-only):** install the phone/tablet PWAs over
+  Tailscale HTTPS, run the device smoke, schedule the backup, then perform a
+  days-long kiosk soak.
 
-**MVP exit:** data is backed up weekly ✅ (logic; scheduling documented); wall
-display survives days of uptime; failures are visible.
+**MVP exit:** capture/Confirm failures are diagnosable without exposing sensitive
+content; the kiosk boundary is explicit and implemented or consciously accepted;
+backup is scheduled; installed devices pass the HTTPS/PWA smoke; and the wall
+display survives days of uptime with visible failures.
 
 ## Follow-on scope (explicitly out of MVP)
 - **Labor view** (on demand): read the raw update log by author over time and

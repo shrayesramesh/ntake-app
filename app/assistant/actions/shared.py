@@ -7,14 +7,13 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from app.persistence.models import Event, Member, WorkItem, WorkItemUpdate
+from app.persistence.temporal import family_local_to_utc
 from app.routing.engine import ActionError
 
 
-def _parse_dt(value: str) -> datetime:
-    try:
-        return datetime.fromisoformat(value)
-    except (TypeError, ValueError) as e:
-        raise ActionError(f"invalid datetime: {value!r}") from e
+def _parse_local_dt(value: str, timezone: str) -> datetime:
+    """Map one model-facing family-local time to the UTC storage representation."""
+    return family_local_to_utc(value, timezone)
 
 
 def _load_item(session: Session, target_id: int | None) -> WorkItem:

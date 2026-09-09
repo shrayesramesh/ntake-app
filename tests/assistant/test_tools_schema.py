@@ -155,7 +155,10 @@ def test_full_schema_snapshot_over_the_real_registry():
             required=["name", "params"],
         )
 
-    dt = {"type": "string", "format": "date-time"}
+    local_dt = {
+        "type": "string",
+        "description": "Offset-free ISO-8601 family-local wall time",
+    }
     d = {"type": "string", "format": "date"}
     s = {"type": "string"}
     arr_s = {"type": "array", "items": {"type": "string"}}
@@ -185,7 +188,7 @@ def test_full_schema_snapshot_over_the_real_registry():
                         action("append_update", obj({"body": s}, required=["body"])),
                         action(
                             "set_due_date",
-                            obj({"due_at": dt}, required=["due_at"]),
+                            obj({"local_due_at": local_dt}, required=["local_due_at"]),
                         ),
                         action("complete_work_item", empty_params),
                         action("start_work_item", empty_params),
@@ -224,14 +227,14 @@ def test_full_schema_snapshot_over_the_real_registry():
                             obj(
                                 {
                                     "title": s,
-                                    "start_at": dt,
-                                    "end_at": dt,
+                                    "local_start_at": local_dt,
+                                    "local_end_at": local_dt,
                                     "description": s,
                                     "location": s,
                                     "participants": arr_s,
                                     "tags": arr_s,
                                 },
-                                required=["title", "start_at", "end_at"],
+                                required=["title", "local_start_at", "local_end_at"],
                             ),
                         ),
                         action(
@@ -252,8 +255,8 @@ def test_full_schema_snapshot_over_the_real_registry():
                         action(
                             "reschedule_timed_event",
                             obj(
-                                {"start_at": dt, "end_at": dt},
-                                required=["start_at", "end_at"],
+                                {"local_start_at": local_dt, "local_end_at": local_dt},
+                                required=["local_start_at", "local_end_at"],
                             ),
                         ),
                         action(

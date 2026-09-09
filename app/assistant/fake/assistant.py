@@ -70,7 +70,7 @@ _RESCHEDULE_WORDS = ("reschedule", "move")
 
 
 def _next_weekday(ctx: FocusedContext, weekday: int, hour: int = 9) -> str:
-    """The next occurrence of ``weekday`` at ``hour`` in the family tz, as UTC ISO."""
+    """The next occurrence of ``weekday`` as an offset-free family-local value."""
     tz = ZoneInfo(ctx.timezone)
     local_now = ctx.now.astimezone(tz)
     days = (weekday - local_now.weekday()) % 7
@@ -78,7 +78,7 @@ def _next_weekday(ctx: FocusedContext, weekday: int, hour: int = 9) -> str:
     target = (local_now + timedelta(days=days)).replace(
         hour=hour, minute=0, second=0, microsecond=0
     )
-    return target.astimezone(ZoneInfo("UTC")).isoformat()
+    return target.replace(tzinfo=None).isoformat()
 
 
 class FakeAssistant(AssistantClient[FocusedContext]):
@@ -123,8 +123,8 @@ class FakeAssistant(AssistantClient[FocusedContext]):
         return ProposedAction(
             name="reschedule_timed_event",
             params={
-                "start_at": _next_weekday(ctx, weekday, hour=15),
-                "end_at": _next_weekday(ctx, weekday, hour=16),
+                "local_start_at": _next_weekday(ctx, weekday, hour=15),
+                "local_end_at": _next_weekday(ctx, weekday, hour=16),
             },
             llm_rationale="Reschedule an existing event.",
             target_id=eid,
@@ -162,7 +162,7 @@ class FakeAssistant(AssistantClient[FocusedContext]):
             proposals.append(
                 ProposedAction(
                     name="set_due_date",
-                    params={"due_at": due},
+                    params={"local_due_at": due},
                     llm_rationale="Detected a weekday in the text.",
                     target_id=tid,
                     target_type="work_item",
@@ -202,7 +202,7 @@ class FakeAssistant(AssistantClient[FocusedContext]):
         end = _next_weekday(ctx, weekday, hour=16)
         return ProposedAction(
             name="create_timed_event",
-            params={"title": ctx.text, "start_at": start, "end_at": end},
+            params={"title": ctx.text, "local_start_at": start, "local_end_at": end},
             llm_rationale="Looks like a scheduled event.",
             target_id=target_id,
             target_type=target_type,

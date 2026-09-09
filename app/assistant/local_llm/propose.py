@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import re
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from app.assistant.actions.registry import REGISTRY
@@ -11,7 +10,14 @@ from app.assistant.capture import FocusedContext, ProposedAction
 from app.assistant.local_llm.protocol import LLM
 from app.assistant.tools_view import build_ntake_tools_view
 from app.persistence.models import TargetType
-from app.routing.engine import ActionRegistry, ActionSpec, AssistantClient
+from app.persistence.temporal import validate_family_local_datetime
+from app.routing.engine import (
+    ActionError,
+    ActionRegistry,
+    ActionSpec,
+    AssistantClient,
+    DataType,
+)
 
 # --- CALL 2: PROPOSE (action planning) ------------------------------------
 # Input: the tools view (menu) + the DEEP, NARROW context (full records —
@@ -49,10 +55,10 @@ Rules:
 - Calendar frame: the family timezone is {timezone}; its current local date and
   time is {local_now} ({local_weekday}). A bare weekday means its next occurrence
   after the current local date.
-- Resolve relative dates/times in that family timezone and emit datetimes as UTC
-  ISO-8601 (e.g. 2026-09-04T19:00:00Z). For an explicit weekday or clock time,
-  convert every emitted UTC datetime back to the family timezone and verify it
-  matches the requested weekday and local clock time. Right now in UTC it is {now}.
+- Timed tool values are offset-free ISO-8601 family-local wall times, for example
+  `2026-09-04T19:00:00`. Never emit UTC, a `Z` suffix, an offset, or a timezone;
+  the server supplies the family timezone and converts only when persisting.
+  All-day values are local `YYYY-MM-DD` dates.
 - If nothing sensible applies, return exactly one no_action.
 - When a note reports that work has begun, prefer `start_work_item`. When it
   reports named checklist items were obtained or completed, prefer
@@ -87,18 +93,12 @@ def build_propose_prompt(
     now: datetime,
     timezone: str,
 ):
-    """Return (system, user) for the PROPOSE call.
-
-    ``tools_view`` is the grouped ntake action menu; ``capture_author`` and
-    ``note`` form the capture header; ``deep_context`` is the rendering of the
-    deep-fetched records for linked ids.
-    """
+    """Return the system and user messages for the family-local PROPOSE call."""
     aware_now = now.replace(tzinfo=UTC) if now.tzinfo is None else now
     local_now = aware_now.astimezone(ZoneInfo(timezone))
     system = PROPOSE_SYSTEM.format(
         timezone=timezone,
-        now=aware_now.isoformat(),
-        local_now=local_now.isoformat(),
+        local_now=local_now.replace(tzinfo=None).isoformat(),
         local_weekday=local_now.strftime("%A"),
     )
     user = PROPOSE_CONTEXT.format(
@@ -111,11 +111,7 @@ def build_propose_prompt(
 
 
 def build_tools_schema(registry: ActionRegistry) -> dict:
-    """Render every registered action as the PROPOSE call's output JSON schema.
-
-    Returns the full ``{actions: [oneOf: [...]]}`` schema (a ``dict``); one
-    ``oneOf`` branch per action, in registry order.
-    """
+    """Render every registered action as the PROPOSE output JSON schema."""
     return {
         "type": "object",
         "additionalProperties": False,
@@ -132,7 +128,7 @@ def build_tools_schema(registry: ActionRegistry) -> dict:
 
 
 def _action_item(spec: ActionSpec) -> dict:
-    """One action rendered as a ``oneOf`` branch: ``{name: const, params: {...}}``."""
+    """One action as a discriminated ``{name, params}`` schema branch."""
     return {
         "type": "object",
         "additionalProperties": False,
@@ -145,21 +141,10 @@ def _action_item(spec: ActionSpec) -> dict:
 
 
 def _params_schema(spec: ActionSpec) -> dict:
-    """The ``params`` object schema for one action, from its ``Param`` list.
-
-    Typed properties (mapped from ``datatype``), a ``required`` list derived from
-    the required params (omitted when none), and an ``oneOf`` over the
-    ``exclusive_params`` groups when present (each group required in addition to
-    the action's own required params).
-    """
+    """Assemble one action's parameters from its declared ``Param`` values."""
     schema: dict = {
         "type": "object",
-        "properties": {
-            # Each param's JSON-Schema fragment is declared on its DataType (the
-            # single source shared with the tools view) — we just assemble them.
-            p.name: p.datatype.json_schema
-            for p in spec.params
-        },
+        "properties": {p.name: p.datatype.json_schema for p in spec.params},
         "additionalProperties": False,
     }
     required = spec.required
@@ -170,162 +155,6 @@ def _params_schema(spec: ActionSpec) -> dict:
             {"required": required + group} for group in spec.exclusive_params
         ]
     return schema
-
-
-_EVENT_TIMING_ACTIONS = frozenset(
-    {
-        "create_timed_event",
-        "create_all_day_event",
-        "reschedule_timed_event",
-        "reschedule_all_day_event",
-    }
-)
-_WEEKDAY_NUMBERS = {
-    "monday": 0,
-    "mon": 0,
-    "tuesday": 1,
-    "tue": 1,
-    "tues": 1,
-    "wednesday": 2,
-    "wed": 2,
-    "thursday": 3,
-    "thu": 3,
-    "thur": 3,
-    "thurs": 3,
-    "friday": 4,
-    "fri": 4,
-    "saturday": 5,
-    "sat": 5,
-    "sunday": 6,
-    "sun": 6,
-}
-_WEEKDAY_PATTERN = re.compile(
-    r"\b(" + "|".join(_WEEKDAY_NUMBERS) + r")\b", re.IGNORECASE
-)
-_TIME_RANGE_PATTERN = re.compile(
-    r"\b(?P<start_hour>1[0-2]|0?[1-9])(?::(?P<start_minute>[0-5]\d))?"
-    r"\s*(?:-|–|to)\s*"
-    r"(?P<end_hour>1[0-2]|0?[1-9])(?::(?P<end_minute>[0-5]\d))?"
-    r"\s*(?P<period>a\.?m\.?|p\.?m\.?)\b",
-    re.IGNORECASE,
-)
-_TIME_PATTERN = re.compile(
-    r"\b(?P<hour>1[0-2]|0?[1-9])(?::(?P<minute>[0-5]\d))?"
-    r"\s*(?P<period>a\.?m\.?|p\.?m\.?)\b",
-    re.IGNORECASE,
-)
-
-
-def _matches_explicit_event_timing(
-    name: str, params: dict, ctx: FocusedContext
-) -> bool:
-    """Reject event timing that contradicts an explicit weekday/clock claim.
-
-    The model remains responsible for interpreting ordinary prose. This guard only
-    checks the unambiguous pieces it can read deterministically: a named weekday
-    means its next occurrence in the family timezone, and an AM/PM clock claim
-    must round-trip from the emitted UTC timestamp. It drops a contradiction
-    instead of silently rewriting model output.
-    """
-    if name not in _EVENT_TIMING_ACTIONS:
-        return True
-
-    expected = _explicit_local_timing(ctx)
-    if expected is None:
-        return True
-    expected_date, expected_start, expected_end = expected
-
-    start_at = params.get("start_at")
-    if not isinstance(start_at, str):
-        # An all-day event can satisfy a bare weekday, but not an explicit clock.
-        return (
-            expected_start is None
-            and expected_end is None
-            and params.get("start_date") == expected_date.isoformat()
-        )
-
-    start = _parse_utc_datetime(start_at)
-    if start is None:
-        return False
-    local_start = start.astimezone(ZoneInfo(ctx.timezone))
-    if local_start.date() != expected_date:
-        return False
-    if expected_start is not None and local_start.time() != expected_start:
-        return False
-
-    if expected_end is None:
-        return True
-    end_at = params.get("end_at")
-    if not isinstance(end_at, str):
-        return False
-    end = _parse_utc_datetime(end_at)
-    if end is None:
-        return False
-    return end.astimezone(ZoneInfo(ctx.timezone)).time() == expected_end
-
-
-def _explicit_local_timing(
-    ctx: FocusedContext,
-) -> tuple[date, time | None, time | None] | None:
-    weekday_match = _WEEKDAY_PATTERN.search(ctx.text)
-    if weekday_match is None:
-        return None
-
-    zone = ZoneInfo(ctx.timezone)
-    aware_now = ctx.now.replace(tzinfo=UTC) if ctx.now.tzinfo is None else ctx.now
-    local_now = aware_now.astimezone(zone)
-    weekday = _WEEKDAY_NUMBERS[weekday_match.group(1).lower()]
-    days = (weekday - local_now.weekday()) % 7 or 7
-    expected_date = (local_now + timedelta(days=days)).date()
-
-    range_match = _TIME_RANGE_PATTERN.search(ctx.text)
-    if range_match is not None:
-        period = range_match.group("period")
-        return (
-            expected_date,
-            _clock_time(
-                range_match.group("start_hour"),
-                range_match.group("start_minute"),
-                period,
-            ),
-            _clock_time(
-                range_match.group("end_hour"),
-                range_match.group("end_minute"),
-                period,
-            ),
-        )
-
-    time_match = _TIME_PATTERN.search(ctx.text)
-    if time_match is not None:
-        return (
-            expected_date,
-            _clock_time(
-                time_match.group("hour"),
-                time_match.group("minute"),
-                time_match.group("period"),
-            ),
-            None,
-        )
-    return expected_date, None, None
-
-
-def _clock_time(hour_text: str, minute_text: str | None, period: str) -> time:
-    hour = int(hour_text)
-    if hour == 12:
-        hour = 0
-    if period.lower().replace(".", "") == "pm":
-        hour += 12
-    return time(hour, int(minute_text or 0))
-
-
-def _parse_utc_datetime(value: str) -> datetime | None:
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return None
-    return parsed.astimezone(UTC)
 
 
 class LocalLlmAssistant(AssistantClient[FocusedContext]):
@@ -344,18 +173,18 @@ class LocalLlmAssistant(AssistantClient[FocusedContext]):
             now=ctx.now,
             timezone=ctx.timezone,
         )
-        schema = build_tools_schema(self._registry)
-        reply = self._llm.complete(system=system, user=user, schema=schema)
+        reply = self._llm.complete(
+            system=system, user=user, schema=build_tools_schema(self._registry)
+        )
         proposals: list[ProposedAction] = []
         for call in _parse_actions(reply):
             spec = self._registry.get(call["name"])
-            # Drop unknown actions and calls that don't satisfy the spec's param
-            # contract (missing required / wrong exclusive-group) — graceful
-            # degrade to fewer proposals, never a raise (LLD OQ-5).
+            # Drop unknown actions and structurally invalid calls. Deep temporal
+            # validation (including DST) happens uniformly at confirm/write time.
             if (
                 spec is None
                 or not spec.accepts(call["params"])
-                or not _matches_explicit_event_timing(call["name"], call["params"], ctx)
+                or not _has_valid_local_times(spec, call["params"], ctx.timezone)
             ):
                 continue
             proposal = self._attach(call, ctx)
@@ -365,14 +194,7 @@ class LocalLlmAssistant(AssistantClient[FocusedContext]):
         return proposals
 
     def _attach(self, call: dict, ctx: FocusedContext) -> ProposedAction:
-        """Turn a validated ``{name, params}`` into a targeted ProposedAction.
-
-        The target category comes from the action's declared
-        ``ActionSpec.target_type`` (single source): ``"work_item"`` → the primary
-        resolved work-item id, ``"event"`` → the primary resolved event id,
-        ``None`` (a creator / no_action) → no target. Ids come from the context,
-        never the model.
-        """
+        """Attach a server-known target to a validated model tool call."""
         name = call["name"]
         spec = self._registry.get(name)
         target_type = spec.target_type if spec is not None else None
@@ -390,13 +212,7 @@ class LocalLlmAssistant(AssistantClient[FocusedContext]):
 
 
 def _parse_actions(reply: dict) -> list[dict]:
-    """Extract the ``{name, params}`` tool calls from the model reply.
-
-    Tolerant of untrusted output: a missing/non-list ``actions`` → ``[]``; each
-    entry must be a dict with a string ``name`` (``params`` defaults to ``{}`` and
-    must be a dict). Anything malformed is dropped (graceful-degrade; step 6
-    tightens the adversarial cases).
-    """
+    """Extract valid-shape ``{name, params}`` calls from untrusted model output."""
     actions = reply.get("actions")
     if not isinstance(actions, list):
         return []
@@ -410,3 +226,17 @@ def _parse_actions(reply: dict) -> list[dict]:
             continue
         calls.append({"name": name, "params": params})
     return calls
+
+
+def _has_valid_local_times(spec: ActionSpec, params: dict, timezone: str) -> bool:
+    """Reject non-local or DST-invalid timed model values without rewriting them."""
+    try:
+        for param in spec.params:
+            if param.datatype is DataType.LOCAL_DATETIME and param.name in params:
+                value = params[param.name]
+                if not isinstance(value, str):
+                    return False
+                validate_family_local_datetime(value, timezone)
+    except ActionError:
+        return False
+    return True

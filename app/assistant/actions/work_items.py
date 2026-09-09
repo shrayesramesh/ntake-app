@@ -10,19 +10,23 @@ from app.persistence.models import ChecklistItem, Member, TargetType, WorkItem
 from app.routing.engine import ActionError, ActionSpec, DataType, Param, require_params
 
 from .context import NtakeActionContext
-from .shared import _append_assistant_update, _load_item, _normalized_tags, _parse_dt
+from .shared import (
+    _append_assistant_update,
+    _load_item,
+    _normalized_tags,
+    _parse_local_dt,
+)
 
 
 def _apply_set_due_date(ctx: NtakeActionContext, params: dict) -> str:
-    require_params(params, ["due_at"])
-    due = _parse_dt(params["due_at"])
+    require_params(params, ["local_due_at"])
+    due = _parse_local_dt(params["local_due_at"], ctx.family_timezone)
     wi = _load_item(ctx.session, ctx.target_id)
     wi.due_at = due
     wi.updated_at = datetime.now(UTC)
-    _append_assistant_update(
-        ctx.session, ctx.member, wi.id, f"Set due date to {due.isoformat()}"
-    )
-    return f"Set due date to {due.isoformat()}"
+    summary = f"Set due date to {params['local_due_at']}"
+    _append_assistant_update(ctx.session, ctx.member, wi.id, summary)
+    return summary
 
 
 def _apply_complete(ctx: NtakeActionContext, params: dict) -> str:
@@ -240,7 +244,7 @@ def _apply_create_work_item(ctx: NtakeActionContext, params: dict) -> str:
 
 
 def _describe_set_due_date(params: dict) -> str:
-    due = params.get("due_at")
+    due = params.get("local_due_at")
     return f"Set due date to {due}" if due else "Set a due date"
 
 
@@ -321,7 +325,7 @@ def _render_assign(params: dict, resolved: dict) -> list[str]:
 
 
 def _render_set_due_date(params: dict, resolved: dict) -> list[str]:
-    due = params.get("due_at")
+    due = params.get("local_due_at")
     return [f"Due: {due}"] if due else []
 
 
@@ -393,7 +397,7 @@ WORK_ITEM_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
     "set_due_date": ActionSpec(
         name="set_due_date",
         description="Set a work item's due date.",
-        params=[Param("due_at", DataType.DATETIME, required=True)],
+        params=[Param("local_due_at", DataType.LOCAL_DATETIME, required=True)],
         target_type=TargetType.WORK_ITEM,
         apply=_apply_set_due_date,
         describe=_describe_set_due_date,

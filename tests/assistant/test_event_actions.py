@@ -22,9 +22,6 @@ def _card(name: str, params: dict, resolved: dict | None = None) -> list[str]:
 
 def test_create_timed_event_inserts_and_links_source_update(session, fam_member_item):
     fam, m, wi = fam_member_item
-    start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)
-    end = datetime(2026, 9, 5, 20, 0, tzinfo=UTC)
-
     apply_action(
         session,
         m,
@@ -32,8 +29,8 @@ def test_create_timed_event_inserts_and_links_source_update(session, fam_member_
         wi.id,
         {
             "title": "Plumber visit",
-            "start_at": start.isoformat(),
-            "end_at": end.isoformat(),
+            "local_start_at": "2026-09-05T19:00:00",
+            "local_end_at": "2026-09-05T20:00:00",
         },
     )
 
@@ -41,6 +38,8 @@ def test_create_timed_event_inserts_and_links_source_update(session, fam_member_
     ev = session.query(Event).one()
     assert ev.title == "Plumber visit"
     assert ev.family_id == fam.id
+    assert ev.start_at == datetime(2026, 9, 5, 23, 0)
+    assert ev.end_at == datetime(2026, 9, 6, 0, 0)
     # The event links back to the assistant update that drove it (EVENT-7).
     upd = session.query(WorkItemUpdate).filter_by(source="assistant").one()
     assert ev.source_update_id == upd.id
@@ -59,19 +58,19 @@ def test_reschedule_timed_event_updates_timing_only(session, fam_member_item):
     session.add(ev)
     session.commit()
 
-    new_start = datetime(2026, 9, 8, 15, 0, tzinfo=UTC)
+    local_start = "2026-09-08T15:00:00"
     apply_action(
         session,
         m,
         "reschedule_timed_event",
         ev.id,
-        {"start_at": new_start.isoformat(), "end_at": new_start.isoformat()},
+        {"local_start_at": local_start, "local_end_at": local_start},
         target_type="event",
     )
 
     session.expire_all()
     got = session.get(Event, ev.id)
-    assert got.start_at.replace(tzinfo=UTC) == new_start
+    assert got.start_at.replace(tzinfo=UTC) == datetime(2026, 9, 8, 19, 0, tzinfo=UTC)
     assert got.title == "Dentist"  # only timing changed
     # Event-only: no work-item update appended.
     assert session.query(WorkItemUpdate).count() == 0
@@ -79,7 +78,7 @@ def test_reschedule_timed_event_updates_timing_only(session, fam_member_item):
 
 def test_create_timed_event_writes_participants(session, fam_member):
     fam, m = fam_member
-    start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC).isoformat()
+    start = "2026-09-05T19:00:00"
     apply_action(
         session,
         m,
@@ -87,8 +86,8 @@ def test_create_timed_event_writes_participants(session, fam_member):
         None,
         {
             "title": "Soccer",
-            "start_at": start,
-            "end_at": start,
+            "local_start_at": start,
+            "local_end_at": start,
             "participants": [m.display_name, "Coach Lee"],
             "tags": ["school", "sports"],
         },
@@ -149,7 +148,7 @@ def test_delete_event_missing_target_raises(session, fam_member):
 def test_render_card_reschedule_shows_new_timing_and_target():
     lines = _card(
         "reschedule_timed_event",
-        {"start_at": "2026-09-10T14:00:00Z"},
+        {"local_start_at": "2026-09-10T14:00:00"},
         {"target_label": "Dentist"},
     )
     text = " ".join(lines)
@@ -160,7 +159,7 @@ def test_render_card_reschedule_shows_new_timing_and_target():
 def test_render_card_create_timed_event_shows_title_and_when():
     lines = _card(
         "create_timed_event",
-        {"title": "Soccer", "start_at": "2026-09-10T14:00:00Z"},
+        {"title": "Soccer", "local_start_at": "2026-09-10T14:00:00"},
     )
     text = " ".join(lines)
     assert "Soccer" in text and "2026-09-10" in text
@@ -186,7 +185,7 @@ def test_create_timed_event_requires_complete_timed_pair(session, fam_member):
             member,
             "create_timed_event",
             None,
-            {"title": "Dentist", "start_at": "2026-09-05T19:00:00Z"},
+            {"title": "Dentist", "local_start_at": "2026-09-05T19:00:00"},
             target_type="event",
         )
 
@@ -229,7 +228,7 @@ def test_reschedule_timed_event_requires_complete_timed_pair(session, fam_member
             member,
             "reschedule_timed_event",
             event.id,
-            {"start_at": "2026-09-08T19:00:00Z"},
+            {"local_start_at": "2026-09-08T19:00:00"},
             target_type="event",
         )
 

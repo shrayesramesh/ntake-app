@@ -44,7 +44,8 @@ def test_board_card_shows_full_record(session, fam_member, work_item_factory):
     )
     assert f"#{wi.id}" in html
     assert "Kitchen tap drips" in html
-    assert "due 2026-09-10 09:00 UTC" in html
+    assert "due 2026-09-10 09:00" in html
+    assert "UTC" not in html
     assert f"assignee {m.display_name}" in html
     assert f"assignee m{m.id}" not in html
     assert "1 update(s); latest [assistant]: Called the plumber" in html
@@ -164,3 +165,22 @@ def test_household_scenario_board_shows_open_checklist_and_collapsed_done(
     assert "☐ milk" in html and "☑ bread" in html
     assert "1 done item" in html
     assert "File taxes" not in html
+
+
+def test_board_card_converts_stored_utc_due_time_to_family_local(
+    fam_member, work_item_factory
+):
+    family, _member = fam_member
+    item = work_item_factory(
+        family.id,
+        title="Schedule repair",
+        due_at=datetime(2026, 9, 11, 1, 0, tzinfo=UTC),
+    )
+
+    html = render_board(
+        {"todo": [item], "on_deck": [], "doing": [], "done": []},
+        timezone="America/Chicago",
+    )
+
+    assert "due 2026-09-10 20:00" in html
+    assert "01:00 UTC" not in html

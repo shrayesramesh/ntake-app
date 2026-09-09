@@ -134,22 +134,22 @@ def test_accepts_exclusive_groups_need_exactly_one_anchor():
         name="ev",
         params=[
             Param("title", DataType.STRING, required=True),
-            Param("start_at", DataType.DATETIME),
-            Param("end_at", DataType.DATETIME),
-            Param("start_date", DataType.DATE),
-            Param("end_date", DataType.DATE),
+            Param("timed_start", DataType.DATETIME),
+            Param("timed_end", DataType.DATETIME),
+            Param("date_start", DataType.DATE),
+            Param("date_end", DataType.DATE),
         ],
-        exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
+        exclusive_params=[["timed_start", "timed_end"], ["date_start", "date_end"]],
     )
     # exactly one anchor → accepted (end optional):
-    assert spec.accepts({"title": "t", "start_at": "x"}) is True
-    assert spec.accepts({"title": "t", "start_date": "d"}) is True
+    assert spec.accepts({"title": "t", "timed_start": "x"}) is True
+    assert spec.accepts({"title": "t", "date_start": "d"}) is True
     # zero anchors → rejected:
     assert spec.accepts({"title": "t"}) is False
     # both anchors → rejected:
-    assert spec.accepts({"title": "t", "start_at": "x", "start_date": "d"}) is False
+    assert spec.accepts({"title": "t", "timed_start": "x", "date_start": "d"}) is False
     # required still enforced even with a valid group:
-    assert spec.accepts({"start_at": "x"}) is False
+    assert spec.accepts({"timed_start": "x"}) is False
 
 
 def test_accepts_true_when_no_params_and_no_groups():
@@ -207,14 +207,12 @@ def test_registry_all_returns_specs_in_registration_order():
 
 def test_prompt_line_renders_name_description_and_params():
     spec = ActionSpec(
-        name="set_due_date",
-        description="Set a work item's due date.",
-        params=[Param("due_at", DataType.DATETIME, required=True)],
+        name="schedule",
+        description="Schedule an instant.",
+        params=[Param("timestamp", DataType.DATETIME, required=True)],
     )
     line = spec.prompt_line
-    assert line == (
-        "- set_due_date: Set a work item's due date. — params: due_at: datetime"
-    )
+    assert line == "- schedule: Schedule an instant. — params: timestamp: datetime"
 
 
 def test_prompt_line_marks_optional_params_with_question_mark():
@@ -241,15 +239,16 @@ def test_prompt_line_renders_exclusive_params_clause():
         name="create_event",
         description="Create an event.",
         params=[
-            Param("start_at", DataType.DATETIME),
-            Param("end_at", DataType.DATETIME),
-            Param("start_date", DataType.DATE),
-            Param("end_date", DataType.DATE),
+            Param("timed_start", DataType.DATETIME),
+            Param("timed_end", DataType.DATETIME),
+            Param("date_start", DataType.DATE),
+            Param("date_end", DataType.DATE),
         ],
-        exclusive_params=[["start_at", "end_at"], ["start_date", "end_date"]],
+        exclusive_params=[["timed_start", "timed_end"], ["date_start", "date_end"]],
     )
     line = spec.prompt_line
-    assert "(exactly one of: {start_at, end_at} OR {start_date, end_date})" in line
+    expected = "(exactly one of: {timed_start, timed_end} OR {date_start, date_end})"
+    assert expected in line
 
 
 # --- ProposedAction is a plain domain-free record -------------------------

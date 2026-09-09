@@ -98,8 +98,8 @@ def test_validation_allows_name_only_forbidden_action_foil():
                 name="create_timed_event",
                 params={
                     "title": "Piano recital",
-                    "start_at": "2026-09-09T21:00:00Z",
-                    "end_at": "2026-09-09T22:00:00Z",
+                    "local_start_at": "2026-09-09T21:00:00",
+                    "local_end_at": "2026-09-09T22:00:00",
                 },
             )
         ],
@@ -139,10 +139,10 @@ def test_link_score_empty_output_is_precise_for_no_link_case():
 def test_action_score_is_order_independent_and_detects_extra_action():
     required = [
         ActionCall(name="complete_work_item"),
-        ActionCall(name="set_due_date", params={"due_at": "2026-09-05T19:00:00Z"}),
+        ActionCall(name="set_due_date", params={"local_due_at": "2026-09-05T19:00:00"}),
     ]
     actual = [
-        {"name": "set_due_date", "params": {"due_at": "2026-09-05T19:00:00Z"}},
+        {"name": "set_due_date", "params": {"local_due_at": "2026-09-05T19:00:00"}},
         {"name": "complete_work_item", "params": {}},
         {"name": "move_to_on_deck", "params": {}},
     ]
@@ -195,8 +195,8 @@ def test_action_score_retains_datetime_params_but_not_event_title():
             name="create_timed_event",
             params={
                 "title": "Milo school play",
-                "start_at": "2026-09-09T21:00:00Z",
-                "end_at": "2026-09-09T22:00:00Z",
+                "local_start_at": "2026-09-09T21:00:00",
+                "local_end_at": "2026-09-09T22:00:00",
             },
         )
     ]
@@ -205,8 +205,8 @@ def test_action_score_retains_datetime_params_but_not_event_title():
             "name": "create_timed_event",
             "params": {
                 "title": "School play for Milo",
-                "start_at": "2026-09-09T21:00:00Z",
-                "end_at": "2026-09-09T22:00:00Z",
+                "local_start_at": "2026-09-09T21:00:00",
+                "local_end_at": "2026-09-09T22:00:00",
             },
         }
     ]
@@ -215,8 +215,8 @@ def test_action_score_retains_datetime_params_but_not_event_title():
             "name": "create_timed_event",
             "params": {
                 "title": "Milo school play",
-                "start_at": "2026-09-09T22:00:00Z",
-                "end_at": "2026-09-09T23:00:00Z",
+                "local_start_at": "2026-09-09T22:00:00",
+                "local_end_at": "2026-09-09T23:00:00",
             },
         }
     ]

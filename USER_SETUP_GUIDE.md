@@ -8,11 +8,11 @@
 > calendar's web address and (2) a one-time **device token** to paste in — you
 > need both for the steps below.
 >
-> **Status: TEMPLATE / draft.** Some details below can't be finalized until the
-> app is built and running (the real URL, the exact token-entry screen, and
-> whether "add to home screen" opens full-screen — the PWA install is **not yet
-> tested**). Blanks are marked `<FILL IN>`. Finalize before sharing with the
-> family.
+> **Status: TEMPLATE / draft.** The token-entry screen, PWA manifest, and service
+> worker are built. This guide remains a draft until the owner fills in the real
+> URL and Tailscale enrollment method, resolves the wall-tablet kiosk boundary,
+> and completes the device-specific HTTPS/PWA smoke. Blanks are marked
+> `<FILL IN>`. Finalize before sharing with the family.
 
 ---
 
@@ -62,13 +62,12 @@ per-use step — install once, leave it on.
       > *Builder note:* this is the `tailscale serve` URL from
       > `shovel-ready/tasks_tailscale_host_serve.md`. Paste the real one here.
 - [ ] Enter the **device token** the setup owner gave you when the calendar asks
-      for it (a one-time code that identifies this device). `<FILL IN: exact
-      on-screen wording once the token-entry screen is built>`
-      > *Builder note:* per-device tokens + auth are built (Phase 2); tokens are
-      > minted with `python -m app.manage gen-token`. The user-facing *entry
-      > screen* (where the token is pasted) is not built yet — fill in the real
-      > wording once it exists. Each person/device gets its own token; the wall
-      > display gets a low-privilege one.
+      for it (a one-time code that identifies this device). Paste it into the
+      **Device token** field and select **Save**. Each person/device gets its own
+      token; the wall display uses its own device token.
+      > *Builder note:* tokens are minted with `python -m app.manage gen-token`.
+      > Decide the kiosk access boundary in `PLAN.md` before treating the wall
+      > display token as a technically read-only credential.
 - [ ] Add it to your home screen:
       - **iPhone (Safari):** tap the **Share** button → **Add to Home Screen** →
         **Add**.

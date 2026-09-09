@@ -90,7 +90,7 @@ def test_new_event_word_with_weekday_proposes_event_only():
     ev = props[0]
     assert ev.target_type == "event"
     assert ev.target_id is None  # standalone but fully specified (has title+time)
-    assert ev.params["start_at"] and ev.params["end_at"]
+    assert ev.params["local_start_at"] and ev.params["local_end_at"]
 
 
 def test_new_event_word_without_weekday_is_work_item_only():
@@ -125,7 +125,7 @@ def test_existing_weekday_proposes_due_date():
     props = FakeAssistant().propose(_ctx("he is coming friday", target_id=7))
     due = next(p for p in props if p.name == "set_due_date")
     assert due.target_id == 7 and due.target_type == "work_item"
-    assert "due_at" in due.params
+    assert "local_due_at" in due.params
 
 
 def test_existing_event_word_plus_weekday_also_links_event():
@@ -154,7 +154,7 @@ def test_resolved_event_reschedule_word_plus_weekday_proposes_reschedule():
     resch = next(p for p in props if p.name == "reschedule_timed_event")
     assert resch.target_id == 8 and resch.target_type == "event"
     # Fully specified: a timed pair to move to (weekday 3–4pm local).
-    assert resch.params["start_at"] and resch.params["end_at"]
+    assert resch.params["local_start_at"] and resch.params["local_end_at"]
 
 
 def test_resolved_event_move_word_also_triggers_reschedule():

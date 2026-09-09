@@ -5,6 +5,7 @@ from __future__ import annotations
 from html import escape
 
 from app.persistence.models import WORK_ITEM_STATUSES, Event, WorkItem
+from app.persistence.temporal import stored_utc_to_family_local
 
 # Column order = the canonical domain status codes (single source of truth in
 # models). Labels are the UI-layer display names, keyed off those codes.
@@ -17,17 +18,19 @@ COLUMN_LABELS = {
 }
 
 
-def _fmt_dt_utc(dt: object) -> str:
-    """Minute-precision UTC stamp for a card line, or '' if not a datetime."""
+def _fmt_dt_local(dt: object, timezone: str) -> str:
+    """Minute-precision family-local stamp for a card line, or ''."""
     from datetime import datetime as _dt
 
     if isinstance(dt, _dt):
-        return dt.strftime("%Y-%m-%d %H:%M") + " UTC"
+        return stored_utc_to_family_local(dt, timezone).strftime("%Y-%m-%d %H:%M")
     return ""
 
 
 def render_board(
-    columns: dict[str, list[WorkItem]], member_names: dict[int, str] | None = None
+    columns: dict[str, list[WorkItem]],
+    member_names: dict[int, str] | None = None,
+    timezone: str = "UTC",
 ) -> str:
     """Render the read-only 4-column board as an HTML fragment.
 
@@ -47,7 +50,7 @@ def render_board(
         elif items:
             parts.append('<ul class="cards">')
             for wi in items:
-                parts.append(_render_work_item_card(wi, member_names))
+                parts.append(_render_work_item_card(wi, member_names, timezone))
             parts.append("</ul>")
         else:
             parts.append('<p class="empty">—</p>')
@@ -57,7 +60,9 @@ def render_board(
 
 
 def _render_work_item_card(
-    wi: WorkItem, member_names: dict[int, str] | None = None
+    wi: WorkItem,
+    member_names: dict[int, str] | None = None,
+    timezone: str = "UTC",
 ) -> str:
     """One work-item card with full record detail (all free text escaped)."""
     parts: list[str] = ['<li class="card">']
@@ -70,7 +75,7 @@ def _render_work_item_card(
         parts.append(f'<p class="card-desc">{escape(wi.description)}</p>')
 
     meta: list[str] = []
-    due = _fmt_dt_utc(getattr(wi, "due_at", None))
+    due = _fmt_dt_local(getattr(wi, "due_at", None), timezone)
     if due:
         meta.append(f'<span class="meta due">due {escape(due)}</span>')
     assignee = getattr(wi, "assigned_to", None)
@@ -110,7 +115,7 @@ def _render_work_item_card(
     return "".join(parts)
 
 
-def _event_when(ev: Event) -> str:
+def _event_when(ev: Event, timezone: str) -> str:
     """A short human-facing time/date line for an event card (skinny render).
 
     All-day events show their date range as plain dates (no tz — DESIGN §3);
@@ -130,11 +135,12 @@ def _event_when(ev: Event) -> str:
     # reschedule_timed_event, and seeding all require a timing). Assert the
     # invariant rather than carry an unreachable fallback.
     assert ev.start_at is not None
-    # Minute precision is enough for a card; drop seconds/microseconds.
-    return ev.start_at.strftime("%Y-%m-%d %H:%M") + " UTC"
+    # Minute precision is enough for a card; convert stored UTC at the display
+    # boundary.
+    return stored_utc_to_family_local(ev.start_at, timezone).strftime("%Y-%m-%d %H:%M")
 
 
-def render_calendar(events: list[Event]) -> str:
+def render_calendar(events: list[Event], timezone: str = "UTC") -> str:
     """Render events as a simple long list of cards (task 11, fuller render).
 
     Agenda/list only — no grid. Each card shows the id, escaped title, a
@@ -145,7 +151,7 @@ def render_calendar(events: list[Event]) -> str:
     if events:
         parts.append('<ul class="events">')
         for ev in events:
-            parts.append(_render_event_card(ev))
+            parts.append(_render_event_card(ev, timezone))
         parts.append("</ul>")
     else:
         parts.append('<p class="empty">No events.</p>')
@@ -153,13 +159,13 @@ def render_calendar(events: list[Event]) -> str:
     return "".join(parts)
 
 
-def _render_event_card(ev: Event) -> str:
+def _render_event_card(ev: Event, timezone: str = "UTC") -> str:
     """One event card with full record detail (all free text escaped)."""
     parts: list[str] = ['<li class="event-card">']
     parts.append('<div class="card-head">')
     parts.append(f'<span class="card-id">e{ev.id}</span>')
     parts.append(f'<span class="title">{escape(ev.title)}</span>')
-    parts.append(f'<span class="when">{escape(_event_when(ev))}</span>')
+    parts.append(f'<span class="when">{escape(_event_when(ev, timezone))}</span>')
     parts.append("</div>")
 
     if ev.description:

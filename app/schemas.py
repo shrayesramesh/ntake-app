@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EventRead(BaseModel):
@@ -23,8 +23,8 @@ class EventRead(BaseModel):
     description: str | None = None
     location: str | None = None
     all_day: bool = False
-    start_at: datetime | None = None
-    end_at: datetime | None = None
+    local_start_at: datetime | None = Field(default=None, validation_alias="start_at")
+    local_end_at: datetime | None = Field(default=None, validation_alias="end_at")
     start_date: date | None = None
     end_date: date | None = None
     participants: list[str] = []
@@ -78,7 +78,7 @@ class WorkItemRead(BaseModel):
     description: str | None = None
     status: str
     position: int
-    due_at: datetime | None = None
+    local_due_at: datetime | None = Field(default=None, validation_alias="due_at")
     tags: list[str] = []
     created_at: datetime
     updated_at: datetime

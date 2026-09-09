@@ -11,12 +11,10 @@ NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
 
 def _event_params():
-    start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)
-    end = datetime(2026, 9, 5, 20, 0, tzinfo=UTC)
     return {
         "title": "Plumber visit",
-        "start_at": start.isoformat(),
-        "end_at": end.isoformat(),
+        "local_start_at": "2026-09-05T19:00:00",
+        "local_end_at": "2026-09-05T20:00:00",
     }
 
 
@@ -87,14 +85,14 @@ def test_create_timed_event_from_work_item_links_and_logs(session, fam_member_it
 
 def test_set_due_date_still_logs_a_work_item_update(session, fam_member_item):
     fam, m, wi = fam_member_item
-    due = datetime(2026, 9, 5, 19, 0, tzinfo=UTC)
+    local_due = "2026-09-05T19:00:00"
 
     apply_action(
         session,
         m,
         "set_due_date",
         target_id=wi.id,
-        params={"due_at": due.isoformat()},
+        params={"local_due_at": local_due},
         target_type="work_item",
     )
 

@@ -25,12 +25,12 @@ Rules:
   event is about a named person in THE NOTE or CONTEXT, include that name in its
   `participants` list unless the note explicitly says otherwise.
 - Calendar frame: the family timezone is America/New_York; its current local date and
-  time is 2026-09-03T08:00:00-04:00 (Thursday). A bare weekday means its next occurrence
+  time is 2026-09-03T08:00:00 (Thursday). A bare weekday means its next occurrence
   after the current local date.
-- Resolve relative dates/times in that family timezone and emit datetimes as UTC
-  ISO-8601 (e.g. 2026-09-04T19:00:00Z). For an explicit weekday or clock time,
-  convert every emitted UTC datetime back to the family timezone and verify it
-  matches the requested weekday and local clock time. Right now in UTC it is 2026-09-03T12:00:00+00:00.
+- Timed tool values are offset-free ISO-8601 family-local wall times, for example
+  `2026-09-04T19:00:00`. Never emit UTC, a `Z` suffix, an offset, or a timezone;
+  the server supplies the family timezone and converts only when persisting.
+  All-day values are local `YYYY-MM-DD` dates.
 - If nothing sensible applies, return exactly one no_action.
 - When a note reports that work has begun, prefer `start_work_item`. When it
   reports named checklist items were obtained or completed, prefer

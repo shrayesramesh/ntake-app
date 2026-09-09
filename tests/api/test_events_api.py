@@ -36,6 +36,8 @@ def test_events_returns_seeded_event(client, session, auth_headers):
     assert data[0]["title"] == "dentist"
     assert data[0]["family_id"] == family.id
     assert data[0]["all_day"] is False
+    assert data[0]["local_start_at"] == "2026-09-01T11:00:00"
+    assert "start_at" not in data[0]
 
 
 def test_events_excludes_foreign_family_events(client, session, auth_headers):

@@ -1,6 +1,8 @@
 # Ntake deterministic prompt evaluator
 
-**Status:** Design approved for implementation.
+**Status:** Implemented and covered by deterministic tests. Use it only when a
+new reproducible assistant-quality regression warrants prompt comparison; it is
+not an open MVP build task.
 
 ## Purpose
 

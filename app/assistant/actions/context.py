@@ -22,5 +22,6 @@ class NtakeActionContext(ActionContext):
 
     session: Session
     member: Member
+    family_timezone: str
     target_id: int | None
     target_type: str | None

@@ -37,7 +37,8 @@ def test_link_prompt_fills_and_embeds_inputs():
     assert _no_unfilled_placeholders(system)
     assert _no_unfilled_placeholders(user)
     # temporal frame injected into the system prompt
-    assert TZ in system and NOW.isoformat() in system
+    assert TZ in system and "2026-09-03T08:00:00" in system
+    assert NOW.isoformat() not in system
     # the world + note are in the user message
     assert "[m1] Priya" in user
     assert "the sink guy is coming friday" in user
@@ -64,7 +65,10 @@ def test_link_prompt_forbids_phantom_ids_and_separates_member_entity_rules():
 
 def test_propose_prompt_fills_and_embeds_inputs():
     system, user = build_propose_prompt(
-        tools_view="AVAILABLE TOOLS:\n- set_due_date: ... — params: due_at: datetime",
+        tools_view=(
+            "AVAILABLE TOOLS:\\n- set_due_date: ... — "
+            "params: local_due_at: local datetime"
+        ),
         capture_author="[m1] Alex (adult)",
         deep_context="[w1] call plumber (doing)\n  - update: left a voicemail",
         note="he's coming friday at 3",
@@ -73,7 +77,8 @@ def test_propose_prompt_fills_and_embeds_inputs():
     )
     assert _no_unfilled_placeholders(system)
     assert _no_unfilled_placeholders(user)
-    assert TZ in system and NOW.isoformat() in system
+    assert TZ in system and "2026-09-03T08:00:00" in system
+    assert NOW.isoformat() not in system
     assert "set_due_date" in user  # tools view embedded
     assert "FROM: [m1] Alex (adult)" in user
     assert 'NOTE: "he\'s coming friday at 3"' in user
@@ -86,7 +91,7 @@ def test_propose_prompt_fills_and_embeds_inputs():
     assert "id" in system.lower()  # the "do NOT include any entity id" rule
 
 
-def test_propose_prompt_states_utc_and_one_of_rules():
+def test_propose_prompt_states_local_time_and_one_of_rules():
     system, _ = build_propose_prompt(
         tools_view="x",
         capture_author="[m1] Alex (adult)",
@@ -95,7 +100,8 @@ def test_propose_prompt_states_utc_and_one_of_rules():
         now=NOW,
         timezone=TZ,
     )
-    assert "UTC" in system
+    assert "offset-free" in system
+    assert "Never emit UTC" in system
     assert "exactly one" in system.lower()  # the exclusive-params guidance
 
 
@@ -109,10 +115,10 @@ def test_propose_prompt_states_a_local_clock_and_explicit_time_check():
         timezone=TZ,
     )
 
-    assert "2026-09-03T08:00:00-04:00" in system
+    assert "2026-09-03T08:00:00" in system
     assert "weekday" in system.lower()
-    assert "back to the family timezone" in system.lower()
-    assert "verify it" in system.lower()
+    assert "offset-free" in system
+    assert "Never emit UTC" in system
 
 
 def test_propose_prompt_states_create_vs_modify_contract():

@@ -13,7 +13,7 @@ WORK ITEMS — create and state
 WORK ITEMS — details
 - append_update: Append assistant context to an existing work item. — params: body: string
 - assign_work_item: Assign a work item to a family member. — params: member_id: integer
-- set_due_date: Set a work item's due date. — params: due_at: datetime
+- set_due_date: Set a work item's due date. — params: local_due_at: local datetime
 - set_work_item_tags: Replace a work item's complete shared tag list. — params: tags: array<string>
 
 CHECKLISTS
@@ -21,9 +21,9 @@ CHECKLISTS
 - check_off_items: Mark named checklist items complete. — params: items: array<string>
 
 EVENTS — create and timing
-- create_timed_event: Create a timed calendar event. — params: title: string, start_at: datetime, end_at: datetime, description: string?, location: string?, participants: array<string>?, tags: array<string>?
+- create_timed_event: Create a timed calendar event. — params: title: string, local_start_at: local datetime, local_end_at: local datetime, description: string?, location: string?, participants: array<string>?, tags: array<string>?
 - create_all_day_event: Create an all-day calendar event. — params: title: string, start_date: date, end_date: date?, description: string?, location: string?, participants: array<string>?, tags: array<string>?
-- reschedule_timed_event: Move an existing event to a timed range. — params: start_at: datetime, end_at: datetime
+- reschedule_timed_event: Move an existing event to a timed range. — params: local_start_at: local datetime, local_end_at: local datetime
 - reschedule_all_day_event: Move an existing event to all-day date(s). — params: start_date: date, end_date: date?
 
 EVENTS — details

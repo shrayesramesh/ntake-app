@@ -64,7 +64,8 @@ fallback if on-device validation exposes a blocking EventCalendar limitation.
 `VACUUM INTO` weekly-snapshot backup (`python -m app.manage backup`; scheduling is
 a documented host cron/systemd step); SSE re-sync on (re)connect so the wall
 display can't miss a change during a disconnect; and a PWA manifest + service
-worker for add-to-home-screen.
+worker ready for add-to-home-screen. The real Tailscale-HTTPS device smoke is
+still pending after observability and the kiosk access boundary are complete.
 
 **Live local LLM (done):** the `local_llm/` backend runs against llamafile (or any
 OpenAI-style localhost endpoint) and is verified end-to-end. For hands-on browser
@@ -77,10 +78,16 @@ config-in-code (`AssistantConfig`); these targets flip it via the opt-in
 `NTAKE_ASSISTANT_KIND=local` env override so the committed default (and tests)
 stay on `fake`.
 
-**Next MVP work:** finish live-assistant prompt/behavior tuning and kiosk launch
-hardening (always-on soak, failure surfacing, logging). **Follow-on scope:** labor
-view, on-demand grooming assist, manual board-grooming UI, and one-time backfill
-from Trello / Google Calendar (`manage import`, designed in DESIGN §6a). See
+**Next MVP work:** implement privacy-preserving capture-to-confirm observability
+(local logs plus actionable UI failure feedback), then resolve the kiosk access
+boundary before real device installation. The current PWA shell is shared by all
+authenticated devices: its board/calendar are read-only, but capture and Confirm
+are still available. After that code work, the owner installs the PWA on the
+tablet and phones over Tailscale HTTPS, schedules weekly backups, and runs the
+kiosk soak. The validated assistant incidents are closed; future prompt work is
+regression-driven. **Follow-on scope:** labor view, on-demand grooming assist,
+manual board-grooming UI, and one-time backfill from Trello / Google Calendar
+(`manage import`, designed in DESIGN §6a). See
 `spec/PLAN.md`, `spec/BUGLIST.md`, and `spec/UI_TESTING_BACKLOG.md`.
 
 ## Key shape (details in `spec/`)

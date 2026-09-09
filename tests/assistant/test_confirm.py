@@ -133,10 +133,14 @@ def test_confirm_complete_applies_and_logs(client, session, auth_headers):
 
 def test_confirm_set_due_date_applies(client, session, auth_headers):
     wid = _create(session)
-    due = datetime(2026, 9, 5, 19, 0, tzinfo=UTC).isoformat()
+    due = "2026-09-05T19:00:00"
     r = client.post(
         "/actions/confirm",
-        json={"name": "set_due_date", "params": {"due_at": due}, "target_id": wid},
+        json={
+            "name": "set_due_date",
+            "params": {"local_due_at": due},
+            "target_id": wid,
+        },
         headers=auth_headers,
     )
     assert r.status_code == 200
@@ -166,13 +170,17 @@ def test_confirm_append_update_adds_assistant_context(client, session, auth_head
 
 def test_confirm_create_timed_event_applies(client, session, auth_headers):
     wid = _create(session)
-    start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC).isoformat()
-    end = datetime(2026, 9, 5, 20, 0, tzinfo=UTC).isoformat()
+    start = "2026-09-05T19:00:00"
+    end = "2026-09-05T20:00:00"
     r = client.post(
         "/actions/confirm",
         json={
             "name": "create_timed_event",
-            "params": {"title": "Plumber visit", "start_at": start, "end_at": end},
+            "params": {
+                "title": "Plumber visit",
+                "local_start_at": start,
+                "local_end_at": end,
+            },
             "target_id": wid,
         },
         headers=auth_headers,
@@ -188,13 +196,17 @@ def test_confirm_create_timed_event_standalone_no_work_item_update(
 ):
     """A standalone event (target_type=event, no target_id) is created with NO
     work-item update — task 12 generalized target."""
-    start = datetime(2026, 9, 5, 19, 0, tzinfo=UTC).isoformat()
-    end = datetime(2026, 9, 5, 20, 0, tzinfo=UTC).isoformat()
+    start = "2026-09-05T19:00:00"
+    end = "2026-09-05T20:00:00"
     r = client.post(
         "/actions/confirm",
         json={
             "name": "create_timed_event",
-            "params": {"title": "Standalone party", "start_at": start, "end_at": end},
+            "params": {
+                "title": "Standalone party",
+                "local_start_at": start,
+                "local_end_at": end,
+            },
             "target_type": "event",
         },
         headers=auth_headers,
@@ -307,13 +319,16 @@ def test_confirm_reschedule_timed_event_target_type_event(
     session.add(ev)
     session.commit()
     ev_id = ev.id
-    new_start = datetime(2026, 9, 8, 15, 0, tzinfo=UTC).isoformat()
+    new_start = "2026-09-08T15:00:00"
 
     r = client.post(
         "/actions/confirm",
         json={
             "name": "reschedule_timed_event",
-            "params": {"start_at": new_start, "end_at": new_start},
+            "params": {
+                "local_start_at": new_start,
+                "local_end_at": new_start,
+            },
             "target_type": "event",
             "target_id": ev_id,
         },
@@ -397,7 +412,7 @@ def test_new_event_capture_is_standalone_and_executable():
     ev = props[0]
     assert ev.target_type == "event"
     assert ev.target_id is None
-    assert ev.params.get("start_at") and ev.params.get("end_at")
+    assert ev.params.get("local_start_at") and ev.params.get("local_end_at")
 
 
 def test_new_project_word_is_ordinary_text_now():

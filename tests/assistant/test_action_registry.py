@@ -88,14 +88,14 @@ def test_all_actions_are_wellformed():
 
 
 def test_describe_set_due_date_uses_param():
-    text = ACTIONS["set_due_date"].describe({"due_at": "2026-09-05T19:00:00+00:00"})
+    text = ACTIONS["set_due_date"].describe({"local_due_at": "2026-09-05T19:00:00"})
     assert "2026-09-05" in text
     assert "due" in text.lower()
 
 
 def test_describe_create_timed_event_uses_title():
     text = ACTIONS["create_timed_event"].describe(
-        {"title": "Plumber visit", "start_at": "2026-09-05T19:00:00+00:00"}
+        {"title": "Plumber visit", "local_start_at": "2026-09-05T19:00:00"}
     )
     assert "Plumber visit" in text
     assert "event" in text.lower()
@@ -117,7 +117,7 @@ def test_describe_no_action():
 
 
 def test_describe_is_deterministic():
-    params = {"due_at": "2026-09-05T19:00:00+00:00"}
+    params = {"local_due_at": "2026-09-05T19:00:00"}
     a = ACTIONS["set_due_date"].describe(params)
     b = ACTIONS["set_due_date"].describe(params)
     assert a == b

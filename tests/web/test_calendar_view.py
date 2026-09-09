@@ -42,7 +42,8 @@ def test_render_calendar_lists_timed_event(session):
     )
     html = render_calendar([ev])
     assert "Dentist" in html
-    # Timed events show the start datetime (skinny: ISO/readable UTC is fine).
+    # Timed events render at the supplied family timezone; this UTC-family case
+    # keeps the fixture's stored hour unchanged.
     assert "2026-09-04" in html
 
 

@@ -11,8 +11,10 @@
 >   server locally are **built and tested**.
 > - `tailscale serve` fronting the app was **partially verified before** the
 >   current auth/config changes — re-verify end-to-end.
-> - PWA full-screen "add to home screen" is **not yet tested** (service worker /
->   manifest is Phase 5).
+> - The PWA manifest, service worker, token-entry UI, and app-side live reconnect
+>   behavior are **built and tested**. The remaining PWA work is the human
+>   Tailscale-HTTPS/device smoke after capture-to-confirm observability and the
+>   kiosk access boundary are complete.
 
 ---
 
@@ -143,6 +145,11 @@ python -m app.manage revoke 3             # revoke token id 3 (e.g. lost phone)
    URL) before sharing it with the family.
 
 ### 4a. Verify the PWA installs (HTTPS-only — the second smoke)
+
+> **Kiosk boundary:** do not install the wall tablet as a read-only kiosk until
+> the current MVP kiosk-access decision in `PLAN.md` is resolved. The present PWA
+> shell is shared by all authenticated devices and still includes capture and
+> Confirm controls.
 
 The `make smoke` script runs over **HTTP** and covers the API, live-sync, and
 SSE **reconnect re-sync** (server side). It deliberately does **not** cover the

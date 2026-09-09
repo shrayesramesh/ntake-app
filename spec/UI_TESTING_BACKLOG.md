@@ -13,6 +13,24 @@ reason).
 
 ## Open
 
+### 5. Enforce or explicitly accept the wall-tablet kiosk access boundary — [open: MVP]
+The intended wall surface is calendar/board-only, while phones own capture and
+Confirm. The current implementation serves one authenticated PWA shell: calendar
+and board are read-only, but every authenticated device can still see and use the
+capture form and proposal controls. The configured `child` role is stored for
+attribution but does not gate these routes.
+
+Before the owner installs the wall tablet, choose one explicit path and record it
+in `PLAN.md`:
+
+- implement a dedicated kiosk surface or server-side mutation denial; or
+- consciously accept a physical-use convention (for example Guided Access) and
+  do not call it access-controlled read-only.
+
+Do not solve this by treating a low-privilege token as an enforced permission;
+it is not one today.
+
+
 ### 3. Capture must submit from Enter / mobile keyboard Done; support OS dictation — [awaiting live verification]
 The capture field should submit when the user presses **Enter** on a hardware
 keyboard or the phone keyboard's **Done/Enter** action, without requiring a tap on

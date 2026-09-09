@@ -129,6 +129,13 @@ class DataType(Enum):
 
     STRING = ("string", {"type": "string"})
     DATETIME = ("datetime", {"type": "string", "format": "date-time"})
+    LOCAL_DATETIME = (
+        "local datetime",
+        {
+            "type": "string",
+            "description": "Offset-free ISO-8601 family-local wall time",
+        },
+    )
     DATE = ("date", {"type": "string", "format": "date"})
     INTEGER = ("integer", {"type": "integer"})
     ARRAY_STRING = ("array<string>", {"type": "array", "items": {"type": "string"}})

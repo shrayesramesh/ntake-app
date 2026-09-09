@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -42,7 +43,7 @@ Rules:
   one existing entity.
 - Match on meaning, not just words ("the sink guy" -> a plumber item; "friday's
   game" -> an event on that date). Resolve relative dates in the family timezone
-  ({timezone}); right now it is {now}.
+  ({timezone}); its local current time is {local_now}.
 - Do NOT decide what to do about them — only identify them.
 
 Return JSON exactly:
@@ -65,7 +66,14 @@ def build_link_prompt(*, world_view: str, note: str, now: datetime, timezone: st
     capture text. The client sends these as the system + user messages and
     constrains output to the ``{work_item_ids, event_ids}`` schema.
     """
-    system = LINK_SYSTEM.format(timezone=timezone, now=now.isoformat())
+    aware_now = now.replace(tzinfo=UTC) if now.tzinfo is None else now
+    local_now = aware_now.astimezone(ZoneInfo(timezone)).replace(tzinfo=None)
+    local_text = local_now.isoformat()
+    system = LINK_SYSTEM.format(
+        timezone=timezone,
+        local_now=local_text,
+        now=local_text,
+    )
     user = LINK_CONTEXT.format(world_view=world_view, note=note)
     return system, user
 

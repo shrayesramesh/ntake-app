@@ -13,7 +13,7 @@ from .shared import (
     _load_event,
     _load_item,
     _normalized_tags,
-    _parse_dt,
+    _parse_local_dt,
 )
 
 
@@ -64,10 +64,10 @@ def _reschedule_event(ctx: NtakeActionContext, params: dict, *, all_day: bool) -
         )
         ev.start_at = ev.end_at = None
     else:
-        require_params(params, ["start_at", "end_at"])
+        require_params(params, ["local_start_at", "local_end_at"])
         ev.all_day = False
-        ev.start_at = _parse_dt(params["start_at"])
-        ev.end_at = _parse_dt(params["end_at"])
+        ev.start_at = _parse_local_dt(params["local_start_at"], ctx.family_timezone)
+        ev.end_at = _parse_local_dt(params["local_end_at"], ctx.family_timezone)
         ev.start_date = ev.end_date = None
     ev.updated_at = datetime.now(UTC)
     return f"Rescheduled event “{ev.title}”"
@@ -87,7 +87,7 @@ def _create_event(ctx: NtakeActionContext, params: dict, *, all_day: bool) -> st
     if all_day:
         require_params(params, ["start_date"])
     else:
-        require_params(params, ["start_at", "end_at"])
+        require_params(params, ["local_start_at", "local_end_at"])
 
     now = datetime.now(UTC)
     source_update_id = None
@@ -106,8 +106,16 @@ def _create_event(ctx: NtakeActionContext, params: dict, *, all_day: bool) -> st
         description=params.get("description"),
         location=params.get("location"),
         all_day=all_day,
-        start_at=_parse_dt(params["start_at"]) if not all_day else None,
-        end_at=_parse_dt(params["end_at"]) if not all_day else None,
+        start_at=(
+            _parse_local_dt(params["local_start_at"], ctx.family_timezone)
+            if not all_day
+            else None
+        ),
+        end_at=(
+            _parse_local_dt(params["local_end_at"], ctx.family_timezone)
+            if not all_day
+            else None
+        ),
         start_date=(date.fromisoformat(params["start_date"]) if all_day else None),
         end_date=(
             date.fromisoformat(params["end_date"])
@@ -198,13 +206,13 @@ def _apply_deconflict_events(ctx: NtakeActionContext, params: dict) -> str:
 
 
 def _describe_reschedule_event(params: dict) -> str:
-    when = params.get("start_at") or params.get("start_date")
+    when = params.get("local_start_at") or params.get("start_date")
     return f"Reschedule the event to {when}" if when else "Reschedule the event"
 
 
 def _describe_create_event(params: dict) -> str:
     title = params.get("title")
-    when = params.get("start_at") or params.get("start_date")
+    when = params.get("local_start_at") or params.get("start_date")
     if title and when:
         return f"Create event “{title}” at {when}"
     if title:
@@ -241,8 +249,8 @@ def _describe_deconflict(params: dict) -> str:
 
 
 def _when(params: dict) -> str | None:
-    """A readable timing string from timed/all-day params, or None."""
-    return params.get("start_at") or params.get("start_date") or None
+    """A readable family-local timing string from timed/all-day params, or None."""
+    return params.get("local_start_at") or params.get("start_date") or None
 
 
 def _render_reschedule(params: dict, resolved: dict) -> list[str]:
@@ -295,8 +303,8 @@ EVENT_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         description="Create a timed calendar event.",
         params=[
             Param("title", DataType.STRING, required=True),
-            Param("start_at", DataType.DATETIME, required=True),
-            Param("end_at", DataType.DATETIME, required=True),
+            Param("local_start_at", DataType.LOCAL_DATETIME, required=True),
+            Param("local_end_at", DataType.LOCAL_DATETIME, required=True),
             Param("description", DataType.STRING),
             Param("location", DataType.STRING),
             Param("participants", DataType.ARRAY_STRING),
@@ -328,8 +336,8 @@ EVENT_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
         name="reschedule_timed_event",
         description="Move an existing event to a timed range.",
         params=[
-            Param("start_at", DataType.DATETIME, required=True),
-            Param("end_at", DataType.DATETIME, required=True),
+            Param("local_start_at", DataType.LOCAL_DATETIME, required=True),
+            Param("local_end_at", DataType.LOCAL_DATETIME, required=True),
         ],
         target_type=TargetType.EVENT,
         logs=False,

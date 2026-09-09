@@ -20,7 +20,7 @@ Rules:
   one existing entity.
 - Match on meaning, not just words ("the sink guy" -> a plumber item; "friday's
   game" -> an event on that date). Resolve relative dates in the family timezone
-  (America/New_York); right now it is 2026-09-03T12:00:00+00:00.
+  (America/New_York); its local current time is 2026-09-03T08:00:00.
 - Do NOT decide what to do about them — only identify them.
 
 Return JSON exactly:

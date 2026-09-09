@@ -67,7 +67,7 @@ def test_proposes_a_create_work_item_with_no_target():
 
 def test_attaches_work_item_target_for_a_targeting_action():
     a = _assistant(
-        [{"name": "set_due_date", "params": {"due_at": "2026-09-05T19:00:00Z"}}]
+        [{"name": "set_due_date", "params": {"local_due_at": "2026-09-05T19:00:00"}}]
     )
     out = a.propose(_ctx("due friday", work_item_id=7))
     assert out[0].target_type == "work_item"
@@ -96,8 +96,8 @@ def test_attaches_event_target_for_an_event_action():
             {
                 "name": "reschedule_timed_event",
                 "params": {
-                    "start_at": "2026-09-05T19:00:00Z",
-                    "end_at": "2026-09-05T20:00:00Z",
+                    "local_start_at": "2026-09-05T19:00:00",
+                    "local_end_at": "2026-09-05T20:00:00",
                 },
             }
         ]
@@ -133,8 +133,8 @@ def test_create_timed_event_is_a_creator_passing_event_params_through_no_target(
                 "name": "create_timed_event",
                 "params": {
                     "title": "Dentist",
-                    "start_at": "2026-09-04T19:00:00Z",
-                    "end_at": "2026-09-04T20:00:00Z",
+                    "local_start_at": "2026-09-04T19:00:00",
+                    "local_end_at": "2026-09-04T20:00:00",
                 },
             }
         ]
@@ -146,8 +146,8 @@ def test_create_timed_event_is_a_creator_passing_event_params_through_no_target(
     # The event timing params the model supplied flow through unchanged…
     assert p.params == {
         "title": "Dentist",
-        "start_at": "2026-09-04T19:00:00Z",
-        "end_at": "2026-09-04T20:00:00Z",
+        "local_start_at": "2026-09-04T19:00:00",
+        "local_end_at": "2026-09-04T20:00:00",
     }
     # …and no target is attached (creator), despite the resolved work item.
     assert p.target_id is None
@@ -162,7 +162,7 @@ def test_explicit_event_variants_have_single_timing_shapes_in_tools_schema():
     by_name = {branch["properties"]["name"]["const"]: branch for branch in branches}
 
     timed = by_name["create_timed_event"]["properties"]["params"]
-    assert timed["required"] == ["title", "start_at", "end_at"]
+    assert timed["required"] == ["title", "local_start_at", "local_end_at"]
     assert "oneOf" not in timed
 
     all_day = by_name["create_all_day_event"]["properties"]["params"]
@@ -188,7 +188,7 @@ def test_builds_prompt_and_schema_and_sends_them_to_the_llm():
 def test_multiple_actions_are_all_returned_and_attached():
     a = _assistant(
         [
-            {"name": "set_due_date", "params": {"due_at": "2026-09-05T19:00:00Z"}},
+            {"name": "set_due_date", "params": {"local_due_at": "2026-09-05T19:00:00"}},
             {"name": "complete_work_item", "params": {}},
         ]
     )

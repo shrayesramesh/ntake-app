@@ -102,3 +102,29 @@ def test_writes_emit_change_events(client, auth_headers):
     entities = {(e, o) for e, _id, o in events}
     assert ("work_items", "create") in entities
     assert ("work_item_updates", "create") in entities
+
+
+def test_work_item_read_exposes_due_time_in_the_family_timezone(
+    client, session, auth_headers
+):
+    from datetime import UTC, datetime
+
+    from app.persistence.models import Family, Member, WorkItem
+
+    member = session.query(Member).filter_by(display_name="Tester").one()
+    family = session.get(Family, member.family_id)
+    assert family is not None
+    family.timezone = "America/Chicago"
+    item = WorkItem(
+        family_id=family.id,
+        title="Schedule repair",
+        due_at=datetime(2026, 9, 11, 1, 0, tzinfo=UTC),
+        created_at=datetime(2026, 9, 1, 12, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 9, 1, 12, 0, tzinfo=UTC),
+    )
+    session.add(item)
+    session.commit()
+
+    payload = client.get(f"/work-items/{item.id}", headers=auth_headers).json()
+    assert payload["local_due_at"] == "2026-09-10T20:00:00"
+    assert "due_at" not in payload

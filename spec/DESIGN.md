@@ -494,40 +494,43 @@ second consumer appears — package-shape now, not a published package). See PLA
 
 ## 5. Front end (DISP)
 
-One browser-based PWA artifact, serving **two surfaces** with different roles.
-Both are read-mostly views over the same data; the backend stays a clean JSON/SSE
-API so a richer TS/React view is a later view-swap, not a rewrite. Frontend is
-HTMX + light JS.
+One browser-based PWA artifact is intended to serve **two surfaces** with
+different roles. The backend stays a clean JSON/SSE API so a richer TS/React view
+is a later view-swap, not a rewrite. Frontend is HTMX + light JS.
+
+**Current implementation boundary:** today `/` is one authenticated shell shared
+by phones and the wall tablet. The board/calendar projections are read-only, but
+capture and Confirm controls are still present for every authenticated device.
+The dedicated or enforced kiosk boundary below remains an MVP decision tracked in
+`PLAN.md` and `UI_TESTING_BACKLOG.md`.
 
 ### 5.1 Phone surface (the everyday interaction)
 The primary place capture and updates happen (§4.1).
-- **Capture / update:** a free-text input to add an event or append a work-item
-  update. On submit, the response returns the saved item **plus** the assistant's
-  proposal(s).
-- **Suggestion cards:** each proposal renders as an **inline card** beneath the
-  saved item — **Confirm / Dismiss**, independently. Calendar-event proposals are
-  confirmed as-is or dismissed; correcting one = **restate in a new update**
-  (§4.1), not an edit form.
-- **Scoping:** proposals appear on the **author's device only**. The raw item
-  still live-updates on every device via SSE.
-- **Browsing:** read the calendar and the work-item board/threads; append updates;
-  simple tap/form actions (tick a checklist item, mark done). No drag-and-drop
-  day-one (DISP-4).
+- **Capture:** a free-text, propose-only input for a new task or event. It saves
+  nothing until the author explicitly confirms a proposal. Appending a human
+  update to a known work item remains the separate explicit update path.
+- **Suggestion cards:** each proposal renders as an **inline card** on the
+  capturing device — **Confirm / Dismiss**, independently. Calendar-event
+  proposals are confirmed as-is or dismissed; correcting one = **restate in a
+  new capture**, not an edit form.
+- **Browsing:** read the calendar and the work-item board/threads. No
+  drag-and-drop day-one (DISP-4).
 
-### 5.2 Wall display (the shared kiosk)
-- Kiosk PWA (manifest + service worker, full-screen), always-on, **single shared
-  view**, no per-user login (DISP-3/5).
-- Shows **calendar + board side by side**, colored by tag (DISP-6), live via SSE.
-- **Read-only in practice** — it does **not** show suggestion cards (those are
-  author-scoped, §5.1); it reflects committed state.
-- **Hardware:** prototype on the existing iPad (current Safari → PWA renders;
-  Guided Access kiosk); upgrade to a larger 24–27" display later (verify
-  open-Android + Chrome + Tailscale before buying a smart-calendar device). See
-  research/dashboard-hardware.
+### 5.2 Wall display (the intended shared kiosk)
+- Intended target: a full-screen, always-on, calendar-and-board-only PWA that
+  reflects committed state via SSE.
+- Required before calling it technically read-only: a dedicated kiosk surface or
+  server-side mutation denial. A low-privilege member role/token alone does not
+  currently enforce this behavior.
+- Hardware: prototype on the existing iPad, then run the Tailscale HTTPS/PWA
+  device smoke and days-long soak before considering a larger display. Guided
+  Access may be a physical-use convention, not an authorization boundary.
 
 ### 5.3 Shared behavior
-- Live-updating via SSE (§4.3); survives sleep/wake for days (DISP-5).
-- Tag→color applied at render time from the family settings map (§3.2 / DISP-6).
+- Live-updating via SSE (§4.3); reconnect re-sync is built. Device sleep/wake
+  behavior remains human acceptance testing.
+- Tag data is present; the accessible tag-color palette is deferred until kiosk
+  hardening and remains tracked in `UI_TESTING_BACKLOG.md`.
 
 ---
 

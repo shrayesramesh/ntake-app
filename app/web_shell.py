@@ -347,11 +347,10 @@ SHELL_PAGE = """<!doctype html>
       return d.toISOString().slice(0, 10);
     }
 
-    // SQLite returns stored UTC timestamps without an offset; make UTC explicit
-    // before EventCalendar/browser parsing so a local display converts correctly.
-    function utcIso(value) {
-      if (!value) return value;
-      return /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : value + 'Z';
+    // Timed values in /events are already offset-free family-local wall times.
+    // Keep them untouched so EventCalendar renders the household's schedule.
+    function familyLocalIso(value) {
+      return value;
     }
 
     // Map an app Event DTO -> an EventCalendar event object.
@@ -375,8 +374,8 @@ SHELL_PAGE = """<!doctype html>
         id: String(e.id),
         title: e.title,
         allDay: false,
-        start: utcIso(e.start_at),
-        end: utcIso(e.end_at || e.start_at),
+        start: familyLocalIso(e.local_start_at),
+        end: familyLocalIso(e.local_end_at || e.local_start_at),
         extendedProps: {
           location: e.location,
           description: e.description,

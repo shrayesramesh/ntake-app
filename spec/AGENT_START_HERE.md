@@ -54,13 +54,29 @@ workload into the PROPOSE context. The calendar is now a locally served
 SSE `refetchEvents()`, stable kiosk region, title-first event metadata); it stays
 read-only so mutations remain propose-and-confirm. FullCalendar remains the
 fallback if on-device validation exposes a blocking EventCalendar limitation.
-Live-surface hardening is done (WAL,
-`manage backup`, SSE reconnect re-sync, PWA). Dev bring-up for safe live UI
-testing is **`make llm-up` then `make ui-demo`** (fresh Alex/Sam demo DB + live
-model + debug trace). `make ui-live` remains the separate persistent local
-sandbox mode. **Not built yet:** MVP kiosk soak/failure-surfacing/logging (see PLAN.md). **Follow-on
-scope:** the labor view, on-demand grooming assist, and manual board-grooming UI
-(the `archive_work_item`/`delete_event` *actions* exist; no manual UI).
+Live-surface foundations are done (WAL, `manage backup`, SSE reconnect re-sync,
+and the PWA manifest/service worker). Dev bring-up for safe live UI testing is
+**`make llm-up` then `make ui-demo`** (fresh Alex/Sam demo DB + live model + debug
+trace). `make ui-live` remains the separate persistent local sandbox mode.
+
+**Current MVP sequence — follow this unless a user assigns narrower work:**
+
+1. Implement privacy-preserving capture-to-confirm observability: local logs and
+   actionable UI feedback for capture, assistant, proposal, Confirm, and response
+   failures. Do not log device tokens or raw household note text by default.
+2. Resolve the kiosk access boundary. The current `/` PWA shell is shared by all
+   authenticated devices; its board/calendar are read-only, but it still exposes
+   capture and Confirm. Do not describe the wall display as technically read-only
+   until a kiosk surface or mutation denial is implemented.
+3. Stop for the owner to install phone/tablet PWAs and perform the documented
+   Tailscale HTTPS smoke. Then the owner runs the days-long kiosk soak and
+   schedules weekly backups.
+
+**Validated assistant behavior:** the former BUG-001 through BUG-008 captures and
+the family-local temporal contract are fixed and validated. Treat further prompt
+work as regression-driven, not open-ended tuning. **Follow-on scope:** the labor
+view, on-demand grooming assist, and manual board-grooming UI (the
+`archive_work_item`/`delete_event` *actions* exist; no manual UI).
 
 ## How to work
 
