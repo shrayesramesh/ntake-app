@@ -386,7 +386,7 @@ def get_board(
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
-    """The shell page: token entry + free-text capture + board container."""
+    """The unauthenticated onboarding or paired-device shell."""
     return SHELL_PAGE
 
 

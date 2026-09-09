@@ -42,3 +42,14 @@ def test_shell_links_manifest_and_registers_service_worker(client):
     assert "/sw.js" in body
     # theme-color helps the installed PWA chrome; a small nicety browsers expect.
     assert 'name="theme-color"' in body
+
+
+def test_shell_consumes_a_qr_fragment_token_and_hides_onboarding_when_paired(client):
+    body = client.get("/").text
+
+    assert 'id="device-onboarding"' in body
+    assert 'id="paired-shell"' in body
+    assert "function consumeFragmentToken()" in body
+    assert "location.hash" in body
+    assert "history.replaceState" in body
+    assert "function removeDevice()" in body

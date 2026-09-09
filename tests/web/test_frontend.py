@@ -1,9 +1,8 @@
-"""Phase 3, task 6 — thin HTMX front end routes.
+"""PWA shell and board-fragment route contracts.
 
-The shell page (/) is served without auth (it's the surface that then collects
-the device token). The board fragment (/board/view) is auth-protected and renders
-the read-only 4 columns as HTML. The capture form (client-side) is the only write
-control; updates flow via the Phase 4 LLM loop, so there's no update UI here.
+The unauthenticated shell handles one-time device onboarding, then exposes the
+paired-device Board/Calendar selector and focused capture dialog. The board
+fragment stays auth-protected and read-only; mutations remain propose-confirm.
 """
 
 from __future__ import annotations
@@ -108,16 +107,24 @@ def test_board_view_loads_full_checklist_for_open_cards(client, session, auth_he
     assert html.index("milk") < html.index("bread")
 
 
-def test_capture_form_uses_native_submit_and_mobile_done_hint(client):
+def test_shell_has_primary_view_navigation_and_focused_capture(client):
     html = client.get("/").text
 
-    assert '<form id="capture" onsubmit="return onCapture(event)">' in html
+    assert 'id="view-board"' in html
+    assert 'id="view-calendar"' in html
+    assert 'aria-pressed="true"' in html
+    assert 'id="board-view"' in html
+    assert 'id="calendar-view"' in html
+    assert 'id="open-capture"' in html
+    assert '<dialog id="capture-dialog">' in html
+    assert '<form id="capture-form" onsubmit="return onCapture(event)">' in html
     assert 'id="capture-text"' in html
-    assert 'onkeydown="captureOnKeydown(event)"' in html
     assert 'enterkeyhint="done"' in html
-    assert '<button type="submit">Capture</button>' in html
+    assert "Use your keyboard microphone to dictate" in html
     assert "function captureOnKeydown(event)" in html
     assert "requestSubmit()" in html
+    assert "function setActiveView(view)" in html
+    assert "ntake_active_view" in html
 
 
 def test_board_view_resolves_assignee_name(client, session, auth_headers):

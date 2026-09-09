@@ -53,6 +53,57 @@ SHELL_PAGE = """<!doctype html>
   <title>Family Board</title>
   <style>
     body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    [hidden] { display: none !important; }
+    .shell-header { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+                    margin-bottom: 1rem; }
+    .shell-title { font-size: 1.15rem; margin: 0 auto 0 0; }
+    .view-toggle { display: inline-flex; gap: .2rem; padding: .2rem;
+                   background: #e4e4e7; border-radius: .5rem; }
+    .view-toggle button { border: 0; border-radius: .35rem; padding: .35rem .6rem;
+                          background: transparent; color: #3f3f46; }
+    .view-toggle button[aria-pressed="true"] { background: #fff; color: #18181b;
+                                                 box-shadow: 0 1px 2px
+                                                   rgba(0,0,0,.12); }
+    .capture-trigger { background: #2563eb; color: #fff; border: 0;
+                       border-radius: .4rem; padding: .4rem .7rem; }
+    .device-menu { position: relative; }
+    .device-menu summary { cursor: pointer; color: #52525b; font-size: .8rem; }
+    .device-menu-menu { position: absolute; right: 0; z-index: 2; min-width: 13rem;
+                         background: #fff; border: 1px solid #d4d4d8;
+                         border-radius: .4rem; box-shadow: 0 3px 12px rgba(0,0,0,.12);
+                         padding: .5rem; }
+    .device-menu-menu p { font-size: .8rem; margin: .2rem 0 .5rem; }
+    .device-menu-menu button { width: 100%; text-align: left; border: 0;
+                                background: transparent; padding: .35rem;
+                                color: #374151; }
+    #device-onboarding { max-width: 28rem; margin: 12vh auto; padding: 1.25rem;
+                          border: 1px solid #d4d4d8; border-radius: .6rem; }
+    #device-onboarding h1 { margin-top: 0; }
+    #device-token { box-sizing: border-box; width: 100%; margin: .5rem 0;
+                    padding: .55rem; }
+    .onboarding-status, .capture-status { min-height: 1.2rem; color: #52525b;
+                                           font-size: .85rem; }
+    #capture-dialog { width: min(34rem, calc(100vw - 2rem)); border: 0;
+                      border-radius: .7rem; box-shadow: 0 12px 40px rgba(0,0,0,.28);
+                      padding: 0; }
+    #capture-dialog::backdrop { background: rgba(24, 24, 27, .45); }
+    .capture-panel { padding: 1rem; }
+    .capture-panel h2 { margin: 0 0 .4rem; }
+    #capture-text { box-sizing: border-box; width: 100%; min-height: 5rem;
+                    resize: vertical; padding: .6rem; }
+    .capture-actions { display: flex; justify-content: flex-end; gap: .5rem;
+                       margin-top: .75rem; }
+    .capture-actions button { padding: .4rem .7rem; }
+    .capture-submit { background: #2563eb; border: 0; border-radius: .35rem;
+                      color: #fff; }
+    @media (max-width: 42rem) {
+      body { padding: .7rem; }
+      .shell-title { width: 100%; order: -1; }
+      #capture-dialog { width: 100%; max-width: none; margin: auto 0 0;
+                        border-radius: .8rem .8rem 0 0; }
+    }
     .board { display: flex; gap: .75rem; align-items: flex-start; }
     .column { flex: 1; background: #f4f4f5; border-radius: 8px; padding: .5rem; }
     .column h2 { font-size: .9rem; margin: .25rem 0 .5rem; }
@@ -126,35 +177,68 @@ SHELL_PAGE = """<!doctype html>
   </style>
 </head>
 <body>
-  <div id="token-bar">
-    <label>Device token:
-      <input id="token" type="password" size="24" placeholder="paste token">
-    </label>
-    <button onclick="saveToken()">Save</button>
-    <span id="token-status"></span>
+  <section id="device-onboarding" aria-labelledby="onboarding-title">
+    <h1 id="onboarding-title">Family Calendar</h1>
+    <p>Connect this device by scanning the setup QR code provided by the
+       household owner.</p>
+    <label for="device-token">Have a device token instead?</label>
+    <input id="device-token" type="password" autocomplete="off"
+           placeholder="Paste device token">
+    <button type="button" onclick="connectDevice()">Connect</button>
+    <p id="onboarding-status" class="onboarding-status" role="status"></p>
+  </section>
+
+  <div id="paired-shell" hidden>
+    <header class="shell-header">
+      <h1 class="shell-title">Family Calendar</h1>
+      <div class="view-toggle" aria-label="Primary view">
+        <button id="view-board" type="button" aria-pressed="false"
+                onclick="setActiveView('board')">Board</button>
+        <button id="view-calendar" type="button" aria-pressed="true"
+                onclick="setActiveView('calendar')">Calendar</button>
+      </div>
+      <button id="open-capture" class="capture-trigger" type="button"
+              onclick="openCapture()">Capture</button>
+      <details class="device-menu">
+        <summary>Device</summary>
+        <div class="device-menu-menu">
+          <p>Device connected</p>
+          <button type="button" onclick="refreshActiveView()">Refresh</button>
+          <button type="button" onclick="removeDevice()">Remove this device</button>
+        </div>
+      </details>
+    </header>
+
+    <main>
+      <section id="board-view" aria-label="Family board" hidden>
+        <div id="board-container"></div>
+      </section>
+      <section id="calendar-view" aria-label="Family calendar">
+        <div id="calendar-container">
+          <div id="calendar-grid" aria-label="Family calendar"></div>
+        </div>
+      </section>
+    </main>
   </div>
 
-  <form id="capture" onsubmit="return onCapture(event)">
-    <input id="capture-text"
-           placeholder="Capture a note, task, or plan…"
-           enterkeyhint="done"
-           onkeydown="captureOnKeydown(event)"
-           required>
-    <button type="submit">Capture</button>
-  </form>
-
-  <!-- Assistant proposals render here, on the author's device only. -->
-  <div id="proposals"></div>
-
-  <!-- Live-LLM debug trace (prompts + raw model replies), rendered per capture. -->
-  <div id="debug-panel-container"></div>
-
-  <div id="board-container">Enter your device token to load the board.</div>
-
-  <h2 style="font-size:1rem;margin:1rem 0 .5rem;">Calendar</h2>
-  <div id="calendar-container">
-    <div id="calendar-grid" aria-label="Family calendar"></div>
-  </div>
+  <dialog id="capture-dialog">
+    <div class="capture-panel">
+      <h2>Capture</h2>
+      <p>Use your keyboard microphone to dictate, then review before submitting.</p>
+      <form id="capture-form" onsubmit="return onCapture(event)">
+        <textarea id="capture-text" rows="4" placeholder="What needs to happen?"
+                  enterkeyhint="done" onkeydown="captureOnKeydown(event)"
+                  required></textarea>
+        <p id="capture-status" class="capture-status" role="status"></p>
+        <div class="capture-actions">
+          <button type="button" onclick="closeCapture()">Cancel</button>
+          <button class="capture-submit" type="submit">Capture</button>
+        </div>
+      </form>
+      <div id="proposals"></div>
+      <div id="debug-panel-container"></div>
+    </div>
+  </dialog>
 
   <!-- Locally vendored EventCalendar standalone bundle (no public CDN). -->
   <script src="/static/event-calendar/event-calendar.min.js"></script>
@@ -167,45 +251,117 @@ SHELL_PAGE = """<!doctype html>
         navigator.serviceWorker.register('/sw.js').catch(() => {});
       });
     }
+    const ACTIVE_VIEW_KEY = 'ntake_active_view';
+
     function getToken() { return localStorage.getItem('ntake_token') || ''; }
     function authHeaders(json) {
       const h = { 'Authorization': 'Bearer ' + getToken() };
       if (json) h['Content-Type'] = 'application/json';
       return h;
     }
-    function saveToken() {
-      const t = document.getElementById('token').value.trim();
-      if (t) { localStorage.setItem('ntake_token', t);
-               document.getElementById('token-status').textContent = 'saved';
-               startSSE(); reloadBoard(); initCalendar(); }
+    function setOnboardingMessage(message) {
+      document.getElementById('onboarding-status').textContent = message;
+    }
+    function showOnboarding(message) {
+      const dialog = document.getElementById('capture-dialog');
+      if (dialog.open) dialog.close();
+      document.getElementById('paired-shell').hidden = true;
+      document.getElementById('device-onboarding').hidden = false;
+      if (message) setOnboardingMessage(message);
+    }
+    function showPairedShell() {
+      document.getElementById('device-onboarding').hidden = true;
+      document.getElementById('paired-shell').hidden = false;
+      setActiveView(localStorage.getItem(ACTIVE_VIEW_KEY) || 'calendar');
+      startSSE();
+    }
+    function consumeFragmentToken() {
+      const token = new URLSearchParams(location.hash.slice(1)).get('token');
+      if (!token) return false;
+      localStorage.setItem('ntake_token', token);
+      history.replaceState(null, '', location.pathname + location.search);
+      return true;
+    }
+    function connectDevice() {
+      const token = document.getElementById('device-token').value.trim();
+      if (!token) { setOnboardingMessage('Paste a device token to connect.'); return; }
+      localStorage.setItem('ntake_token', token);
+      setOnboardingMessage('Connecting this device…');
+      showPairedShell();
+    }
+    function removeDevice() {
+      localStorage.removeItem('ntake_token');
+      if (es) es.close();
+      showOnboarding('This device was removed from this browser.');
+    }
+    function handleUnauthorized(response) {
+      if (response.status === 401) {
+        localStorage.removeItem('ntake_token');
+        if (es) es.close();
+        showOnboarding('This device token is invalid or was revoked.');
+      }
+      return response;
+    }
+    function setActiveView(view) {
+      const active = view === 'board' ? 'board' : 'calendar';
+      localStorage.setItem(ACTIVE_VIEW_KEY, active);
+      const boardButton = document.getElementById('view-board');
+      const calendarButton = document.getElementById('view-calendar');
+      boardButton.setAttribute('aria-pressed', String(active === 'board'));
+      calendarButton.setAttribute('aria-pressed', String(active === 'calendar'));
+      document.getElementById('board-view').hidden = active !== 'board';
+      document.getElementById('calendar-view').hidden = active !== 'calendar';
+      refreshActiveView();
+    }
+    function refreshActiveView() {
+      if (!getToken()) return;
+      const active = localStorage.getItem(ACTIVE_VIEW_KEY) || 'calendar';
+      if (active === 'board') reloadBoard(); else refreshCalendar();
+    }
+    function openCapture() {
+      const dialog = document.getElementById('capture-dialog');
+      if (!dialog.open) dialog.showModal();
+      setTimeout(() => document.getElementById('capture-text').focus(), 0);
+    }
+    function closeCapture() {
+      document.getElementById('capture-dialog').close();
     }
 
-    // Submit from physical Enter and mobile keyboard Done. Explicitly submit so
-    // browser quirks cannot bypass the form handler; ignore IME composition so
-    // Enter can still confirm an in-progress composed character.
     function captureOnKeydown(event) {
       if (event.key !== 'Enter' || event.isComposing) return;
       event.preventDefault();
-      document.getElementById('capture').requestSubmit();
+      document.getElementById('capture-form').requestSubmit();
     }
 
-    // Capture: POST free text to /capture (JSON) -> {item, proposals}. Save the
-    // raw input (server-side), then render inline Confirm/Dismiss cards here.
+    // Capture remains propose-only; only explicit Confirm persists a mutation.
     function onCapture(event) {
       event.preventDefault();
       const input = document.getElementById('capture-text');
+      const status = document.getElementById('capture-status');
       const text = input.value.trim();
       if (!text || !getToken()) return false;
+      status.textContent = 'Interpreting your capture…';
       fetch('/capture', {
         method: 'POST', headers: authHeaders(true),
         body: JSON.stringify({ text: text })
       })
-        .then(r => r.ok ? r.json() : Promise.reject(r.status))
-        .then(data => { input.value = ''; renderProposals(data.proposals || []);
-                        renderDebug(data.debug || null);
-                        reloadBoard(); refreshCalendar(); })
-        .catch(() => { document.getElementById('proposals').textContent =
-                       'Capture failed (check your token).'; });
+        .then(r => {
+          handleUnauthorized(r);
+          return r.ok ? r.json() : Promise.reject(r.status);
+        })
+        .then(data => {
+          input.value = '';
+          renderProposals(data.proposals || []);
+          renderDebug(data.debug || null);
+          status.textContent = data.proposals && data.proposals.length
+            ? 'Review the suggested changes below.'
+            : 'No changes were suggested. You can revise and try again.';
+          refreshActiveView();
+        })
+        .catch(() => {
+          status.textContent =
+            'Capture could not be completed. Check your connection and try again.';
+        });
       return false;
     }
 
@@ -320,19 +476,33 @@ SHELL_PAGE = """<!doctype html>
         body: JSON.stringify({ name: p.name, params: p.params,
                                target_id: p.target_id, target_type: p.target_type })
       })
-        .then(r => r.ok ? r.json() : Promise.reject(r.status))
-        .then(() => { card.remove(); reloadBoard(); refreshCalendar(); })
-        .catch(() => { card.querySelector('.action-summary').textContent +=
-                       ' (failed)'; });
+        .then(r => {
+          handleUnauthorized(r);
+          return r.ok ? r.json() : Promise.reject(r.status);
+        })
+        .then(() => {
+          card.remove();
+          document.getElementById('capture-status').textContent = 'Change confirmed.';
+          refreshActiveView();
+        })
+        .catch(() => {
+          document.getElementById('capture-status').textContent =
+            'Confirm could not be completed. Try again.';
+        });
     }
 
     function reloadBoard() {
-      const t = getToken(); if (!t) return;
+      if (!getToken()) return;
       fetch('/board/view', { headers: authHeaders(false) })
-        .then(r => r.ok ? r.text() : Promise.reject(r.status))
+        .then(r => {
+          handleUnauthorized(r);
+          return r.ok ? r.text() : Promise.reject(r.status);
+        })
         .then(html => { document.getElementById('board-container').innerHTML = html; })
-        .catch(() => { document.getElementById('board-container').textContent =
-                       'Could not load board (check your token).'; });
+        .catch(() => {
+          if (getToken()) document.getElementById('board-container').textContent =
+            'Could not load board. Check your connection and retry.';
+        });
     }
     // EventCalendar (locally vendored) — month grid by default, week/day
     // optional, read-only. Its event source fetches the existing authenticated
@@ -417,7 +587,10 @@ SHELL_PAGE = """<!doctype html>
     function fetchCalendarEvents(fetchInfo, successCallback, failureCallback) {
       if (!getToken()) { successCallback([]); return; }
       fetch('/events', { headers: authHeaders(false) })
-        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(r => {
+          handleUnauthorized(r);
+          return r.ok ? r.json() : Promise.reject(r.status);
+        })
         .then(list => successCallback((list || []).map(toCalendarEvent)))
         .catch(err => failureCallback && failureCallback(err));
     }
@@ -452,19 +625,15 @@ SHELL_PAGE = """<!doctype html>
       const t = getToken(); if (!t) return;
       if (es) es.close();
       es = new EventSource('/events/stream?token=' + encodeURIComponent(t));
-      // On (re)connect, re-sync both surfaces. EventSource auto-reconnects after
-      // a drop (sleep/wake, network blip); a 'change' that happened WHILE we were
-      // disconnected is never delivered, so without this the display would stay
-      // stale until the next change. Re-fetching on 'open' closes that gap
-      // (DISP-2/5: stays correct across sleep/wake for days).
-      es.addEventListener('open', reloadBoard);
-      es.addEventListener('open', refreshCalendar);
-      es.addEventListener('change', reloadBoard);
-      es.addEventListener('change', refreshCalendar);
+      // Re-fetch the active view on (re)connect so it cannot stay stale after a
+      // sleep/wake or a missed change during a disconnect.
+      es.addEventListener('open', refreshActiveView);
+      es.addEventListener('change', refreshActiveView);
     }
-    // On load, if a token is already saved, go.
-    if (getToken()) { document.getElementById('token-status').textContent = 'saved';
-                      startSSE(); reloadBoard(); initCalendar(); }
+    // QR setup links carry the existing token only in the fragment. Consume it
+    // once, then clear it before rendering the normal paired-device shell.
+    consumeFragmentToken();
+    if (getToken()) { showPairedShell(); } else { showOnboarding(); }
   </script>
 </body>
 </html>
