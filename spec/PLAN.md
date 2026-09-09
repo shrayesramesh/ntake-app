@@ -204,6 +204,9 @@ calendar mutations only on confirm.
 > human owner.
 
 ### Phase 5 — MVP launch hardening
+
+The companion implementation details for this phase live in
+[`design-front-end.md`](design-front-end.md).
 - **Persistence/resiliency ✅:** WAL mode + `synchronous=NORMAL`; the weekly
   consistent snapshot command (`VACUUM INTO` via `manage backup`). Scheduling is
   still a host cron/systemd step.

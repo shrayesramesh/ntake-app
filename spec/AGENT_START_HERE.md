@@ -9,7 +9,9 @@ source of truth. Read this fully before doing anything.
 1. **REQUIREMENTS.md** — what the system does and for whom (solution-neutral).
 2. **DESIGN.md** — how it's built: architecture, data model, flows, front end.
 3. **PLAN.md** — phased checkpoints, current priorities, and what is deferred.
-4. **SKILL.md** *(at repo root, with the code)* — how to work in this repo (the
+4. **design-front-end.md** — the PWA-shell companion LLD for device onboarding,
+   Board/Calendar navigation, capture, kiosk behavior, and voice capture scope.
+5. **SKILL.md** *(at repo root, with the code)* — how to work in this repo (the
    check gate, conventions).
 
 Use these only when the task makes them relevant:

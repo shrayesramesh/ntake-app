@@ -494,6 +494,9 @@ second consumer appears — package-shape now, not a published package). See PLA
 
 ## 5. Front end (DISP)
 
+Detailed interaction and implementation guidance lives in
+[`design-front-end.md`](design-front-end.md).
+
 One browser-based PWA artifact is intended to serve **two surfaces** with
 different roles. The backend stays a clean JSON/SSE API so a richer TS/React view
 is a later view-swap, not a rewrite. Frontend is HTMX + light JS.
