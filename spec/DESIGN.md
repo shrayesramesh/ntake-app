@@ -502,7 +502,7 @@ is a later view-swap, not a rewrite. Frontend is HTMX + light JS.
 by phones and the wall tablet. The board/calendar projections are read-only, but
 capture and Confirm controls are still present for every authenticated device.
 The dedicated or enforced kiosk boundary below remains an MVP decision tracked in
-`PLAN.md` and `UI_TESTING_BACKLOG.md`.
+`PLAN.md`.
 
 ### 5.1 Phone surface (the everyday interaction)
 The primary place capture and updates happen (§4.1).
@@ -530,7 +530,7 @@ The primary place capture and updates happen (§4.1).
 - Live-updating via SSE (§4.3); reconnect re-sync is built. Device sleep/wake
   behavior remains human acceptance testing.
 - Tag data is present; the accessible tag-color palette is deferred until kiosk
-  hardening and remains tracked in `UI_TESTING_BACKLOG.md`.
+  hardening and remains described in `PLAN.md`.
 
 ---
 

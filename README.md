@@ -87,8 +87,8 @@ tablet and phones over Tailscale HTTPS, schedules weekly backups, and runs the
 kiosk soak. The validated assistant incidents are closed; future prompt work is
 regression-driven. **Follow-on scope:** labor view, on-demand grooming assist,
 manual board-grooming UI, and one-time backfill from Trello / Google Calendar
-(`manage import`, designed in DESIGN §6a). See
-`spec/PLAN.md`, `spec/BUGLIST.md`, and `spec/UI_TESTING_BACKLOG.md`.
+(`manage import`, designed in DESIGN §6a). The active MVP sequence and deferred
+scope live in `spec/PLAN.md`.
 
 ## Key shape (details in `spec/`)
 

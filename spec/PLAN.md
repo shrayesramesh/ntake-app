@@ -190,10 +190,11 @@ calendar mutations only on confirm.
 > guard are retired; focused persistence, action, API, prompt/schema, and web
 > tests cover the boundary.
 >
-> **Validated assistant incidents — DONE:** the former BUG-001 through BUG-008
-> live captures are fixed and validated. Preserve their concise closure record in
-> BUGLIST.md; do not reopen general prompt tuning without a new reproducible
-> regression.
+> **Validated assistant incidents — DONE:** the former live-capture incidents are
+> fixed and validated. Do not reopen general prompt tuning without a new
+> reproducible regression. When one occurs, use the regression-only evaluator
+> (`make prompt`) with fictional benchmark data; it never accesses the production
+> database or real household notes, and it never auto-applies a prompt change.
 >
 > **Next coding task:** Phase 5 capture-to-confirm observability. Instrument the
 > request flow without logging device tokens or raw household note text by
@@ -216,8 +217,12 @@ calendar mutations only on confirm.
   kiosk UI or enforce read-only behavior by member role. Decide and implement
   that boundary before representing the wall tablet as technically read-only.
 - **After implementation (human-only):** install the phone/tablet PWAs over
-  Tailscale HTTPS, run the device smoke, schedule the backup, then perform a
-  days-long kiosk soak.
+  Tailscale HTTPS, run the device smoke (capture Enter/mobile Done and OS
+  dictation, Confirm, EventCalendar month/week/day, and SSE sleep/wake
+  reconnect), schedule the backup, then perform a days-long kiosk soak.
+- **Deferred visual polish:** choose an accessible fixed tag-color palette only
+  if it improves the validated kiosk surface; tag data/actions already exist, but
+  arbitrary model-supplied colors remain out of scope.
 
 **MVP exit:** capture/Confirm failures are diagnosable without exposing sensitive
 content; the kiosk boundary is explicit and implemented or consciously accepted;

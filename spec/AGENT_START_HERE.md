@@ -16,8 +16,11 @@ Use these only when the task makes them relevant:
 
 - Before changing assistant behavior, read `app/assistant/` and the focused
   `tests/assistant/` coverage; the action contract is implementation-owned.
-- **BUGLIST.md** — reproducible correctness issues and their evidence.
-- **UI_TESTING_BACKLOG.md** — product, interaction, and visual follow-ups.
+- **Prompt evaluator (regression-only):** `make prompt` runs the tracked
+  `tools/prompt_optimizer/` implementation against fictional benchmark cases.
+  Use it only for a new reproducible assistant-quality regression; it must not
+  access the production database, real household notes, or auto-apply a prompt
+  change. The human reviews and applies any winning template manually.
 - **HOST_SETUP_GUIDE.md** *(at repo root)* — operator-only local-LLM and host
   setup; do not perform those steps as an agent.
 - SMS/text capture is deferred; do not revive it without a new scoped decision.
