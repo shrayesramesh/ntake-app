@@ -253,7 +253,49 @@ subsystem we deliberately don't build; you manage the binary + weights below).
 > document llamafile because it's the one we test against on both the dev Mac and
 > the host.
 
-### 7.1 Acquire the binary + a model (manual, one time)
+### 7.1 Install and run a model without environment variables
+
+Use the standalone installer from the repository root. It downloads the runtime
+and the selected model into `~/.local/share/ntake/llm`, records the source URLs
+and local SHA-256 values in `SOURCES.txt`, and writes a fixed-path launcher. It
+never writes model files into the repository and it does not start a server.
+
+```bash
+# Baseline: Llama 3.1 8B Instruct Q8_0 (~8.5 GB)
+bash scripts/install_local_llm.sh
+
+# Start the local-only server (foreground; Ctrl-C stops it)
+~/.local/share/ntake/llm/run-local-llm.sh
+```
+
+In a second terminal, exercise it using the disposable UI session:
+
+```bash
+make ui-demo
+# While the demo is running, in another terminal:
+make ui-demo-token
+```
+
+No operator-managed `NTAKE_*` environment variables are required for this path:
+`run-local-llm.sh` supplies the selected GGUF path and `ui-demo` discovers the
+served model ID and configures only its own app process.
+
+To A/B the reference model against **Qwen2.5 14B Instruct Q4_K_M** (~9 GB), stop
+the first server and run the installer again. It keeps the first downloaded model
+file and regenerates the launcher to target Qwen:
+
+```bash
+# Stop run-local-llm.sh with Ctrl-C first, then:
+bash scripts/install_local_llm.sh --model qwen
+~/.local/share/ntake/llm/run-local-llm.sh
+make ui-demo
+```
+
+Compare the proposals and response latency in the demo's LLM debug trace. The
+installer is resumable, so an interrupted multi-GB download continues when it is
+re-run with the same model selection.
+
+### 7.1a Manual acquisition details (alternative)
 
 Pick **one** distribution shape:
 
