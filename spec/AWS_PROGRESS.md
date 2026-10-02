@@ -31,11 +31,18 @@ A fresh agent context resumes from the bottom.
   `cdk bootstrap aws://111037110464/us-east-1`. `--check-only` flag; up-front
   `aws`/`cdk` tooling checks. Validated with `bash -n` + stubbed-`aws` logic
   tests (no real AWS calls by the agent). Commit: `fe2c893`.
-- [HUMAN] 0a done: non-root IAM admin user created with `AdministratorAccess` +
-  CLI access keys; `aws configure` set to `us-east-1`. (A leaked key was rotated
-  during setup.)
-- [HUMAN] 0b: Bedrock model access enable — pending (console step).
-- [HUMAN] run `./setup-aws.sh` (bootstrap) — pending.
+- [HUMAN] 0a done + verified: non-root IAM admin user created with
+  `AdministratorAccess` + CLI access keys; `aws configure` set to `us-east-1`.
+  (A leaked key was rotated during setup.) Confirmed by the owner running
+  `./setup-aws.sh --check-only` -> passed (CLI authenticated as the non-root
+  admin on `111037110464`).
+- [HUMAN] 0b done: the Bedrock "Model access" page is **retired** — serverless
+  foundation models now auto-enable on first invocation in commercial regions,
+  so there is nothing to manually grant. Caveat: Anthropic/Claude first-time use
+  may require submitting use-case details; a real `Converse` success is confirmed
+  in Session 1.5 (tracer-bullet), not here. Owner's profile region confirmed
+  `us-east-1` (`aws configure get region`).
+- [HUMAN] run `./setup-aws.sh` (full bootstrap) — pending (needs `cdk` CLI).
 
 ### To-verify / deferred (open)
 - **MFA on the admin user — DEFERRED by owner decision (2026-10-02).** The 0a IAM
