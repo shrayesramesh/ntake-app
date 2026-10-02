@@ -1,5 +1,12 @@
 # Family Calendar + Work Items — Implementation Plan
 
+> **⚠️ SUPERSEDED for the AWS rebuild.** This plan describes the original
+> **self-hosted** build (home PC, FastAPI + SQLite + SSE + Tailscale). The active
+> effort is a from-scratch AWS-native rebuild — see **[`AWS_PLAN.md`](AWS_PLAN.md)**
+> (build plan) and **[`AWS_HLD.md`](AWS_HLD.md)** (architecture). This file is
+> retained as the record of the self-hosted app that still lives on `mainline`
+> until the AWS branch replaces it; do not follow it for AWS work.
+>
 > Phased plan reconciled to the v2 architecture (REQUIREMENTS.md + DESIGN.md).
 > Method: **TDD** — write tests first; **`make check`** (lint + types + tests)
 > must be clean before any checkpoint is done. Rule: TDD your own code; smoke-test

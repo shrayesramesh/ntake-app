@@ -1,5 +1,13 @@
 # Family Calendar + Work Items
 
+> **⚠️ Active direction: AWS-native rebuild.** The project is being rebuilt
+> from scratch as a serverless AWS app (API Gateway + Lambda + DynamoDB +
+> Bedrock). The authoritative docs for that work are
+> **[`spec/AWS_HLD.md`](spec/AWS_HLD.md)** (architecture) and
+> **[`spec/AWS_PLAN.md`](spec/AWS_PLAN.md)** (build plan). The self-hosted design
+> described below (and in `spec/PLAN.md`/`DESIGN.md`) is the **current `mainline`
+> app**, retained until the AWS rebuild branch replaces it.
+
 A private, self-hosted family calendar + work-item app for one household. Runs on
 a home PC, reached privately over Tailscale, with a shared always-on wall display
 and phone access. A local assistant reads free-text updates and proposes calendar/
@@ -14,7 +22,7 @@ household/emotional labor **visible for recognition and fairness**.
   `make check` (lint + types + tests) and `make run` (dev server on 127.0.0.1).
   Needs Python 3.12+ (Pop!_OS: `sudo apt install python3-venv` if venv errors).
 - **Local assistant model (optional, dev):** with a llamafile model acquired
-  (see `HOST_SETUP_GUIDE.md` §7), `make llm-up` / `make llm-status` / `make llm-down`
+  (see `HOST_SETUP_GUIDE.md` §2), `make llm-up` / `make llm-status` / `make llm-down`
   bring the local model server up/down on `127.0.0.1:8080`, and
   `python scripts/live_local_llm_smoke.py` drives real captures against it and
   **prints** the assistant's proposals (reasoning quality is eyeballed, not
@@ -73,7 +81,7 @@ testing: **`make llm-up` then `make ui-demo`** starts a resettable Alex/Sam demo
 DB with the live model, a demo token (retrieve it with `make ui-demo-token` while
 the session is running), and the in-UI LINK/PROPOSE debug trace.
 **`make ui-live`** remains the separate persistent local sandbox mode. Both bind
-only localhost (see `HOST_SETUP_GUIDE` §7.4/§7.6). The backend selection stays
+only localhost (see `HOST_SETUP_GUIDE` §8.4/§8.6). The backend selection stays
 config-in-code (`AssistantConfig`); these targets flip it via the opt-in
 `NTAKE_ASSISTANT_KIND=local` env override so the committed default (and tests)
 stay on `fake`.

@@ -1,5 +1,14 @@
 # Family Calendar + Work Items — Requirements
 
+> **⚠️ AWS rebuild — NFR revisions.** The **functional** requirements below
+> (EVENT / WORKITEM / ASSIST / DISP / ACCESS / SAFE / GROOM / INTEROP) are
+> **requirements of record, unchanged** — the AWS-native rebuild honors them
+> verbatim. However, the AWS build **revises four non-functional requirements**
+> (privacy, cost, uptime, durability) and one observability sub-rule — see
+> **§5a** and the authoritative **[`AWS_HLD.md`](AWS_HLD.md) §2a**. The original
+> §5 NFRs below describe the **self-hosted** app (current `mainline`) and are
+> retained as that record until the AWS branch replaces it.
+>
 > Clean, reconciled requirements (supersedes the earlier REQUIREMENTS.md +
 > REQUIREMENTS_UPDATE.md). Describes **what** the system does and **for whom** —
 > solution-neutral. Implementation lives in DESIGN.md; the phased plan in PLAN.md.
@@ -227,6 +236,43 @@ item"; "joule" is a possible future family-facing label.)*
 - **NFR-COST** Low ongoing cost — self-hosted on existing hardware, local model
   (no per-call fees), no paid messaging at launch. Essentially electricity.
 - **NFR-EFFORT** Low-burden setup/operation for a non-professional admin.
+
+---
+
+## 5a. NFRs revised for the AWS build (supersede §5 where noted)
+
+> These restate the §5 NFRs **as they stand for the AWS-native rebuild**. They
+> **supersede** the matching §5 entries for the AWS build only; the §5 originals
+> remain the record for the self-hosted `mainline` app. Authoritative rationale:
+> `AWS_HLD.md` §2a. Functional requirements (§4) are unchanged.
+
+- **NFR-PRIVACY (revised — accepted tradeoff).** The original "all data on owned
+  hardware, no third-party cloud in the data path" is **no longer a hard
+  constraint.** The AWS build stores household data in **DynamoDB** and routes
+  capture text through **Bedrock**; data lives in and transits a managed cloud.
+  Accepted deliberately. (Mitigations available but not required: Bedrock
+  no-training-on-input, VPC/PrivateLink, CMK, region pinning.)
+- **NFR-COST (revised).** No longer "essentially electricity." The build incurs
+  **per-call Bedrock cost + managed-service charges** (API Gateway, Lambda,
+  DynamoDB, CloudFront, WebSocket). Low at a 2–4 person household's volume;
+  scale-to-zero helps; the cost dial is Bedrock **model size**. A budget alert is
+  deployed with the stack.
+- **NFR-UPTIME (revised).** Availability is now **managed-service availability**
+  (API Gateway / Lambda / DynamoDB), not a single home PC's uptime. No home
+  power/internet dependency.
+- **NFR-DURABILITY (revised).** Replaced the SQLite WAL + weekly `VACUUM INTO`
+  snapshot with **DynamoDB managed durability + point-in-time recovery (PITR)** on
+  the prod table (`RETAIN` removal policy). The same-disk-backup limitation is
+  gone.
+- **Observability / logging (revised sub-rule).** The original "do not log raw
+  household note text by default" is **flipped**: the AWS build logs
+  **full-fidelity** Bedrock calls (prompt + reply) **by default** to S3 to enable
+  prompt improvement, opt-out to metadata-only via a CDK stack prop, 180-day
+  lifecycle expiry.
+
+**Unchanged NFRs:** NFR-SYNC (live push — now WebSocket), NFR-TIME (UTC store /
+family-local render), NFR-EFFORT (low-burden operation — now one console session
++ scripted deploys).
 
 ---
 
