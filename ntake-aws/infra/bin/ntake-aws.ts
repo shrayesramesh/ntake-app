@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { App, RemovalPolicy } from "aws-cdk-lib";
 import { NtakeStack, NtakeStageProps } from "../lib/ntake-stack.js";
+import { TracerStack } from "../lib/tracer-stack.js";
 
 // Pinned account + region (AWS_LLD header; AWS_PLAN Phase 0). Session 1 does NOT
 // deploy — `cdk synth` only. The env is set so synth produces a stage-correct
@@ -32,4 +33,15 @@ const prod: NtakeStageProps = {
 const app = new App();
 new NtakeStack(app, "NtakeStack-dev", dev);
 new NtakeStack(app, "NtakeStack-prod", prod);
+
+// ⚠️ THROWAWAY tracer-bullet slice (AWS_PLAN Session 1.5) — a SEPARATE stack,
+// dev-only, deleted when Session 5 builds the real resources into NtakeStack.
+// Deployed with `make deploy-dev` → `cdk deploy TracerStack-dev` (the [HUMAN]
+// step). Kept apart from NtakeStack so removing the scaffolding can never
+// disturb the real stack. No prod tracer.
+new TracerStack(app, "TracerStack-dev", {
+  env,
+  bedrockModelId: dev.bedrockModelId,
+});
+
 app.synth();

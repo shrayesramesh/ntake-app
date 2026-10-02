@@ -19,7 +19,7 @@ MYPY   := $(VENV)/bin/mypy
 
 # Python sources under the gate. Parked modules (see pyproject header) are still
 # linted by ruff (harmless) but excluded from mypy + coverage until Session 2.
-SRC    := core handlers adapters tests
+SRC    := core handlers adapters tracer tests
 
 # Coverage gate: the lifted live core is unit-tested (LLD §8); parked modules are
 # omitted in pyproject so this measures only Session-1 live code.
@@ -87,7 +87,7 @@ format: ## Auto-fix lint + format (ruff)
 
 typecheck: ## Static type check (mypy; parked modules excluded in pyproject)
 	@test -x $(MYPY) || { echo "No venv — run 'make setup' first."; exit 1; }
-	$(MYPY) core handlers adapters tests
+	$(MYPY) core handlers adapters tracer tests
 
 coverage: ## Run tests with a coverage report (terminal, shows missing lines)
 	$(_require_pytest)
@@ -113,8 +113,8 @@ ddb-down: ## Stop DynamoDB Local
 synth: ## cdk synth the empty stack (infra compiles; NO deploy)
 	cd infra && npm run build && cdk synth
 
-deploy-dev: ## [HUMAN] cdk deploy the dev stage (needs AWS creds; not Session 1)
-	cd infra && npm run build && cdk deploy NtakeStack-dev
+deploy-dev: ## [HUMAN] cdk deploy the dev tracer slice (needs AWS creds; Session 1.5)
+	cd infra && npm run build && cdk deploy TracerStack-dev
 
 deploy-prod: ## [HUMAN] cdk deploy the prod stage (needs AWS creds; not Session 1)
 	cd infra && npm run build && cdk deploy NtakeStack-prod
