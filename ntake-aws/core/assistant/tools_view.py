@@ -14,7 +14,7 @@ nothing model-specific, so it lives in ``app/assistant/`` alongside the world vi
 
 from __future__ import annotations
 
-from app.routing.engine import ActionRegistry
+from core.engine.engine import ActionRegistry
 
 _NTAKE_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (

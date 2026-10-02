@@ -1,13 +1,19 @@
 """Work-item action specs, application handlers, and proposal card details."""
 
+# ⚠️ PARKED FOR SESSION 2 (AWS rebuild). Handlers still take a SQLAlchemy
+# `Session` and import the deleted `app.persistence.models` (+ `sqlalchemy`
+# `select`/`func`). The ActionSpec/Param/describe/render_card definitions lift
+# as-is, but the `apply` handlers must be ported to the `Repository` protocol
+# (AWS_LLD §2) — so the whole module is excluded from the Session 1 gate until
+# that port. Old behavior: `git show main:app/assistant/actions/work_items.py`.
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
-
 from app.persistence.models import ChecklistItem, Member, TargetType, WorkItem
 from app.routing.engine import ActionError, ActionSpec, DataType, Param, require_params
+from sqlalchemy import func, select
 
 from .context import NtakeActionContext
 from .shared import (

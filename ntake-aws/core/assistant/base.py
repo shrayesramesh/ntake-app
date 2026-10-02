@@ -12,15 +12,22 @@ each implement, so a reader (or a new backend) has a single contract reference:
 
 The concrete backends live in parallel sub-packages selected by ``factory``:
 ``app.assistant.fake`` (dev/tests) and ``app.assistant.local_llm`` (host, task 7).
-The app-specific capture *value types* stay in ``app.assistant.capture``; this
-re-exports them too so a backend needs only ``from app.assistant.base import …``.
+The app-specific capture *value types* stay in ``core.assistant.capture``; this
+re-exports them too so a backend needs only ``from core.assistant.base import …``.
 """
+
+# ⚠️ PARKED FOR SESSION 2 (AWS rebuild). The stage-1 ``CaptureResolver`` seam
+# below still takes a SQLAlchemy ``Session`` and imports the deleted
+# ``app.persistence.models`` (+ the old ``app.assistant.capture`` path). The
+# stage-2 contract it re-exports (``AssistantClient``/``ProposedAction``) is
+# already live in ``core.engine.engine`` and ``core.assistant.capture``; this
+# module's own ``CaptureResolver`` is rewired to the ``Repository`` seam in
+# Session 2 (AWS_LLD §2/§3), so it is excluded from the Session 1 gate. Old
+# behavior: ``git show main:app/assistant/base.py``.
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-
-from sqlalchemy.orm import Session
 
 from app.assistant.capture import (
     AssistantClient,
@@ -30,6 +37,7 @@ from app.assistant.capture import (
     ProposedAction,
 )
 from app.persistence.models import Member
+from sqlalchemy.orm import Session
 
 __all__ = [
     "AssistantClient",

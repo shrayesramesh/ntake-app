@@ -1,0 +1,30 @@
+# --- Python ---
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- Node / CDK (infra/) ---
+infra/node_modules/
+infra/cdk.out/
+# Compiled TS output (tsc emits alongside sources with outDir "."):
+infra/bin/*.js
+infra/bin/*.d.ts
+infra/lib/*.js
+infra/lib/*.d.ts
+
+# --- Env / secrets ---
+.env
+.env.*
+
+# --- OS / editor noise ---
+.DS_Store
+*.swp
+.idea/
+.vscode/

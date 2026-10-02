@@ -1,0 +1,11 @@
+{
+  "app": "node bin/ntake-aws.js",
+  "watch": {
+    "include": ["**"],
+    "exclude": ["README.md", "cdk*.json", "tsconfig.json", "package*.json", "node_modules", "**/*.d.ts"]
+  },
+  "context": {
+    "@aws-cdk/core:newStyleStackSynthesis": true,
+    "aws-cdk:enableDiffNoFail": true
+  }
+}

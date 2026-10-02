@@ -8,6 +8,59 @@
 > described below (and in `spec/PLAN.md`/`DESIGN.md`) is the **current `mainline`
 > app**, retained until the AWS rebuild branch replaces it.
 
+## Developing the AWS rebuild (`ntake-aws/`)
+
+The AWS-native build lives in its own self-contained package, **`ntake-aws/`**,
+on the `aws-rebuild` branch. All of its tooling is `make` + `scripts/` run **from
+that directory** (`cd ntake-aws`). It is independent of the self-hosted app's
+root `Makefile`/`pyproject.toml`/`requirements.txt`, which still describe the old
+`mainline` app.
+
+**Prerequisites (install before `make setup`):**
+
+- **Python 3.12+** — the application language (`python3 -m venv` must work; on
+  Debian/Ubuntu/Pop!_OS install `python3-venv` if venv errors).
+- **Node.js 18+ and npm** — only for the CDK (TypeScript) infra under `infra/`.
+- **The AWS CDK CLI (`cdk`) must be preinstalled and on `PATH`** — it is **not** a
+  pinned project dependency (the infra pins the *library* `aws-cdk-lib`, but the
+  *CLI* is a global tool). Install it globally with npm and verify:
+
+  ```bash
+  npm install -g aws-cdk      # or: npm i -g aws-cdk@<version>
+  cdk --version               # developed against 2.1144.0; any recent 2.x works
+  ```
+
+  The CDK CLI is forward-compatible, so a CLI newer than the pinned
+  `aws-cdk-lib` is fine. `make synth` / `make deploy-*` fail with a clear error if
+  `cdk` is missing.
+- **A container runtime (e.g. Docker) — optional.** Only needed to run DynamoDB
+  Local for the access-pattern tests (`make ddb-up`, Session 3+). Absent is fine:
+  those tests are **skipped-if-absent**, so the gate stays green without it.
+
+**Everyday workflow (from `ntake-aws/`):**
+
+```bash
+make setup     # one-time (or after dep changes): venv + pinned deps + CDK node deps
+make check     # THE GATE: ruff lint+format + mypy + coverage-enforced pytest
+make synth     # cdk synth the (currently empty) stack — infra compiles, no deploy
+```
+
+Other targets: `make test` (full suite) and the focused `make test-core` /
+`-data` / `-assistant` / `-api` / `-infra`; `make lint` / `format` / `typecheck`;
+`make ddb-up` / `ddb-down`; `make bedrock-smoke` (dev-stage, Session 8). The
+account preflight + `cdk bootstrap` one-shot is `make setup-aws` (or
+`bash scripts/setup-aws.sh`) — a **[HUMAN]**-run step, already done for account
+`111037110464` in `us-east-1`. `make deploy-dev` / `deploy-prod` are
+**[HUMAN]**-run and need AWS credentials; there is no deploy before Session 1.5.
+
+The authoritative docs for this work are **[`spec/AWS_HLD.md`](spec/AWS_HLD.md)**
+(architecture), **[`spec/AWS_LLD.md`](spec/AWS_LLD.md)** (detailed design),
+**[`spec/AWS_PLAN.md`](spec/AWS_PLAN.md)** (phased, session-by-session build), and
+**[`spec/AWS_PROGRESS.md`](spec/AWS_PROGRESS.md)** (resume/hand-off log).
+
+---
+
+
 A private, self-hosted family calendar + work-item app for one household. Runs on
 a home PC, reached privately over Tailscale, with a shared always-on wall display
 and phone access. A local assistant reads free-text updates and proposes calendar/

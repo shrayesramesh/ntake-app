@@ -1,13 +1,20 @@
 """The opaque application context passed to confirmed assistant actions."""
 
+# ⚠️ PARKED FOR SESSION 2 (AWS rebuild). This module still imports `sqlalchemy`
+# and the deleted `app.persistence.models`; it is NOT yet rewired to the DynamoDB
+# repository + DTOs (AWS_LLD §2). It is deliberately excluded from the Session 1
+# gate (mypy/coverage/lint scope + not imported by any live module or test).
+# Session 2 replaces the `Session`/ORM-model dependency with the `Repository`
+# protocol and the lifted Pydantic DTOs, then brings it back under the gate.
+# Reference for the old behavior: `git show main:app/assistant/actions/context.py`.
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy.orm import Session
-
 from app.persistence.models import Member
 from app.routing.engine import ActionContext
+from sqlalchemy.orm import Session
 
 
 @dataclass

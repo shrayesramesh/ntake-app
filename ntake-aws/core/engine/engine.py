@@ -11,10 +11,10 @@ concrete context type — no ``Any``, and no parameter-variance issues, because 
 plugin's ``AssistantClient[FocusedContext]`` / handler is a fully-typed
 specialization rather than an override that narrows a base parameter.
 
-Imports NOTHING app-specific (no app.persistence.models, no sqlalchemy,
-no fastapi) — that
-boundary (enforced by tests/test_engine.py) is what makes it extractable into
-its own package by a directory move.
+Imports NOTHING infra-specific (no persistence/DTO models, no sqlalchemy, no
+boto3, no fastapi) — that boundary (enforced by tests/test_boundary.py) is what
+makes it a pure, reusable core that each adapter layer depends on, never the
+reverse.
 """
 
 from __future__ import annotations
@@ -119,8 +119,9 @@ class DataType(Enum):
     ``(human_token, json_schema)``; the properties expose them by name.
 
     ``json_schema`` is a plain data fragment (a dict), NOT emission logic: the
-    engine only stores it and never acts on it, so this stays domain-agnostic —
-    the JSON-Schema *assembly* still happens in the local_llm package. (Named
+    engine only stores it and never acts on it, so this stays infra-agnostic —
+    the JSON-Schema *assembly* happens in the Bedrock PROPOSE adapter (the
+    registry→``toolConfig`` translation). (Named
     ``DataType`` to avoid shadowing the builtin ``type``; the literal JSON-Schema
     keyword ``"type"`` lives inside these fragments only.) ``INTEGER`` /
     ``ARRAY_INTEGER`` / ``OBJECT`` are pre-shaped for v2 actions (assign,

@@ -1,11 +1,18 @@
 """Aggregate domain action specs and expose the confirm dispatch entry point."""
 
-from __future__ import annotations
+# ⚠️ PARKED FOR SESSION 2 (AWS rebuild). Still imports `sqlalchemy` and the
+# deleted `app.persistence.models`, and `apply_action` is written around a
+# SQLAlchemy `Session`. Not yet rewired to the DynamoDB repository + DTOs
+# (AWS_LLD §2) — excluded from the Session 1 gate. Session 2 rebuilds
+# `apply_action` over the `Repository` seam and the lifted DTOs, re-registers the
+# ported work-item/event/meta specs, and brings this back under the gate. Old
+# behavior: `git show main:app/assistant/actions/registry.py`.
 
-from sqlalchemy.orm import Session
+from __future__ import annotations
 
 from app.persistence.models import Family, Member
 from app.routing.engine import ActionError, ActionRegistry, ActionSpec
+from sqlalchemy.orm import Session
 
 from .context import NtakeActionContext
 from .events import EVENT_ACTIONS

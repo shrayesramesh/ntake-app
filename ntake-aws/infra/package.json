@@ -1,0 +1,22 @@
+{
+  "name": "ntake-aws-infra",
+  "version": "0.0.1",
+  "private": true,
+  "description": "CDK (TypeScript) infrastructure for the ntake-aws rebuild. Session 1: a minimal empty stack that synthesizes; built out in Sessions 1.5/5/7.",
+  "bin": {
+    "ntake-aws-infra": "bin/ntake-aws.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "synth": "cdk synth",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.7.2"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.173.4",
+    "constructs": "10.4.2"
+  }
+}

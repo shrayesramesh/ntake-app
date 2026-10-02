@@ -1,14 +1,19 @@
 """Shared loading, time parsing, and log-append helpers for action domains."""
 
+# ⚠️ PARKED FOR SESSION 2 (AWS rebuild). Still imports `sqlalchemy` and the
+# deleted `app.persistence.models`; not yet rewired to the DynamoDB repository +
+# DTOs (AWS_LLD §2). Excluded from the Session 1 gate. Session 2 ports these
+# helpers onto the `Repository` protocol. Old behavior:
+# `git show main:app/assistant/actions/shared.py`.
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy.orm import Session
-
 from app.persistence.models import Event, Member, WorkItem, WorkItemUpdate
 from app.persistence.temporal import family_local_to_utc
 from app.routing.engine import ActionError
+from sqlalchemy.orm import Session
 
 
 def _parse_local_dt(value: str, timezone: str) -> datetime:

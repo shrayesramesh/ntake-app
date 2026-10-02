@@ -11,7 +11,7 @@ entity types (``resolved_work_item_ids`` / ``resolved_event_ids``) and so cannot
 live in the domain-agnostic engine.
 
 The generic propose contract (``AssistantClient`` / ``ProposedAction`` /
-``NullAssistant``) lives in the engine (``app.routing``) and is re-exported here
+``NullAssistant``) lives in the engine (``core.engine``) and is re-exported here
 so the plugin (FakeAssistant, endpoints, tests) can import it from one place.
 """
 
@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 # Re-export the domain-agnostic contract from the engine.
-from app.routing.engine import (
+from core.engine.engine import (
     ActionContext,
     AssistantClient,
     NullAssistant,
