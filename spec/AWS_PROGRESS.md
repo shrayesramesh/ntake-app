@@ -25,7 +25,7 @@ A fresh agent context resumes from the bottom.
   models -> repository/DTO replacement are Session 1-2 work. Reference for any
   removed file: `git show main:<path>`.
 
-## Session 0.2 — Account preflight  (in progress)
+## Session 0.2 — Account preflight  (done)
 - [AGENT] Authored `./setup-aws.sh` (repo root): asserts non-root admin on
   account `111037110464` / region `us-east-1`, then idempotent
   `cdk bootstrap aws://111037110464/us-east-1`. `--check-only` flag; up-front
@@ -42,7 +42,11 @@ A fresh agent context resumes from the bottom.
   may require submitting use-case details; a real `Converse` success is confirmed
   in Session 1.5 (tracer-bullet), not here. Owner's profile region confirmed
   `us-east-1` (`aws configure get region`).
-- [HUMAN] run `./setup-aws.sh` (full bootstrap) — pending (needs `cdk` CLI).
+- [HUMAN] bootstrap done: `./setup-aws.sh` ran clean — identity asserted as
+  `arn:aws:iam::111037110464:user/rebuild-admin`, then
+  `✅ Environment aws://111037110464/us-east-1 bootstrapped` (CDKToolkit stack,
+  default AdministratorAccess execution policy, no trusted accounts).
+- Gate: none this session by design (first gate is Session 1).
 
 ### To-verify / deferred (open)
 - **MFA on the admin user — DEFERRED by owner decision (2026-10-02).** The 0a IAM
@@ -54,5 +58,9 @@ A fresh agent context resumes from the bottom.
   HLD §9 admin/minting hardening follow-on. Revisit then.
 
 ### Next session
-Finish Session 0.2's [HUMAN] steps (0b Bedrock model access + run
-`./setup-aws.sh`), then **Session 1 — Skeleton + gate + test harness + tooling**.
+**Session 1 — Skeleton + gate + test harness + tooling** (Phase 1). Sessions 0.1
+and 0.2 are complete; the account is bootstrapped. Session 1 stands up the
+`ntake-aws` package shape (`infra/`, `handlers/`, `adapters/`, `core/` already
+seeded, `tests/`), the `Makefile` + `scripts/` tooling, pinned deps, ruff/mypy/
+pytest config, the boundary test, the shared test harness, and `make synth` on a
+minimal empty CDK stack — ending at a green `make check`.
