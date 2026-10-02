@@ -1,1 +1,0 @@
-"""Focused operations test suite."""

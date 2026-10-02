@@ -1,1 +1,0 @@
-"""Focused persistence test suite."""
