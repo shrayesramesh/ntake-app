@@ -8,9 +8,12 @@
 > stack layout, the test strategy per tier, and the frontend client.
 >
 > **Region:** `us-east-1`. **Account:** `111037110464`.
-> **Conventions:** all timestamps stored **UTC** (ISO-8601, `Z`); ids are
-> **ULID** strings; `family_id` is the partition dimension; every access pattern
-> below is a single DynamoDB operation unless noted.
+> **Conventions:** all timestamps stored **UTC** (ISO-8601, `Z`), set
+> **server-side** in the handler (`datetime.now(UTC)`); ids are **ULID** strings
+> minted **server/Lambda-side at write time** (the client supplies neither ids nor
+> stored timestamps — the request's `now` is prompt context only, §3.1);
+> `family_id` is the partition dimension; every access pattern below is a single
+> DynamoDB operation unless noted.
 
 ---
 
@@ -84,7 +87,11 @@ fields **plus** nested recent log + checklist.
   the family-midnight UTC instant for all-day (one sortable key; both stored
   fields kept for rendering). Also set on **due-dated work items** (the
   calendar/due-date bridge) with `TS#<due_at>#WI#<id>` so the calendar Query
-  returns events + due items in one pass.
+  returns events + due items in one pass. **GSI2 lifecycle asymmetry:** an **event**
+  can be deleted (`delete_event` → `DeleteItem` drops the key); a **work item is
+  never deleted, only archived**, so its GSI2 key is maintained by
+  `update_work_item` when `due_at` is set/changed/cleared, and dropped on
+  `archive_work_item` (an archived item leaves both the board and the calendar).
 
 **WebSocket connection** (live sync, §4)
 - PK `FAM#<familyId>` · SK `CONN#<connectionId>`
@@ -150,13 +157,13 @@ class Repository(Protocol):
     def get_family(self, family_id) -> Family | None
     # writes (intra-item → UpdateItem; marked ones → TransactWriteItems)
     def put_work_item(self, wi) -> None
-    def update_work_item(self, family_id, work_item_id, changes) -> None
+    def update_work_item(self, family_id, work_item_id, changes) -> None   # if due_at set/changed/cleared, maintain GSI2 key accordingly
     def append_update(self, family_id, work_item_id, update) -> None
     def put_event(self, ev) -> None                                # standalone create
     def update_event(self, family_id, event_id, changes) -> None   # reschedule/loc/tags/participants
     def create_event_from_update(self, ev, wi_log_entry) -> None   # TransactWriteItems (co-created)
-    def delete_event(self, family_id, event_id) -> None            # DeleteItem + drop GSI2 key
-    def archive_work_item(self, family_id, work_item_id) -> None   # + drop GSI1
+    def delete_event(self, family_id, event_id) -> None            # DeleteItem + drop GSI2 key (events delete; work items only archive)
+    def archive_work_item(self, family_id, work_item_id) -> None   # + drop GSI1 (GSI2, if due-dated, is also dropped so an archived item leaves the calendar)
     # connections (live sync)
     def put_connection(self, family_id, connection_id, member_id) -> None
     def list_connections(self, family_id) -> list[str]
@@ -227,6 +234,13 @@ raise into the request path), preserving the current graceful-degrade posture.
   against the whitelist regardless, so the grounding guarantee holds even if
   enum-constrained decoding is best-effort. *(Grounding, not privacy — household
   text/context still goes to Bedrock, HLD §2a.)*
+- **Empty-whitelist edge (LINK degraded or genuinely resolved nothing):** an empty
+  `enum` is invalid JSON Schema and would also force the model toward a tool it
+  can't fill. The rule: when the whitelist for an id param is empty, **omit the
+  id-bearing tools entirely** from `toolConfig` for that request — the model is
+  then left with only no-target tools and `no_action`, so a degraded LINK lands
+  cleanly on `no_action` (or a standalone-create tool) rather than erroring. Never
+  emit a tool whose required id param has an empty `enum`.
 - **Target attachment:** the model picks the verb (tool) + any enum-selected
   member; the app attaches the concrete `target_id`/`target_type` from LINK's
   resolved ids (the current "attach target from resolved ids" step), so a tool
@@ -267,6 +281,12 @@ raise into the request path), preserving the current graceful-degrade posture.
   bounded number of times, or (b) accept one primary proposal per capture
   (acceptable for v1). The handler is written to consume a **list** of `toolUse`
   blocks either way, so the fallback is a call-count change, not a reshape.
+- **Loop bound shares the 30s capture budget (§7.1 / HLD §2):** the capture path
+  already spends LINK + PROPOSE sequentially inside the one 30s Lambda timeout
+  (cold start included), so if the loop fallback is chosen the bound must be
+  **small (≤2 PROPOSE iterations)** — the two decisions (loop count, 30s timeout)
+  are coupled and must be set together. (Reversible: option (b) sidesteps the loop
+  entirely.)
 
 ---
 
@@ -326,8 +346,9 @@ raise into the request path), preserving the current graceful-degrade posture.
   lookup per request on a chatty client.
 
 ### 5.3 Minting (admin path, stack-run)
-- An operator-invoked admin path (a small admin Lambda or a `manage`-style script
-  run with AWS creds — **not** a home-PC CLI): generate a **strong random token**
+- An operator-invoked **admin Lambda** run with AWS creds (**not** a home-PC CLI,
+  and not a local script — a small deployed Lambda is the decision): generate a
+  **strong random token**
   (unchanged entropy — it's the primary internet boundary now), store
   `TOK#<hash>` with `family_id/member_id/label/created_at`, **print plaintext
   once**. `revoke` sets `revoked_at`; `list` enumerates a member's tokens.
@@ -365,7 +386,7 @@ raise into the request path), preserving the current graceful-degrade posture.
   logging adapter reads the prop at construction (a Lambda env value set by CDK
   from the prop — the one legitimate deploy-time env use).
 - **Retention:** a **180-day S3 lifecycle rule** on the `bedrock-logs/` prefix
-  (whole object expires). 
+  (whole object expires).
 - **IAM:** the Bedrock-calling Lambda gets `s3:PutObject` on
   `arn:aws:s3:::<logs-bucket>/bedrock-logs/*` only.
 - **Consumption:** the prompt-optimizer tooling reads a family/date range via
@@ -383,7 +404,13 @@ One `NtakeStack`, instantiated per stage (`dev`/`prod`) in `us-east-1` /
 CDK — the `NtakeStageProps` interface in §7.2 is TS). Resources:
 - **DynamoDB** single table (+ GSI1 board, GSI2 calendar, TTL attr reserved for
   future use), on-demand.
-- **S3**: static-assets bucket (behind CloudFront) + logs bucket (lifecycle rule).
+- **S3**: static-assets bucket + logs bucket (lifecycle rule). **Both buckets are
+  private — Block Public Access on, no public bucket policy.** The static-assets
+  bucket is reached *only* through CloudFront via an Origin Access Control (OAC);
+  its bucket policy grants read to the CloudFront distribution alone, not the
+  public. The logs bucket is written by the Bedrock-calling Lambda and read
+  offline by the prompt-optimizer tooling — nothing serves it, so it has no public
+  access and no CloudFront origin at all.
 - **Lambdas**: app handlers, the authorizer, the WS connect/disconnect, the
   minting admin path. Each with a **tightly scoped role** (per-route least
   privilege — this is why native-ish thin handlers help: `bedrock:InvokeModel`
@@ -391,7 +418,13 @@ CDK — the `NtakeStageProps` interface in §7.2 is TS). Resources:
   read/write scoped per handler). **The capture Lambda has a 30s timeout** (two
   sequential Bedrock calls); other handlers keep short defaults.
 - **HTTP API** + **WebSocket API** + the REQUEST authorizer wiring.
-- **CloudFront** in front of the static bucket + the HTTP API origin.
+- **CloudFront** in front of the static bucket + the HTTP API origin. Routes an
+  API path behavior (e.g. `/api/*` or the REST prefixes) to the HTTP API origin
+  and everything else to S3, so the PWA and the API share one origin (same-origin,
+  no CORS — LLD §9). **SPA fallback:** a deep link like `/enroll` has no S3 object,
+  so CloudFront maps 403/404 from the S3 origin to **`200 /index.html`** — the
+  static shell loads and client JS reads `location.hash` (LLD §5.4). Without this,
+  hitting `/enroll` directly 403s.
 - **Secrets Manager** secret (the HMAC token secret).
 - **AWS Budgets** budget + alert (cost protection as code, not a console step).
 
@@ -450,7 +483,12 @@ PWA, no framework and no build step**, served static from S3+CloudFront.
   constants; no bundler.
 - **Rendering:** `app.js` fetches the **JSON APIs** (`/board`, `/events`,
   `/work-items`, `/capture`, `/actions/confirm`) with the bearer token from
-  `localStorage` and renders with plain DOM. The board-column / event-card
+  `localStorage` and renders with plain DOM. **All API calls go through the same
+  CloudFront domain as the static assets** (CloudFront routes an `/api/*` behavior
+  — or the app's REST path prefixes — to the HTTP API origin, the rest to the S3
+  origin). This is **same-origin by construction, so there is no CORS to
+  configure** — the simplest option that meets the requirement, chosen over a
+  second API-Gateway origin + CORS. The board-column / event-card
   structure is ported from `web.py`'s render functions into client JS (DRY: the
   JSON already carries every field those fragments showed). **Routes
   `/board/view` and `/calendar/view` are not built.**
@@ -458,7 +496,10 @@ PWA, no framework and no build step**, served static from S3+CloudFront.
   `localStorage.setItem`, `history.replaceState` to scrub (LLD §5.4).
 - **Live sync:** open the WebSocket (`?token=`), and on a `{entity,id,op}` nudge
   refetch the affected JSON and re-render (replacing SSE→HTMX-reload). Reconnect
-  re-syncs by refetching on open.
+  re-syncs by refetching on open. (The WS connects directly to the API Gateway
+  WebSocket endpoint — a separate `wss://` origin, not fronted by CloudFront;
+  WebSocket connects aren't gated by CORS, and the `?token=` connect authorizes
+  it.)
 - **Proposal cards:** `/capture` returns proposals as JSON (the existing
   `CaptureResponse` DTO); `app.js` renders each as a Confirm/Dismiss card and
   POSTs the chosen action to `/actions/confirm`. Propose-and-confirm is unchanged.

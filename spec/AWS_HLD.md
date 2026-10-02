@@ -250,7 +250,11 @@ single atomic item write. (Exact PK/SK + GSI keys in the LLD.)
   awkwardness while keeping both stored fields for rendering.
 
 ### Keys, ids, concurrency
-- **ULID ids** (time-sortable, client-generated) replace relational autoincrement.
+- **ULID ids** (time-sortable, **server/Lambda-generated** at write time) replace
+  relational autoincrement. Record timestamps (`created_at`/`updated_at` etc.) are
+  likewise **server-authoritative** (`datetime.now(UTC)` in the handler), matching
+  today's model — the client never supplies an id or a stored timestamp. (The
+  request's `now` is prompt-reasoning context only; see LLD §3.1.)
   Ripples into the API/schemas and the LLM-facing id handling (ids become opaque
   strings) — flagged for the LLD.
 - `family_id` is the **partition dimension**, not a filtered column —
@@ -376,8 +380,8 @@ becomes structural. Mechanism-ready, flip-on-later — the same posture as S3 sp
 - **Minting is retained** (it's liked and now load-bearing): an operator action
   generates a random token, stores only its **HMAC hash** in DynamoDB, prints the
   plaintext once; `revoke` sets `revoked_at`. The *mechanism* moves from a home-PC
-  CLI to an operator action against the deployed stack (a small admin path run
-  with AWS creds).
+  CLI to an operator action against the deployed stack (a small admin **Lambda**
+  run with AWS creds — concrete form pinned in LLD §5.3).
 - **Enrollment / token delivery (the receive flow) — Option A, `/enroll#token=`.**
   The token stays **strong** (long, high-entropy) — it must, now that it's the
   primary internet-facing boundary — and the copy-paste pain is solved at
@@ -418,7 +422,7 @@ becomes structural. Mechanism-ready, flip-on-later — the same posture as S3 sp
   runtime flag. A future runtime toggle, if ever needed, is SSM/AppConfig.
 - **Storage: S3** — one JSON object per call, keyed by family + date
   (`bedrock-logs/<family>/<date>/<ulid>.json`), so the prompt-optimizer tooling
-  pulls a family/date range with a cheap `ListObjects` + `GetObject` batch. S3 is
+  pulls a family/date range with a cheap `ListObjectsV2` + `GetObject` batch. S3 is
   the right home: these are large, write-once/read-rarely blobs read **offline in
   batches**, not in the request path — putting them in DynamoDB would spend
   hot-path item budget (and brush the 400KB item ceiling on a big PROPOSE prompt)
@@ -484,8 +488,9 @@ boundary), the **Lambda authorizer**, **Bedrock-call logging**, the **CDK** stac
 and the **thin HTTP handlers**.
 
 **Carried over, with one real change — the frontend (§12a):** the operator
-admin/minting path (stack-run, not home-PC CLI) and the demo / prompt-optimizer
-tooling carry over as-is. The PWA changes shape (static client-render) — below.
+admin/minting **Lambda** (stack-run, not home-PC CLI — §9, LLD §5.3) and the demo
+/ prompt-optimizer tooling carry over as-is. The PWA changes shape (static
+client-render) — below.
 
 ### 12a. Frontend — a very simple static client, rendered from JSON
 The self-hosted app served **server-rendered HTML fragments** from FastAPI
