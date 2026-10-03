@@ -325,6 +325,18 @@ actions package). (See AWS_PLAN Part II, Session 3.)
   skips). **[HUMAN]-invoked** — the agent writes it + surfaces command/results;
   the human runs anything that deploys to / writes the account. The **human
   integration test is retained** (owner explicitly wants it).
+- **Tier 2 is always WIRED, and self-skips on unmet preconditions (clarified
+  2026-10-02).** Tier 1 is the TDD red-green loop; Tier 2 is the per-session
+  dev-integration *gate* the human invokes to close a session. A session must
+  **build its real Tier-2 path even when it cannot run yet** — the path
+  self-checks preconditions and stops cleanly as a recorded **[HUMAN]** follow-up,
+  **never silently skipping and never faking a pass**: credentials (via `sts`),
+  and — for model-dependent slices (LINK/PROPOSE/capture, Sessions 4–8) — a
+  **Bedrock-authorization self-check** (the account is invocation-blocked, §3.5).
+  So "the real model can't run yet" is handled by a wired, self-skipping Tier-2
+  path, **not** by declaring a session Tier-1-only or dropping its Tier-2 gate.
+  When the Bedrock ticket clears, `make integration` exercises the real call with
+  **no code change**. (This is now a standing Operating rule in `AWS_PLAN.md`.)
 - **Each feature session from Session 3 on = code + its infra slice (into
   `NtakeStack`) + its dev integration.** The dev stage grows gradually, not in a
   Session-5/8 big bang. Sessions 5/8 shrink: §5a/§5b work distributes into the

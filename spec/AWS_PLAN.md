@@ -395,12 +395,30 @@ entirely (YAGNI — Tier 1 is in-memory, Tier 2 is the real table).
   (Session 1.5 learned this twice: a dual-shape authorizer and a speculative
   `inferenceConfig`, both built then removed once they proved unnecessary.)
 - **The gate is mandatory before a session is "done":** run `make check` (Tier 1
-  — local/fast) and paste real output. Never claim green without running it. For
-  sessions with an infra slice (Session 3 on), **also** run `make integration`
-  (Tier 2 — dev stage) when credentials are available and paste its output; if
-  creds are absent, say so explicitly and record the dev-integration result as a
-  **[HUMAN]** follow-up rather than silently skipping. (Same discipline as the
-  current `SKILL.md`.)
+  — local/fast, the TDD inner loop) and paste real output. Never claim green
+  without running it.
+- **Tier 2 is a per-session gate, not an afterthought (every feature session,
+  Session 3 on).** Each session must **wire** its `make integration` path — the
+  dev-stage integration for the slice it built — and **run it to close the
+  session**. `make integration` is **[HUMAN]-invoked** (the agent builds + surfaces
+  the command/results; the human runs anything that writes the account). The
+  target **self-checks its preconditions and stops cleanly with a clear
+  message**, treating an unmet precondition as a recorded **[HUMAN]** follow-up —
+  it **never silently skips and never fakes a pass**:
+  - **credentials** — via `aws sts get-caller-identity` (missing/wrong-account →
+    stop with configure instructions);
+  - **model-dependent slices (LINK/PROPOSE/capture, Sessions 4–8)** — a **Bedrock
+    authorization self-check**: because the account is Bedrock-invocation-blocked
+    (support case pending, §3.5), the real-model Converse call cannot run yet, so
+    the integration path must **detect the block and stop cleanly** ("Bedrock not
+    authorized — [HUMAN] follow-up"), exactly like the `sts` guard. **The agent
+    still builds the real Tier-2 path** (so when the ticket clears, `make
+    integration` exercises the real call with **no code change**); it does not
+    defer the *wiring*, only the *run*.
+  So "I can't run the real model yet" is handled by a wired, self-skipping Tier-2
+  path — not by dropping the Tier-2 gate or claiming Tier-1-only. (Same
+  never-silently-skip discipline as the `sts` self-check and the current
+  `SKILL.md`.)
 - **Tooling is `make` + `scripts/`** (see "Tooling to build" below) — agents use
   targets, not raw commands.
 - **Scope + honesty.** Change only what the session names. If blocked, stop and
