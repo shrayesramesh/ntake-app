@@ -182,8 +182,10 @@ class Repository(Protocol):
 - **`DynamoRepository`** — boto3 over the single table; owns the key composition
   (§1), the sparse-GSI write rules, and the two `TransactWriteItems`. The **only**
   place table-key knowledge lives.
-- Both satisfy the same `Protocol`; tests run handlers against the in-memory one,
-  access-pattern tests run `DynamoRepository` against **DynamoDB Local**.
+- Both satisfy the same `Protocol`; Tier-1 tests run handlers against the
+  in-memory one, and the same flow tests + access-pattern tests run
+  `DynamoRepository` against the **real dev-stage table** via `make integration`
+  (Tier 2 — no DynamoDB Local).
 - **DTO types** (`WorkItem`, `Event`, `Member`, `Family`, `CalendarRow`) are the
   lifted Pydantic schemas from `app/schemas.py`, with int ids → **ULID strings**
   (§1). `CalendarRow` is a small new DTO unifying an event or a due-dated work
@@ -504,18 +506,24 @@ interface NtakeStageProps {
 
 ## 8. Test strategy per tier
 
+Two tiers (operating-model change, 2026-10-02): **Tier 1** is the fast local
+`make check` gate (no AWS, no Docker, no DynamoDB Local); **Tier 2** is
+`make integration` against the real dev stage, built up incrementally per session.
+The **same** flow tests run both tiers — in-memory, then the real table.
+
 | Tier | What | How |
 |---|---|---|
-| **Unit (logic)** | engine, action handlers, schemas, temporal, hashing | in-memory `InMemoryRepository` + scripted Bedrock seam; no network |
-| **Boundary** | engine imports no `boto3`/`fastapi`/persistence; `publish_change` has one call site | import-/call-graph assertions (the AWS analogs of the old sqlalchemy-boundary test) |
-| **Access patterns** | the single-table keys/GSIs, `UpdateItem`/`TransactWriteItems`, sparse-archive, calendar range | `DynamoRepository` against **DynamoDB Local** |
-| **Bedrock contract** | LINK JSON parse+validate; PROPOSE tool-use → cards; schema translation; enum re-validation; graceful degrade | scripted Converse responses (incl. malformed → degrade) |
-| **Infra** | the stack synthesizes; IAM scoping; props differ dev/prod | `cdk synth` + assertions on the template |
-| **Dev-stage integration** (cloud) | IAM for real, **real Bedrock** (tool-use, enum adherence, multi-tool-call §3.5, prompt quality), API GW → authorizer → WebSocket post-back | deployed `dev` stack, disposable data (PLAN Session 1.5 tracer bullet, then Session 8 full-stack) |
+| **T1 · Unit (logic)** | engine, action handlers, schemas, temporal, hashing | in-memory `InMemoryRepository` + scripted Bedrock seam; no network |
+| **T1 · Boundary** | engine imports no `boto3`/`fastapi`/persistence; `publish_change` has one call site | import-/call-graph assertions (the AWS analogs of the old sqlalchemy-boundary test) |
+| **T1 · Bedrock contract** | LINK JSON parse+validate; PROPOSE tool-use → cards; schema translation; enum re-validation; graceful degrade | scripted Converse responses (incl. malformed → degrade) |
+| **T1 · Infra** | the stack synthesizes; IAM scoping; props differ dev/prod | `cdk synth` + assertions on the template |
+| **T2 · Access patterns** | the single-table keys/GSIs, `UpdateItem`/`TransactWriteItems`, sparse-archive, calendar range | the **same** flow tests + Dynamo access-pattern tests, run by `make integration` against the **real `ntake-dev` table** |
+| **T2 · Cloud seams** | IAM for real, **real Bedrock** (tool-use, enum adherence, multi-tool-call §3.5, prompt quality), API GW → authorizer → WebSocket post-back | `make integration` against the deployed `dev` stack, disposable data — grown incrementally (Sessions 3/6/7), consolidated in Session 8 |
 
-The first five tiers run locally with no AWS account; only the last needs the dev
-stage — the division the plan is built around (local-first, cloud only for
-cloud-only truths).
+Tier 1 runs locally with no AWS account (the fast inner loop and the default
+gate); Tier 2 (`make integration`, **[HUMAN]-invoked**, credential-checked, can
+`DEPLOY=1`) covers the cloud-only truths against the real dev stage as each
+session's infra slice lands — continuous integration, not one end-stage waypoint.
 
 ---
 

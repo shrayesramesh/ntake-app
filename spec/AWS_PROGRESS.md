@@ -304,3 +304,67 @@ Dynamo-specific access-pattern tests (sparse-GSI archive drop-out, calendar rang
 Query, the two `TransactWriteItems`), and **port the parked action handlers** onto
 the `Repository` seam (no `boto3` in handlers — the boundary test extends to the
 actions package). (See AWS_PLAN Part II, Session 3.)
+
+---
+
+## Decision — Two-tier testing model (2026-10-02, owner)
+**Supersedes the "local-first for everything, cloud integration only at Sessions
+5/8" operating model** stated in the earlier plan/notes. Owner's call: build a
+**dev-stage integration incrementally** instead.
+
+- **Tier 1 — local/fast (default gate, `make check`):** ruff + mypy + the
+  unit/contract suite against `InMemoryRepository` + scripted Bedrock. **No
+  Docker, no DynamoDB Local, no AWS, no credentials, no heavy deps.** Always green
+  offline — the TDD inner loop and what a fresh agent context runs.
+- **Tier 2 — remote/integration (`make integration`), incremental:** runs the
+  **same** flow/access-pattern tests against the **real dev stage**, and can
+  deploy. **One target, deploy is an arg:** `make integration` tests whatever is
+  deployed; `make integration DEPLOY=1` runs `cdk deploy NtakeStack-dev` first.
+  The target **self-checks `aws sts get-caller-identity`** and stops with
+  configure instructions if creds are missing/wrong-account (never silently
+  skips). **[HUMAN]-invoked** — the agent writes it + surfaces command/results;
+  the human runs anything that deploys to / writes the account. The **human
+  integration test is retained** (owner explicitly wants it).
+- **Each feature session from Session 3 on = code + its infra slice (into
+  `NtakeStack`) + its dev integration.** The dev stage grows gradually, not in a
+  Session-5/8 big bang. Sessions 5/8 shrink: §5a/§5b work distributes into the
+  feature sessions; Session 8 becomes a full-stack reconciliation sweep + the
+  full-tool-count §3.5 Bedrock reconciliation (not first cloud contact).
+- **DynamoDB Local is DROPPED (YAGNI):** no `ddb_local.sh`, no `make ddb-up/down`,
+  no `requires_dynamodb_local` marker, no backend-parametrized `repo` fixture.
+  Tier 1 is in-memory; Tier 2 is the real table. The standalone `bedrock_smoke.py`
+  / `make bedrock-smoke` also fold into `make integration`.
+
+**Specs updated now (this change):** `AWS_PLAN.md` (Part II intro, Operating
+rules, Tooling table, Sessions 3–8 exit criteria, Part I Phase 2), `AWS_HLD.md`
+(decision 9, §5 package-shape, §11 testing, §14), `AWS_LLD.md` (§2.2, §8 test
+strategy). **Tooling NOT changed yet:** the `Makefile`/`scripts/` still carry the
+old `ddb-up`/`ddb-down`/`bedrock-smoke` targets + `ddb_local.sh` — the actual
+`make integration` build + the removal of the DynamoDB-Local harness happen **in
+Session 3** (that is where the target has a real consumer; building it now would
+leave a half-wired target against YAGNI). Sessions 0–2 historical notes above are
+left intact (they ran under the old model; the records stay truthful).
+
+### Carry-forward env note (container runtime)
+This machine has **Finch** (`~/.toolbox/bin/finch`, 1.19.0) but **not Docker**;
+Finch's VM can't init here (sudo blocked). Irrelevant under the new model — Tier 1
+needs no runtime at all, and Tier 2 hits the **real** dev table (not a local
+container). The old "need Docker/DynamoDB Local for Session 3" blocker is **gone**.
+
+### Next session (restated under the two-tier model)
+**Session 3 — Data layer: DynamoDB impl + first dev-stage integration slice.**
+(1) Add the **real single table** `ntake-<stage>` (PK/SK + GSI1 board + GSI2
+calendar + TTL, per-stage props) into `NtakeStack` — the Session-5a table slice
+pulled forward. (2) Build `DynamoRepository` (boto3, endpoint-/region-configurable,
+reusing the `core/repository.py` key/sort helpers byte-for-byte). (3) Port the six
+parked handlers onto the `Repository` seam (no `boto3` in handlers; extend the
+boundary test to the actions package; shrink the `pyproject.toml` exclude/omit
+lists + remove the PARKED banners as each returns). (4) **Build `make
+integration`** (sts self-check + optional `DEPLOY=1` + the Tier-2 suite) and
+**delete the DynamoDB-Local harness** (`ddb_local.sh`, `ddb-up`/`ddb-down`,
+`requires_dynamodb_local`, the `dynamo` fixture param; fold `bedrock-smoke` in).
+**Exit:** `make check` (Tier 1) green with handlers over the repo + parked modules
+back under the gate; `make integration` (Tier 2, [HUMAN]-invoked) green against the
+real `ntake-dev` table — or, if creds unavailable this sitting, land the code +
+`make integration` wiring with Tier 1 green and record the dev run as a [HUMAN]
+follow-up (don't fake it); `make synth` clean. (See AWS_PLAN Part II, Session 3.)

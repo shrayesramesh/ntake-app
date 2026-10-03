@@ -169,18 +169,19 @@ every later phase lands against a green build.
 
 ## Phase 2 — Data layer: single-table repository  [AGENT]
 
-The DynamoDB single-table design (HLD §6), test-first against **DynamoDB Local**
-and an **in-memory fake repository**.
+The DynamoDB single-table design (HLD §6), test-first against an **in-memory fake
+repository** (Tier 1) and the **real dev-stage table** via `make integration`
+(Tier 2). (No DynamoDB Local — dropped under the two-tier model, 2026-10-02.)
 
 - **2a.** Define the single-table schema: PK/SK, the two GSIs (board =
   status+position sparse key; calendar = unified time sort key), item shapes for
   family / member / device-token / work-item (co-located item + nested log +
   checklist) / event (flat + denormalized provenance) / connections. **ULID** ids.
 - **2b.** The **repository interface** (the seat the old `Session` held) + the
-  **in-memory fake** (fast unit tests) + the **DynamoDB implementation**
-  (DynamoDB Local). Owns `UpdateItem` for intra-item writes and
-  `TransactWriteItems` for the two cross-item cases (co-created event; reserved
-  spill-truncate).
+  **in-memory fake** (fast Tier-1 unit tests) + the **DynamoDB implementation**
+  (boto3, endpoint-/region-configurable; exercised at Tier 2 against the real
+  dev table). Owns `UpdateItem` for intra-item writes and `TransactWriteItems`
+  for the two cross-item cases (co-created event; reserved spill-truncate).
 - **2c.** Port the action handlers to the repository (no `boto3` in handlers).
   Access-pattern tests: board Query, calendar Query, work-item single-`GetItem`
   read, append-to-log, archive = drop GSI key.
@@ -188,7 +189,8 @@ and an **in-memory fake repository**.
   pointer slot; no spill subsystem. (HLD §6.)
 
 **Done:** repository + both impls green; all action handlers run over the
-repository; access patterns verified on DynamoDB Local.
+repository; access patterns verified on the real dev-stage table via
+`make integration`.
 
 ---
 
@@ -340,12 +342,33 @@ a time. Each session is sized to fit a single working context, ends at a green
 gate, and leaves `main` of the rebuild branch deployable-in-principle. Do **one
 session per sitting**; stop at its exit criteria and report.
 
-The flow is **local-first** — Sessions 2–7 need no AWS account and run against
-fakes / DynamoDB Local / scripted Bedrock, for a fast, free, flake-free loop —
-with **one deliberate exception: Session 1.5**, an early throwaway "tracer-bullet"
-deploy that de-risks the three cloud-only assumptions (IAM, real Bedrock tool-use,
-the WebSocket loop) *before* the local sessions build on them. Shift-left where it
-pays (the one unverified, load-bearing assumption), stay local everywhere else.
+The flow is **two-tier** (operating-model change, 2026-10-02 — supersedes the
+original "local-first for everything, cloud only at Sessions 5/8"):
+
+- **Tier 1 — local/fast (the default gate, `make check`).** ruff + mypy + the
+  unit/contract suite against the **in-memory repository** + **scripted Bedrock**.
+  **No Docker, no DynamoDB Local, no AWS, no credentials, no heavy deps.** Always
+  green offline on any machine — this is every TDD inner loop and what a fresh
+  agent context runs. Fast, free, flake-free.
+- **Tier 2 — remote/integration (`make integration`), built up incrementally.**
+  Runs the **same** protocol-level flow/access-pattern tests against the **real
+  dev stage** (real DynamoDB now; real Bedrock + API GW + WebSocket as those land)
+  — and can **deploy** first. Each feature session from Session 3 on ships its
+  **code + its infra slice (into `NtakeStack`) + its dev integration**, so the
+  dev stage grows gradually alongside the app rather than being deferred to one
+  big-bang integration at the end. `make integration` needs AWS credentials and
+  is a **[HUMAN]-invoked** step (it self-checks `sts get-caller-identity` and
+  stops with configure instructions if creds are missing — it never silently
+  skips).
+
+**Why the change:** continuous dev-stage integration front-loads the cloud-only
+risks (IAM, real DynamoDB semantics, Bedrock) session-by-session instead of
+stacking untested assumptions into Sessions 5/8. Tier 1 keeps the inner loop fast
+and portable; Tier 2 proves each slice against real AWS as it is built. The
+Session 1.5 tracer-bullet was the first taste of this (it caught the Bedrock
+account-auth block and the retired-model reality early); the two-tier model
+generalizes that shift-left to every session. DynamoDB Local is **dropped**
+entirely (YAGNI — Tier 1 is in-memory, Tier 2 is the real table).
 
 ## Operating rules (every session)
 
@@ -353,10 +376,12 @@ pays (the one unverified, load-bearing assumption), stay local everywhere else.
   first**, watch it fail, then write code to pass it. **Prefer integration tests
   that exercise a whole interface/flow** (e.g. a capture→propose round trip
   through the real registry + in-memory repo + scripted Bedrock seam; a repository
-  method against DynamoDB Local) **over** mock-heavy per-function tests —
-  *supplement* with unit tests for specific pure functions (temporal math, schema
-  translation, key composition). The goal: tests assert behavior at the seam, not
-  implementation detail, so refactors don't break them.
+  method against the real dev-stage table via `make integration`) **over**
+  mock-heavy per-function tests — *supplement* with unit tests for specific pure
+  functions (temporal math, schema translation, key composition). The goal: tests
+  assert behavior at the seam, not implementation detail, so refactors don't break
+  them. The **same** flow tests run both tiers: Tier 1 against the in-memory repo,
+  Tier 2 against the real dev table (endpoint-agnostic by construction).
 - **DRY + good practice.** One source of truth (the registry drives tools view +
   schema; `DataType` drives param rendering + JSON Schema; the repository is the
   only place table keys live). No copy-paste handlers; factor shared helpers.
@@ -369,14 +394,22 @@ pays (the one unverified, load-bearing assumption), stay local everywhere else.
   beyond scope, record it as a to-verify/deferred note rather than building it.
   (Session 1.5 learned this twice: a dual-shape authorizer and a speculative
   `inferenceConfig`, both built then removed once they proved unnecessary.)
-- **The gate is mandatory before a session is "done":** run `make check` and paste
-  real output. Never claim green without running it. (Same discipline as the
+- **The gate is mandatory before a session is "done":** run `make check` (Tier 1
+  — local/fast) and paste real output. Never claim green without running it. For
+  sessions with an infra slice (Session 3 on), **also** run `make integration`
+  (Tier 2 — dev stage) when credentials are available and paste its output; if
+  creds are absent, say so explicitly and record the dev-integration result as a
+  **[HUMAN]** follow-up rather than silently skipping. (Same discipline as the
   current `SKILL.md`.)
 - **Tooling is `make` + `scripts/`** (see "Tooling to build" below) — agents use
   targets, not raw commands.
 - **Scope + honesty.** Change only what the session names. If blocked, stop and
   report the full error (don't loop). **[HUMAN]** steps: stop and ask; never touch
-  the AWS console/credentials.
+  the AWS console/credentials unprompted. `make integration` (deploy + run against
+  the real dev stage) is **[HUMAN]-invoked** — the agent writes it, surfaces the
+  command + results, and the human runs anything that deploys to or writes the
+  account. The target self-checks `aws sts get-caller-identity` and stops with
+  configure instructions if creds are missing or wrong-account.
 - **Branch:** all sessions run on the `aws-rebuild` branch (see Git strategy).
   Commit at each green gate with a conventional-commit message.
 
@@ -388,20 +421,24 @@ Mirror the current repo's thin-launcher pattern — a `Makefile` delegating to
 | Target | Does |
 |---|---|
 | `make setup` | venv + install pinned deps + verify (delegates to `setup.sh`) |
-| `make test` | full pytest suite (unit + integration tiers that need no cloud) |
-| `make test-core` / `-data` / `-assistant` / `-api` / `-infra` | focused suites per Part-I phase |
+| `make test` | full **Tier 1** pytest suite (unit + in-memory integration; no cloud) |
+| `make test-core` / `-data` / `-assistant` / `-api` / `-infra` | focused Tier-1 suites per Part-I phase |
 | `make lint` / `format` | ruff check(+format-check) / ruff auto-fix |
 | `make typecheck` | mypy |
-| `make check` | **lint + typecheck + coverage-enforced tests — the gate** |
-| `make ddb-up` / `ddb-down` | start/stop **DynamoDB Local** (container) for access-pattern tests |
+| `make check` | **Tier 1 gate: lint + typecheck + coverage-enforced in-memory tests** (no cloud) |
 | `make synth` | `cdk synth` (infra compiles, no deploy) |
-| `make deploy-dev` / `deploy-prod` | `cdk deploy` the stage (human-initiated) |
-| `make bedrock-smoke` | dev-stage integration checks against real Bedrock (Phase 5) |
+| `make integration` | **Tier 2: run the integration suite against the real dev stage.** Self-checks `aws sts get-caller-identity` (stops with configure instructions if creds missing/wrong-account). `make integration DEPLOY=1` **deploys first** (`cdk deploy NtakeStack-dev`) then tests; without the arg it tests whatever is already deployed. **[HUMAN]-invoked** (needs creds). Grows each session as infra slices land. |
+| `make deploy-dev` / `deploy-prod` | `cdk deploy` the stage (human-initiated; `deploy-dev` is also what `integration DEPLOY=1` calls) |
 
 Scripts under `scripts/`: `setup.sh` (venv+install+verify), `setup-aws.sh`
-(assert non-root admin on `111037110464` + `cdk bootstrap us-east-1`),
-`ddb_local.sh` (up/down), `bedrock_smoke.py` (dev-stage checks). Keep each thin
-and single-purpose (DRY: `make` calls scripts, scripts don't duplicate `make`).
+(assert non-root admin on `111037110464` + `cdk bootstrap us-east-1`), and
+`integration.sh` (the `sts` self-check + optional `cdk deploy` + run the Tier-2
+suite). Keep each thin and single-purpose (DRY: `make` calls scripts, scripts
+don't duplicate `make`). **Dropped (YAGNI, 2026-10-02):** `ddb_local.sh` /
+`make ddb-up` / `ddb-down` (no DynamoDB Local — Tier 1 is in-memory, Tier 2 is the
+real table) and the standalone `bedrock_smoke.py` / `make bedrock-smoke` (real
+Bedrock checks are part of `make integration` once the capture path's infra slice
+lands).
 
 ---
 
@@ -431,7 +468,10 @@ fixtures.
   `BedrockClient` double** (canned LINK JSON + `toolUse` blocks), the DynamoDB
   Local wiring (`make ddb-up/down`, skipped-if-absent), and the boundary-test
   tooling. Put these in `tests/conftest.py` + a `tests/harness/` so Sessions 2–9
-  import, not re-build.
+  import, not re-build. *(Historical: the DynamoDB-Local wiring + the
+  backend-parametrized fixture were built here, then **removed in Session 3** when
+  the two-tier model dropped DynamoDB Local — see the 2026-10-02 decision note in
+  `AWS_PROGRESS.md`.)*
 - `make synth` on a minimal empty CDK stack (TS CDK) passes.
 **Exit:** `make check` green; boundary test green; the shared harness exists and
 is documented; `make synth` clean. Commit.
@@ -458,8 +498,9 @@ is a *walking skeleton*, not the real handlers.
   Sessions 4–5 build the confirmed shape rather than a hopeful one.
 **Exit:** the three cloud seams proven on dev; the multi-tool-call + enum
 questions **answered** and written into the LLD; the throwaway slice is clearly
-marked scaffolding. Commit. *(After this, Sessions 2–7 return to the fast,
-free, local-first loop — now building on confirmed assumptions.)*
+marked scaffolding. Commit. *(Session 1.5 was the first taste of the two-tier
+model — the later sessions generalize its shift-left: a fast local Tier-1 gate
+plus an incremental Tier-2 `make integration` against the growing dev stack.)*
 
 ## Session 2 — Data layer: repository contract + in-memory impl  (Phase 2a/2b-part)
 **Goal:** the `Repository` protocol + `InMemoryRepository`, driven by tests.
@@ -472,17 +513,43 @@ free, local-first loop — now building on confirmed assumptions.)*
 **Exit:** repository protocol + in-memory impl green under `make test-data`; the
 flow tests are impl-agnostic. Commit.
 
-## Session 3 — Data layer: DynamoDB impl on DynamoDB Local  (Phase 2b/2c/2d)
-**Goal:** the same tests pass against real DynamoDB semantics.
-- `make ddb-up`. Run the **same** protocol-level integration tests from Session 2
-  against `DynamoRepository` (parametrize the fixture over both impls — DRY: one
-  test body, two backends). Add Dynamo-specific access-pattern tests: sparse-GSI
-  archive drop-out, calendar range Query, the two `TransactWriteItems`
-  (co-created event; and assert the standalone path is a single `Put`).
+## Session 3 — Data layer: DynamoDB impl + first dev-stage integration slice  (Phase 2b/2c/2d + a slice of 5a)
+**Goal:** the same Session-2 flow tests pass against **real DynamoDB** (dev
+stage), the action handlers run over the repository, and `make integration` is
+established as the Tier-2 harness. This is the **first session under the two-tier
+model** — it ships code **+** its infra slice **+** its dev integration.
+- **Infra slice (into `NtakeStack`, not the tracer):** add the **real single
+  table** `ntake-<stage>` — PK/SK, GSI1 (board, sparse), GSI2 (calendar), TTL attr
+  reserved — with per-stage props (dev `DESTROY`). This is the Session-5a table
+  slice pulled forward so there is a real table to integrate against. `make synth`
+  stays clean.
+- **`DynamoRepository`:** boto3 over the single table, implementing the full
+  `Repository` protocol, **reusing the pure key/sort helpers in
+  `core/repository.py`** byte-for-byte (the single source of table-key knowledge —
+  do not re-derive keys). Owns the sparse-GSI write rules and the two
+  `TransactWriteItems` (co-created event; standalone stays a single `Put`). The
+  boto3 client is **endpoint-/region-configurable** so the same code the Tier-1
+  tests exercise in-memory is what Tier-2 runs against the real table.
+- **Tier 1 (local, no change to speed):** the Session-2 flow tests keep running
+  against `InMemoryRepository` under `make check`.
+- **Tier 2 (`make integration`):** wire the Tier-2 harness — `sts` self-check,
+  optional `DEPLOY=1` (`cdk deploy NtakeStack-dev`), then run the **same**
+  protocol-level flow tests **plus** Dynamo access-pattern tests (sparse-GSI1
+  archive drop-out, calendar range Query on GSI2, the co-created-event
+  `TransactWriteItems`, assert standalone create is a single `Put`) against the
+  **real `ntake-dev` table**. **Drop the DynamoDB-Local harness** (`ddb_local.sh`,
+  `make ddb-up/down`, the `requires_dynamodb_local` marker, the skipped `dynamo`
+  fixture param) — YAGNI under the two-tier model.
 - Port the action handlers to the repository (no `boto3` in handlers — the
-  boundary test now covers the actions package too).
-**Exit:** `make test-data` green against DynamoDB Local; handlers run over the
-repo; `make check` green. Commit.
+  boundary test now covers the actions package too), bringing the six parked
+  modules back under the Tier-1 gate (shrink the `pyproject.toml` exclude/omit
+  lists + remove the ⚠️ PARKED banners as each returns).
+**Exit:** `make check` (Tier 1) green — handlers run over the repo, parked modules
+back under the gate, boundary test extended to actions. `make integration` (Tier
+2) green against the real `ntake-dev` table — **[HUMAN]-invoked**; if creds are
+unavailable this sitting, land the code + the `make integration` wiring with Tier
+1 green and record the dev-integration run as a [HUMAN] follow-up (don't fake it).
+`make synth` clean (real table slice added to `NtakeStack`). Commit.
 
 ## Session 4 — Assistant: LINK + the scriptable seam  (Phase 3a/3c)
 **Goal:** grounding works deterministically with no network.
@@ -490,9 +557,14 @@ repo; `make check` green. Commit.
   scripted Converse JSON out → validate-against-family → resolved whitelist →
   deep-context (over the in-memory repo). Include malformed-reply → degrade.
 - Build the `BedrockClient` protocol + scripted double; implement the LINK call
-  shape (not yet real boto3 — that's exercised in Session 7/dev stage).
-**Exit:** LINK flow tests green (incl. first-person linking, degrade); `make
-check` green. Commit.
+  shape. The real boto3 Converse client is **endpoint-ready** but its real-model
+  run is Tier 2 (below), gated on the Bedrock account-auth support case (§3.5).
+**Exit:** LINK flow tests green at Tier 1 (incl. first-person linking, degrade);
+`make check` green. **Tier 2 (incremental):** if the capture path's infra slice +
+Bedrock access are available, extend `make integration` to run one real LINK
+Converse call against dev and confirm the constrained-JSON shape; otherwise record
+it as the [HUMAN] dev-integration follow-up (tracked with the §3.5 support case).
+Commit.
 
 ## Session 5 — Assistant: PROPOSE tool-use + schema translation  (Phase 3b/3d)
 **Goal:** registry→toolConfig, selection-not-execution, enum-over-whitelist.
@@ -502,9 +574,13 @@ check` green. Commit.
   `ProposedAction` cards; assert **no execution** happens (nothing written), ids
   re-validated against the whitelist, `no_action` handled, and **multiple
   toolUse blocks → multiple cards** (the handler consumes a list; §3.5 fallback is
-  a call-count change). Mark the real-model multi-call behavior **to-verify in
-  Session 8**.
-**Exit:** PROPOSE flow + translation tests green; `make check` green. Commit.
+  a call-count change).
+**Exit:** PROPOSE flow + translation tests green at Tier 1; `make check` green.
+**Tier 2 (incremental):** when Bedrock access + the capture slice are available,
+extend `make integration` to run the real PROPOSE tool-use call against dev and
+confirm enum-over-whitelist + the multi-tool-call behavior (§3.5) at the current
+tool count — reconciled at full tool count once all actions are registered. If
+Bedrock is still blocked, record as the [HUMAN] follow-up. Commit.
 
 ## Session 6 — Thin handlers + authorizer + confirm/execute + live-sync publish  (Phase 4)
 **Goal:** the HTTP/auth surface and the execute→publish boundary.
@@ -516,35 +592,51 @@ check` green. Commit.
 - Authorizer: HMAC hash → member/allow (unit for hashing; integration for the
   authorizer→handler context pass). Minting admin path + the `/enroll#token=`
   fragment-read logic (unit-test the parse/scrub).
-**Exit:** route + auth + publish-boundary tests green; `make check` green. Commit.
+- **Infra slice:** add the HTTP API + authorizer + WebSocket API + the per-Lambda
+  roles for these handlers into `NtakeStack` (building on the Session-3 table
+  slice). `make synth` stays clean.
+**Exit:** route + auth + publish-boundary tests green at Tier 1; `make check`
+green. **Tier 2:** extend `make integration` so the deployed dev stack serves the
+real routes through the real authorizer, and the confirm→execute→publish path
+posts a live WebSocket nudge (the server→client delivery deferred from the tracer,
+LLD §4.2). Commit.
 
-## Session 7 — CDK stack + logging + synth  (Phase 5a/5b, local only)
-**Goal:** the whole stack synthesizes with correct scoping; logging adapter done.
+## Session 7 — Complete the stack: logging + CloudFront/S3 + Budgets + prod props  (Phase 5a/5b)
+**Goal:** finish `NtakeStack` (the table + API/authorizer/WS slices already landed
+in Sessions 3/6) with the remaining resources, correctly scoped; logging adapter
+done.
+- **Infra:** add CloudFront + the two S3 buckets (static assets via OAC; the
+  Bedrock-logs bucket w/ 180-day lifecycle), the AWS Budgets construct, the
+  Secrets Manager secret (if not already from the API slice), and finalize
+  per-stage prop differences (dev `DESTROY`/no-PITR vs prod `RETAIN`/PITR,
+  throttles, model, `bedrockLogFidelity`).
 - **Infra tests:** `cdk synth` + template assertions — per-Lambda IAM scoping
   (`bedrock:InvokeModel` only on capture, `s3:PutObject` only on logging, table
   grants per handler), the two GSIs, the logs-bucket lifecycle rule, the Budgets
-  construct, dev-vs-prod prop differences (RETAIN/PITR, throttles).
+  construct, dev-vs-prod prop differences.
 - Bedrock-logging adapter → S3 (full|metadata fidelity), unit-tested on object
   shape + fidelity switch.
-**Exit:** `make synth` + infra assertions green; `make check` green. Commit.
-*(No deploy yet — still local.)*
+**Exit:** `make synth` + infra assertions green; `make check` green. **Tier 2:**
+`make integration DEPLOY=1` deploys the now-complete dev stack and the integration
+suite still passes end to end. Commit.
 
-## Session 8 — Full-stack dev integration  (Phase 5c/5d)  [HUMAN deploy]
-**Goal:** integration-test the **real** stack on dev. (First cloud contact already
-happened in Session 1.5; this validates the *actual* handlers/repository/seams,
-not a tracer bullet.)
-- **[HUMAN]** `make deploy-dev` (the full stack now).
-- **[AGENT]** `make bedrock-smoke`: the real capture→propose→confirm flow against
-  real Bedrock + real DynamoDB + the real authorizer and WebSocket post-back —
-  end to end on the deployed dev stack (disposable data). Confirm the Session-1.5
-  findings still hold for the real `toolConfig` (the full registry, not the
-  2-tool stub) — especially enum adherence across all id-bearing actions and the
-  multi-tool-call behavior at full tool count.
-- Any divergence from the 1.5 findings (e.g. behavior changes with the larger
-  `toolConfig`) is recorded and, if needed, the fallback (§3.5) is already wired
-  from 1.5 — adjust the call-count, no reshape.
-**Exit:** the full stack validated on dev; findings reconciled with Session 1.5;
-LLD updated if anything changed at full scale. Commit.
+## Session 8 — Full-stack dev integration sweep  (Phase 5c/5d)  [HUMAN deploy]
+**Goal:** a final, whole-stack `make integration` pass on dev — reconciling the
+per-session slices into one end-to-end run. (Under the two-tier model, cloud
+integration already happened **incrementally** in Sessions 3/6/7; this is the
+consolidation sweep + the full-tool-count Bedrock reconciliation, not first cloud
+contact.)
+- **[HUMAN]** `make integration DEPLOY=1` (deploy the complete dev stack, then run
+  the whole Tier-2 suite).
+- **[AGENT]** confirm the real capture→propose→confirm flow end to end against
+  real Bedrock + real DynamoDB + the real authorizer and WebSocket post-back on
+  the deployed dev stack (disposable data). Reconcile the §3.5 findings at the
+  **full tool count** (the complete registry, not the per-session subset):
+  enum adherence across all id-bearing actions and the multi-tool-call behavior.
+- Any divergence surfaced at full scale is recorded; the §3.5 fallback is already
+  wired, so adjust the call-count, no reshape.
+**Exit:** the full stack validated on dev in one sweep; §3.5 reconciled at full
+tool count; LLD updated if anything changed at scale. Commit.
 
 ## Session 9 — Frontend (very simple static PWA on CloudFront)  (Phase 6)  [HUMAN device test]
 **Goal:** the installable static PWA against dev, WebSocket live sync, enroll-by-QR

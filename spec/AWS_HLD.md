@@ -69,8 +69,9 @@
    execute boundary** — the handler posts the change to the family's connections
    right after it commits. No DynamoDB Streams, no fan-out Lambda (fewer moving
    parts). Streams is the noted hardening upgrade (§13). See §8.
-9. **Infra: CDK**, single account, **dev + prod stages**, local-first testing with
-   a cloud **dev stage** as the integration waypoint. See §11.
+9. **Infra: CDK**, single account, **dev + prod stages**, **two-tier testing** —
+   a fast local Tier-1 gate (in-memory, no AWS) plus an incremental Tier-2
+   `make integration` against the cloud **dev stage** that grows per session. See §11.
 
 ---
 
@@ -201,9 +202,10 @@ ntake-aws/                     ← new AWS-native application
     engine/                    ← registry, ActionSpec, dispatch, propose contract
     actions/                   ← the ntake action specs + handlers
     schemas, temporal, token hashing
-  tests/                       ← in-memory fake repo (fast), DynamoDB Local
-                                 (access patterns), scripted Bedrock seams,
-                                 cdk synth assertions
+  tests/                       ← in-memory fake repo (Tier-1, fast), scripted
+                                 Bedrock seams, cdk synth assertions; the Tier-2
+                                 `make integration` suite runs the same flow
+                                 tests against the real dev-stage table/stack
 ```
 
 **Boundary discipline (carried over + extended):** the engine imports nothing
@@ -453,21 +455,27 @@ becomes structural. Mechanism-ready, flip-on-later — the same posture as S3 sp
   (replacing the old weekly `VACUUM INTO` snapshot) so a bad deploy or `destroy`
   can't wipe family data. Dev resources are `DESTROY` for easy teardown.
   (Production-safety: prod stores get retention/deletion protection by default.)
-- **Local-first testing — what is and isn't provable locally:**
-  - **Local (fast loop, no AWS):** domain logic via the **in-memory fake
-    repository**; the single-table access patterns, GSIs, `UpdateItem` /
-    `TransactWriteItems`, and TTL against **DynamoDB Local**; handlers invoked
-    locally; `cdk synth` to validate infra compiles.
-  - **Not provable locally (needs the dev stage):** **IAM** (no local enforcement —
-    the #1 first-deploy failure), **Bedrock** (no local Bedrock — tool-use
-    behavior, response shape, region availability, enum adherence, prompt quality),
-    and the **API Gateway + authorizer + WebSocket post-back** loop (pure
-    service-to-service plumbing).
-  - **Therefore:** the **dev stage is the integration waypoint** — IAM, Bedrock
-    tool-use/prompt-quality, and the live-sync loop are shaken out there, against a
-    disposable table with fake data, **before every prod deploy**. "Deploy and know
-    it works" is true for *logic*; the dev stage covers the cloud-only seams local
-    testing structurally cannot.
+- **Two-tier testing — what each tier proves** (operating-model change,
+  2026-10-02; supersedes the original "local-first for everything, cloud only at
+  the end"):
+  - **Tier 1 — local/fast (the default `make check` gate, no AWS, no Docker):**
+    domain logic + the single-table access patterns via the **in-memory fake
+    repository**; handlers invoked locally; scripted Bedrock; `cdk synth` to
+    validate infra compiles. Always green offline — the fast TDD inner loop.
+    (No DynamoDB Local — dropped; Tier 1 is in-memory, Tier 2 is the real table.)
+  - **Tier 2 — remote/integration (`make integration`), built up incrementally:**
+    the single-table GSIs/`UpdateItem`/`TransactWriteItems`/TTL against the **real
+    dev-stage table**, plus the cloud-only seams local testing structurally cannot
+    prove — **IAM** (the #1 first-deploy failure), **Bedrock** (tool-use shape,
+    region availability, enum adherence, prompt quality), and the **API Gateway +
+    authorizer + WebSocket post-back** loop. Each feature session ships its code +
+    its infra slice into `NtakeStack` + its Tier-2 integration, so the dev stage
+    grows gradually. `make integration` self-checks credentials and can deploy
+    (`DEPLOY=1`); it is a **[HUMAN]-invoked** step.
+  - **Therefore:** the dev stage is a **continuous** integration surface (not a
+    single end-stage waypoint) — the same flow tests run both tiers (in-memory,
+    then the real table), and each session's cloud-only behavior is shaken out
+    against disposable dev data as it is built, **before every prod deploy**.
 - **Deployability:** everything (tables, GSIs, TTL, Lambdas, both APIs,
   CloudFront, IAM, authorizer) is CDK code — a fresh account goes empty → running
   with one `cdk deploy` per stage, reviewable in a CR, no console drift. A CI/CD
@@ -550,5 +558,5 @@ DynamoDB implementation (incl. the cross-item `TransactWriteItems`), (3) the two
 Bedrock seams + schema/tool translation + prompt-quality plan, (4) WebSocket
 live-sync (connections table, direct-post from the execute boundary, 410 pruning),
 (5) the Lambda authorizer + minting path, (6) Bedrock-call logging, (7) the CDK
-stack layout + per-stage props, (8) the test strategy per tier (in-memory,
-DynamoDB Local, dev-stage integration).
+stack layout + per-stage props, (8) the test strategy per tier (Tier 1 in-memory
+local; Tier 2 `make integration` against the dev stage).
