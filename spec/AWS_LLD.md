@@ -349,6 +349,23 @@ decision we are therefore locking in now so Sessions 4–5 are unblocked:
   the signal). **Re-run `make bedrock-preflight` whenever the ticket is touched;
   when Nova/Claude return OK the hold is lifted** → submit the FTU form (if not
   already), then backfill §3.5 via `scripts/bedrock_bisect.py`.
+- **STRONGER CONFIRMATION (2026-10-02): the FTU form itself is blocked.**
+  Attempting to submit the Anthropic use-case form (console / `PutUseCaseForModelAccess`)
+  returns **"Your account is not authorized to perform this action. Please create
+  a support case."** This proves the hold sits **above** the per-model form —
+  there is no self-service path around it (the thing that would self-service it is
+  itself gated by the same hold). The support case is therefore the **sole**
+  unblock, not merely the recommended one. **File it as an Account & Billing case**
+  (free on Basic Support — do NOT pick Technical, which needs a paid plan) at
+  `console.aws.amazon.com/support/home`: subject ≈ *"Bedrock runtime 'Operation
+  not allowed' on all models — request invocation hold lifted"*, body states that
+  Converse/InvokeModel fail with `ValidationException: Operation not allowed` for
+  **all** models incl. first-party Nova Lite, the FTU form returns not-authorized,
+  control plane works, identity has AdministratorAccess, payment method on file,
+  account ~2014–2016 — ask them to lift the account-level Bedrock invocation hold
+  in us-east-1. Confirm a **real card** (not promo credits) is the default payment
+  method in the Billing console first. Then it is a wait; re-run
+  `make bedrock-preflight` when AWS responds.
 - **Model id reality (recorded for Sessions 5/8):** the originally-pinned
   `anthropic.claude-3-haiku-20240307-v1:0` is **retired** ("model version has
   reached end of life"). Modern Claude models on this account are
