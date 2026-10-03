@@ -228,3 +228,79 @@ integration-first, against the Session-1 harness. (See AWS_PLAN Part II,
 Session 2.) The Bedrock support-case outcome is independent and backfills §3.5
 whenever it lands.
 
+## Session 2 — Data layer: repository contract + in-memory impl  (done)
+- **[AGENT]** Built the data-layer seam, local-first (no AWS, no Bedrock, no
+  DynamoDB Local — that is Session 3). TDD + integration-first: flow tests
+  written against the protocol first (watched RED), then the impl to GREEN.
+- **Repository Protocol** (`core/repository.py`): the method set from AWS_LLD
+  §2.1 **verbatim** — reads (`get_work_item`, `get_member`, `list_members`,
+  `get_event`, `list_board`, `list_calendar`, `list_done_work_items`,
+  `get_family`), intra-item + cross-item writes (`put_work_item`,
+  `update_work_item`, `append_update`, `put_event`, `update_event`,
+  `create_event_from_update`, `delete_event`, `archive_work_item`), connections
+  (`put_connection`, `list_connections`, `delete_connection`). **No `commit()`**.
+  Derived from the parked handlers (YAGNI — no speculative methods). Also homes
+  the **pure key/sort helpers** as the single source of table-key knowledge
+  (reused byte-for-byte by Session 3's Dynamo impl): `board_sort_key`
+  (STATUS#…#POS# zero-padded width 6), `calendar_sort_ts` (UTC start for timed;
+  family-midnight-UTC for all-day), `work_item_due_sort_ts`, and the
+  `FAM#`/`WI#`/`EV#`/`MEM#`/`CONN#` composers.
+- **ULID ripple** (`core/schemas.py`, AWS_LLD §1): every id → `str` across the
+  API DTOs; added the **repository DTOs** — `WorkItem` (co-located aggregate:
+  nested `updates` log + `checklist` + reserved `log_segments` spill slot),
+  `Event` (flat + denormalized `provenance` + `source_update_id`), `Member`,
+  `Family`, `CalendarRow`, plus `WorkItemStatus`/`CalendarKind` `StrEnum`s and
+  `BOARD_COLUMNS = (todo, on_deck, doing, done)`.
+- **`InMemoryRepository`** (`core/repository_memory.py`): dict-backed, deep-copy
+  value semantics (mirrors DynamoDB by-value items), family-scoped (the partition
+  boundary), board grouping/ordering + sparse-archive + unified calendar via the
+  shared helpers. Replaced the Session-1 `PlaceholderRepository` behind the
+  **same `"memory"` factory key**, so the parametrized `repo` fixture kept working
+  with no test rewrites. `seed_family` is an **impl-only** provisioning affordance
+  (members/families are out-of-band of the protocol, §2.1) — the harness
+  `seed_family(repo, …)` dispatches per-backend (Dynamo branch wired in S3).
+- **Tests (harness reused, not rebuilt):** `tests/data/test_repository_flows.py`
+  — 20 **impl-agnostic** flow tests via the `repo` fixture (create→append→read
+  aggregate; board grouping/ordering; put-event→list-calendar range + ordering;
+  archive drops off board + calendar; due-date bridge; co-created-event; family
+  scoping; connections) — ready to run **unchanged** on `DynamoRepository` in
+  Session 3. Plus `test_repository_helpers.py` (pure helpers) and
+  `test_repository_memory.py` (impl edge/error paths). Rewrote
+  `tests/core/test_schemas.py` to ULID strings + new-DTO coverage.
+- **Parked modules stay parked** (handlers port in Session 3, per AWS_PLAN exit).
+  Exclude list **unchanged** (same 6 modules); refreshed the ⚠️ PARKED banners +
+  `pyproject.toml` header/comments so they name **Session 3** as the port session
+  (the seam they port onto was built here in Session 2).
+- **Gate GREEN:** `make check` — ruff lint + format clean, mypy clean (51 source
+  files), **134 passed / 24 skipped, 100% core coverage** (≥95 gate).
+  `make test-data` green (37 passed / 20 skipped). Boundary test still green
+  (`core.engine.engine` leaks nothing; `repository.py` imports only
+  `zoneinfo` + `core.temporal`, no `boto3`). `make synth` clean (stacks
+  untouched). Commit `8a1836a` on `aws-rebuild` (not pushed; additive branch).
+- No AWS interaction (local-only, as scoped).
+
+### To-verify / deferred (open)
+- **Session 3 ports the six parked handlers onto this `Repository` seam**
+  (AWS_LLD §2) and brings them back under the gate — keep the `pyproject.toml`
+  exclude list + ⚠️ PARKED banners in sync as each returns. Fidelity notes for
+  the port: the handlers raise `ActionError` on a missing target, whereas the
+  repo raises `KeyError` — the ported handler translates. `shared.py`'s
+  `_append_assistant_update` returns the created update so `create_event` can set
+  `source_update_id`; the repo models this as `create_event_from_update(ev,
+  wi_log_entry)` taking a pre-built `WorkItemUpdate` + an `Event` carrying
+  `provenance.work_item_id`. `archive_all_done` / checklist add+check-off are
+  handler-level loops over the repo reads/writes (no new repo methods needed).
+- **`core/actions/shared.py` rewire** to `core.temporal` (it still imports
+  `app.persistence.temporal`) happens in the Session 3 port.
+- The Bedrock support-case outcome remains independent (backfills AWS_LLD §3.5
+  whenever it lands via `scripts/bedrock_bisect.py`); it does not block Session 3.
+
+### Next session
+**Session 3 — Data layer: DynamoDB impl on DynamoDB Local** (Phase 2b/2c/2d).
+Wire the `"dynamo"` factory to `DynamoRepository` (boto3 over the single table,
+reusing the §1 key helpers from `core/repository.py`), run the **same** flow
+tests against it (`make ddb-up`; parametrize fixture over both backends), add
+Dynamo-specific access-pattern tests (sparse-GSI archive drop-out, calendar range
+Query, the two `TransactWriteItems`), and **port the parked action handlers** onto
+the `Repository` seam (no `boto3` in handlers — the boundary test extends to the
+actions package). (See AWS_PLAN Part II, Session 3.)
