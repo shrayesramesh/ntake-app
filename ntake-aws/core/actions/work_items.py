@@ -1,20 +1,27 @@
-"""Work-item action specs, application handlers, and proposal card details."""
+"""Work-item action specs, application handlers, and proposal card details.
 
-# ⚠️ PARKED (AWS rebuild). Handlers still take a SQLAlchemy
-# `Session` and import the deleted `app.persistence.models` (+ `sqlalchemy`
-# `select`/`func`). The ActionSpec/Param/describe/render_card definitions lift
-# as-is, but the `apply` handlers must be ported to the `Repository` protocol
-# (AWS_LLD §2, built in Session 2) — so the whole module is excluded from the
-# gate until that port (Session 3). Old behavior:
-# `git show main:app/assistant/actions/work_items.py`.
+Session 3 port (AWS_LLD §2): the ``apply`` handlers are rewired off the
+SQLAlchemy ``Session`` onto the :class:`core.repository.Repository` seam + the
+lifted DTOs. The ``ActionSpec``/``Param``/``describe``/``render_card`` definitions
+lift as-is. Three mechanical changes from the ORM original:
+
+* A loaded DTO is a **detached value** (the repo returns a copy), so a handler
+  that mutates it persists through a repo write (``update_work_item`` with a
+  ``changes`` dict / ``archive_work_item``) rather than relying on session
+  autoflush.
+* ``archive_all_done`` and the checklist add/check-off are **handler-level loops**
+  over repo reads/writes — no new repository methods (YAGNI, per the Session-2
+  hand-off).
+* ``member_id`` is a ULID **string** now (``DataType.STRING``), not an int.
+"""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.persistence.models import ChecklistItem, Member, TargetType, WorkItem
-from app.routing.engine import ActionError, ActionSpec, DataType, Param, require_params
-from sqlalchemy import func, select
+from core.engine.engine import ActionError, ActionSpec, DataType, Param, require_params
+from core.ids import new_ulid
+from core.schemas import ChecklistEntry, TargetType, WorkItem, WorkItemStatus
 
 from .context import NtakeActionContext
 from .shared import (
@@ -28,52 +35,51 @@ from .shared import (
 def _apply_set_due_date(ctx: NtakeActionContext, params: dict) -> str:
     require_params(params, ["local_due_at"])
     due = _parse_local_dt(params["local_due_at"], ctx.family_timezone)
-    wi = _load_item(ctx.session, ctx.target_id)
-    wi.due_at = due
-    wi.updated_at = datetime.now(UTC)
+    wi = _load_item(ctx.repo, ctx.member.family_id, ctx.target_id)
+    ctx.repo.update_work_item(wi.family_id, wi.id, {"due_at": due})
     summary = f"Set due date to {params['local_due_at']}"
-    _append_assistant_update(ctx.session, ctx.member, wi.id, summary)
+    _append_assistant_update(ctx.repo, ctx.member, wi.family_id, wi.id, summary)
     return summary
 
 
 def _apply_complete(ctx: NtakeActionContext, params: dict) -> str:
-    wi = _load_item(ctx.session, ctx.target_id)
-    now = datetime.now(UTC)
-    wi.status = "done"
-    wi.completed_at = now
-    wi.updated_at = now
-    _append_assistant_update(ctx.session, ctx.member, wi.id, "Marked done")
+    wi = _load_item(ctx.repo, ctx.member.family_id, ctx.target_id)
+    ctx.repo.update_work_item(
+        wi.family_id,
+        wi.id,
+        {"status": WorkItemStatus.DONE, "completed_at": datetime.now(UTC)},
+    )
+    _append_assistant_update(ctx.repo, ctx.member, wi.family_id, wi.id, "Marked done")
     return "Marked done"
 
 
 def _set_status(ctx: NtakeActionContext, status: str, note: str) -> str:
     """Shared status-transition handler: set status, log, return the note."""
-    wi = _load_item(ctx.session, ctx.target_id)
-    wi.status = status
-    wi.updated_at = datetime.now(UTC)
-    _append_assistant_update(ctx.session, ctx.member, wi.id, note)
+    wi = _load_item(ctx.repo, ctx.member.family_id, ctx.target_id)
+    ctx.repo.update_work_item(wi.family_id, wi.id, {"status": status})
+    _append_assistant_update(ctx.repo, ctx.member, wi.family_id, wi.id, note)
     return note
 
 
 def _apply_start(ctx: NtakeActionContext, params: dict) -> str:
-    return _set_status(ctx, "doing", "Started work")
+    return _set_status(ctx, WorkItemStatus.DOING, "Started work")
 
 
 def _apply_move_to_on_deck(ctx: NtakeActionContext, params: dict) -> str:
-    return _set_status(ctx, "on_deck", "Moved to On deck")
+    return _set_status(ctx, WorkItemStatus.ON_DECK, "Moved to On deck")
 
 
 def _apply_move_to_todo(ctx: NtakeActionContext, params: dict) -> str:
-    return _set_status(ctx, "todo", "Moved to Todo")
+    return _set_status(ctx, WorkItemStatus.TODO, "Moved to Todo")
 
 
 def _apply_reopen(ctx: NtakeActionContext, params: dict) -> str:
     """Reopen a completed item: back to todo and clear completed_at."""
-    wi = _load_item(ctx.session, ctx.target_id)
-    wi.status = "todo"
-    wi.completed_at = None
-    wi.updated_at = datetime.now(UTC)
-    _append_assistant_update(ctx.session, ctx.member, wi.id, "Reopened")
+    wi = _load_item(ctx.repo, ctx.member.family_id, ctx.target_id)
+    ctx.repo.update_work_item(
+        wi.family_id, wi.id, {"status": WorkItemStatus.TODO, "completed_at": None}
+    )
+    _append_assistant_update(ctx.repo, ctx.member, wi.family_id, wi.id, "Reopened")
     return "Reopened"
 
 
@@ -85,66 +91,57 @@ def _apply_assign(ctx: NtakeActionContext, params: dict) -> str:
     the validate-a-model-chosen-id pattern).
     """
     require_params(params, ["member_id"])
-    wi = _load_item(ctx.session, ctx.target_id)
+    wi = _load_item(ctx.repo, ctx.member.family_id, ctx.target_id)
     member_id = params["member_id"]
-    assignee = ctx.session.get(Member, member_id)
-    if assignee is None or assignee.family_id != ctx.member.family_id:
+    assignee = ctx.repo.get_member(ctx.member.family_id, member_id)
+    if assignee is None:
         raise ActionError(f"member not in family: {member_id}")
-    wi.assigned_to = assignee.id
-    wi.updated_at = datetime.now(UTC)
+    ctx.repo.update_work_item(wi.family_id, wi.id, {"assigned_to": assignee.id})
     note = f"Assigned to {assignee.display_name}"
-    _append_assistant_update(ctx.session, ctx.member, wi.id, note)
+    _append_assistant_update(ctx.repo, ctx.member, wi.family_id, wi.id, note)
     return note
 
 
 def _apply_append_update(ctx: NtakeActionContext, params: dict) -> str:
     """Append assistant-composed context to an existing work item's log only."""
     require_params(params, ["body"])
-    wi = _load_item(ctx.session, ctx.target_id)
-    body = params["body"]
-    _append_assistant_update(ctx.session, ctx.member, wi.id, body)
+    wi = _load_item(ctx.repo, ctx.member.family_id, ctx.target_id)
+    _append_assistant_update(ctx.repo, ctx.member, wi.family_id, wi.id, params["body"])
     return "Appended work-item update"
 
 
 def _apply_set_work_item_tags(ctx: NtakeActionContext, params: dict) -> str:
     require_params(params, ["tags"])
-    work_item = _load_item(ctx.session, ctx.target_id)
-    work_item.tags = _normalized_tags(params["tags"])
-    work_item.updated_at = datetime.now(UTC)
-    rendered_tags = ", ".join(work_item.tags) or "(none)"
+    wi = _load_item(ctx.repo, ctx.member.family_id, ctx.target_id)
+    tags = _normalized_tags(params["tags"])
+    ctx.repo.update_work_item(wi.family_id, wi.id, {"tags": tags})
+    rendered_tags = ", ".join(tags) or "(none)"
     note = f"Set tags: {rendered_tags}"
-    _append_assistant_update(ctx.session, ctx.member, work_item.id, note)
+    _append_assistant_update(ctx.repo, ctx.member, wi.family_id, wi.id, note)
     return note
 
 
 def _apply_archive_work_item(ctx: NtakeActionContext, params: dict) -> str:
     """Archive a work item. Invariant (GROOM-4): only a ``done`` item may be
     archived — else ActionError."""
-    wi = _load_item(ctx.session, ctx.target_id)
-    if wi.status != "done":
+    wi = _load_item(ctx.repo, ctx.member.family_id, ctx.target_id)
+    if wi.status != WorkItemStatus.DONE:
         raise ActionError("only a done work item may be archived")
-    now = datetime.now(UTC)
-    wi.archived_at = now
-    wi.updated_at = now
-    _append_assistant_update(ctx.session, ctx.member, wi.id, "Archived")
+    _append_assistant_update(ctx.repo, ctx.member, wi.family_id, wi.id, "Archived")
+    ctx.repo.archive_work_item(wi.family_id, wi.id)
     return "Archived"
 
 
 def _apply_archive_all_done(ctx: NtakeActionContext, params: dict) -> str:
-    """Archive every unarchived Done item in the confirming member's family."""
-    now = datetime.now(UTC)
-    items = list(
-        ctx.session.scalars(
-            select(WorkItem).where(
-                WorkItem.family_id == ctx.member.family_id,
-                WorkItem.status == "done",
-                WorkItem.archived_at.is_(None),
-            )
-        ).all()
-    )
+    """Archive every unarchived Done item in the confirming member's family.
+
+    Handler-level loop over the repo's done-list + archive (no bespoke repo
+    method — AWS_LLD §1.3 "Archive all done" = Query then per-item write).
+    """
+    family_id = ctx.member.family_id
+    items = ctx.repo.list_done_work_items(family_id)
     for item in items:
-        item.archived_at = now
-        item.updated_at = now
+        ctx.repo.archive_work_item(family_id, item.id)
     count = len(items)
     noun = "item" if count == 1 else "items"
     return f"Archived {count} done work {noun}"
@@ -165,23 +162,20 @@ def _apply_add_checklist_items(ctx: NtakeActionContext, params: dict) -> str:
     """Insert checklist items (grocery-list style) onto the target work item.
 
     v1 add-only: takes ``items: [str]`` and appends rows after the current max
-    position. (check/uncheck/remove — which need by-name/by-id addressing — are
-    deferred.)
+    position. The checklist is nested on the work-item aggregate (AWS_LLD §1.2),
+    so this is a handler-level append + one ``update_work_item`` write.
     """
     require_params(params, ["items"])
     items = _validated_checklist_items(params["items"])
-    wi = _load_item(ctx.session, ctx.target_id)
-    start_pos = (
-        ctx.session.query(func.max(ChecklistItem.position))
-        .filter(ChecklistItem.work_item_id == wi.id)
-        .scalar()
-    )
-    pos = (start_pos or 0) + 1
+    wi = _load_item(ctx.repo, ctx.member.family_id, ctx.target_id)
+    checklist = list(wi.checklist)
+    pos = (max((c.position for c in checklist), default=0)) + 1
     for text in items:
-        ctx.session.add(ChecklistItem(work_item_id=wi.id, text=str(text), position=pos))
+        checklist.append(ChecklistEntry(text=str(text), position=pos))
         pos += 1
+    ctx.repo.update_work_item(wi.family_id, wi.id, {"checklist": checklist})
     note = f"Added {len(items)} checklist item(s)"
-    _append_assistant_update(ctx.session, ctx.member, wi.id, note)
+    _append_assistant_update(ctx.repo, ctx.member, wi.family_id, wi.id, note)
     return note
 
 
@@ -189,34 +183,27 @@ def _apply_check_off_items(ctx: NtakeActionContext, params: dict) -> str:
     """Mark named checklist entries complete on the target work item."""
     require_params(params, ["items"])
     requested = _validated_checklist_items(params["items"])
-    work_item = _load_item(ctx.session, ctx.target_id)
-    checklist = list(
-        ctx.session.scalars(
-            select(ChecklistItem)
-            .where(ChecklistItem.work_item_id == work_item.id)
-            .order_by(ChecklistItem.position, ChecklistItem.id)
-        ).all()
-    )
+    wi = _load_item(ctx.repo, ctx.member.family_id, ctx.target_id)
+    checklist = sorted(wi.checklist, key=lambda c: c.position)
     requested_names = {item.strip().casefold() for item in requested}
     matched_names = {
-        item.text.strip().casefold()
-        for item in checklist
-        if item.text.strip().casefold() in requested_names
+        c.text.strip().casefold()
+        for c in checklist
+        if c.text.strip().casefold() in requested_names
     }
     missing = requested_names - matched_names
     if missing:
         raise ActionError(f"checklist items not found: {', '.join(sorted(missing))}")
 
-    matched = [
-        item for item in checklist if item.text.strip().casefold() in requested_names
-    ]
-    for item in matched:
-        item.checked = True
-    work_item.updated_at = datetime.now(UTC)
-    count = len(matched)
+    count = 0
+    for c in checklist:
+        if c.text.strip().casefold() in requested_names:
+            c.checked = True
+            count += 1
+    ctx.repo.update_work_item(wi.family_id, wi.id, {"checklist": checklist})
     noun = "item" if count == 1 else "items"
     note = f"Checked off {count} checklist {noun}"
-    _append_assistant_update(ctx.session, ctx.member, work_item.id, note)
+    _append_assistant_update(ctx.repo, ctx.member, wi.family_id, wi.id, note)
     return note
 
 
@@ -230,23 +217,25 @@ def _apply_create_work_item(ctx: NtakeActionContext, params: dict) -> str:
     )
     now = datetime.now(UTC)
     wi = WorkItem(
+        id=new_ulid(),
         family_id=ctx.member.family_id,
         title=params["title"],
         description=params.get("description"),
-        tags=params.get("tags", []),
+        tags=_normalized_tags(params.get("tags")),
         assigned_to=params.get("assigned_to"),
+        checklist=[
+            ChecklistEntry(text=text, position=position)
+            for position, text in enumerate(checklist_items, start=1)
+        ],
         created_at=now,
         updated_at=now,
     )
-    ctx.session.add(wi)
-    ctx.session.flush()
-    for position, text in enumerate(checklist_items, start=1):
-        ctx.session.add(ChecklistItem(work_item_id=wi.id, text=text, position=position))
+    ctx.repo.put_work_item(wi)
 
     note = f"Created work item: {params['title']}"
     if checklist_items:
         note += f" with {len(checklist_items)} checklist item(s)"
-    _append_assistant_update(ctx.session, ctx.member, wi.id, note)
+    _append_assistant_update(ctx.repo, ctx.member, wi.family_id, wi.id, note)
     return note
 
 
@@ -322,7 +311,7 @@ def _describe_create_work_item(params: dict) -> str:
 def _member_label(resolved: dict, member_id: object) -> str:
     """Resolve a member id to its name via the app-supplied map, else an id token."""
     names = resolved.get("member_names") or {}
-    if isinstance(member_id, int) and member_id in names:
+    if isinstance(member_id, str) and member_id in names:
         return str(names[member_id])
     return f"member {member_id}"
 
@@ -448,7 +437,7 @@ WORK_ITEM_ACTIONS: dict[str, ActionSpec[NtakeActionContext]] = {
     "assign_work_item": ActionSpec(
         name="assign_work_item",
         description="Assign a work item to a family member.",
-        params=[Param("member_id", DataType.INTEGER, required=True)],
+        params=[Param("member_id", DataType.STRING, required=True)],
         target_type=TargetType.WORK_ITEM,
         apply=_apply_assign,
         describe=_describe_assign,

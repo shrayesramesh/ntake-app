@@ -1,19 +1,30 @@
-"""Shared loading, time parsing, and log-append helpers for action domains."""
+"""Shared loading, time parsing, and log-append helpers for action domains.
 
-# ⚠️ PARKED (AWS rebuild). Still imports `sqlalchemy` and the
-# deleted `app.persistence.models`; not yet rewired to the DynamoDB repository +
-# DTOs (AWS_LLD §2). Excluded from the gate. Session 3 ports these
-# helpers onto the `Repository` protocol (built in Session 2). Old behavior:
-# `git show main:app/assistant/actions/shared.py`.
+Session 3 port (AWS_LLD §2): rewired off the SQLAlchemy ``Session`` +
+``app.persistence.models`` onto the :class:`core.repository.Repository` seam and
+the lifted DTOs, and off ``app.persistence.temporal`` onto :mod:`core.temporal`.
+
+Two fidelity rules from the Session-2 hand-off:
+
+* **Miss translation.** The repository raises ``KeyError`` (or returns ``None``)
+  on a missing target; the old handlers raised :class:`ActionError`. The loaders
+  below translate, so handler-visible behavior is unchanged.
+* **Log-append shape.** ``_append_assistant_update`` builds a
+  :class:`WorkItemUpdate` DTO (minting its ``update_id`` server-side), persists it
+  via ``repo.append_update``, and **returns** it — so the event-creation path can
+  read ``update.update_id`` for ``source_update_id`` (the old code read the
+  flushed row's id).
+"""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.persistence.models import Event, Member, WorkItem, WorkItemUpdate
-from app.persistence.temporal import family_local_to_utc
-from app.routing.engine import ActionError
-from sqlalchemy.orm import Session
+from core.engine.engine import ActionError
+from core.ids import new_ulid
+from core.repository import Repository
+from core.schemas import Event, Member, WorkItem, WorkItemUpdate
+from core.temporal import family_local_to_utc
 
 
 def _parse_local_dt(value: str, timezone: str) -> datetime:
@@ -21,33 +32,38 @@ def _parse_local_dt(value: str, timezone: str) -> datetime:
     return family_local_to_utc(value, timezone)
 
 
-def _load_item(session: Session, target_id: int | None) -> WorkItem:
-    wi = session.get(WorkItem, target_id) if target_id is not None else None
+def _load_item(repo: Repository, family_id: str, target_id: str | None) -> WorkItem:
+    """Load a work item or raise ActionError (translating the repo miss)."""
+    wi = repo.get_work_item(family_id, target_id) if target_id is not None else None
     if wi is None:
         raise ActionError(f"work item not found: {target_id}")
     return wi
 
 
-def _load_event(session: Session, target_id: int | None) -> Event:
-    ev = session.get(Event, target_id) if target_id is not None else None
+def _load_event(repo: Repository, family_id: str, target_id: str | None) -> Event:
+    """Load an event or raise ActionError (translating the repo miss)."""
+    ev = repo.get_event(family_id, target_id) if target_id is not None else None
     if ev is None:
         raise ActionError(f"event not found: {target_id}")
     return ev
 
 
 def _append_assistant_update(
-    session: Session, member: Member, work_item_id: int, body: str
+    repo: Repository, member: Member, family_id: str, work_item_id: str, body: str
 ) -> WorkItemUpdate:
-    """Append the source=assistant narration; author is the confirming member."""
+    """Append the source=assistant narration; author is the confirming member.
+
+    Mints the ``update_id`` server-side (AWS_LLD §1), persists via the repo, and
+    returns the DTO so a co-created event can set ``source_update_id`` to it.
+    """
     upd = WorkItemUpdate(
-        work_item_id=work_item_id,
+        update_id=new_ulid(),
         author_id=member.id,
         source="assistant",
         body=body,
         created_at=datetime.now(UTC),
     )
-    session.add(upd)
-    session.flush()  # assign id (create_event links to it)
+    repo.append_update(family_id, work_item_id, upd)
     return upd
 
 

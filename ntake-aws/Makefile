@@ -17,12 +17,11 @@ PYTEST := $(VENV)/bin/pytest
 RUFF   := $(VENV)/bin/ruff
 MYPY   := $(VENV)/bin/mypy
 
-# Python sources under the gate. Parked modules (see pyproject header) are still
-# linted by ruff (harmless) but excluded from mypy + coverage until Session 2.
+# Python sources under the gate (lint scope). All six formerly-parked action
+# modules are live as of Session 3 — no exclusions remain.
 SRC    := core handlers adapters tracer tests
 
-# Coverage gate: the lifted live core is unit-tested (LLD §8); parked modules are
-# omitted in pyproject so this measures only Session-1 live code.
+# Coverage gate: the lifted + ported core is unit/flow-tested (LLD §8).
 COV_MIN := 95
 
 .DEFAULT_GOAL := help
@@ -31,7 +30,7 @@ COV_MIN := 95
   help setup \
   test test-core test-data test-assistant test-api test-infra \
   lint format typecheck coverage check \
-  ddb-up ddb-down synth deploy-dev deploy-prod bedrock-smoke \
+  synth integration deploy-dev deploy-prod \
   setup-aws clean
 
 help: ## Show available targets
@@ -49,15 +48,19 @@ setup: ## Create venv, install pinned deps, verify (delegates to scripts/setup.s
 
 _require_pytest = @test -x $(PYTEST) || { echo "No venv — run 'make setup' first."; exit 1; }
 
-test: ## Run the full local pytest suite (unit + integration tiers; no cloud)
+# Tier 1 never collects the Tier-2 integration suite (it needs real AWS); that
+# runs only via `make integration`.
+TIER1_IGNORE := --ignore=tests/integration
+
+test: ## Run the full local Tier-1 pytest suite (in-memory; no cloud)
 	$(_require_pytest)
-	$(PYTEST)
+	$(PYTEST) $(TIER1_IGNORE)
 
 test-core: ## Focused: engine/schemas/temporal/tokens/boundary (Phase 1)
 	$(_require_pytest)
 	$(PYTEST) tests/core tests/test_boundary.py
 
-test-data: ## Focused: repository + access patterns (Phase 2/3; Session 2+)
+test-data: ## Focused: repository + action handlers (Tier 1, in-memory)
 	$(_require_pytest)
 	$(PYTEST) tests/data
 
@@ -85,42 +88,36 @@ format: ## Auto-fix lint + format (ruff)
 	$(RUFF) check --fix $(SRC)
 	$(RUFF) format $(SRC)
 
-typecheck: ## Static type check (mypy; parked modules excluded in pyproject)
+typecheck: ## Static type check (mypy)
 	@test -x $(MYPY) || { echo "No venv — run 'make setup' first."; exit 1; }
 	$(MYPY) core handlers adapters tracer tests
 
 coverage: ## Run tests with a coverage report (terminal, shows missing lines)
 	$(_require_pytest)
-	$(PYTEST) --cov=core --cov-report=term-missing
+	$(PYTEST) $(TIER1_IGNORE) --cov=core --cov-report=term-missing
 
-check: ## THE GATE: lint + typecheck + coverage-enforced tests
+check: ## THE GATE (Tier 1): lint + typecheck + coverage-enforced in-memory tests
 	@$(MAKE) lint
 	@$(MAKE) typecheck
 	$(_require_pytest)
-	$(PYTEST) --cov=core --cov-report=term-missing --cov-fail-under=$(COV_MIN)
+	$(PYTEST) $(TIER1_IGNORE) --cov=core --cov-report=term-missing --cov-fail-under=$(COV_MIN)
 	@echo "check: all passed."
-
-# --- DynamoDB Local (access-pattern tests; Session 3+) ---------------------
-
-ddb-up: ## Start DynamoDB Local (container; skipped-if-absent)
-	bash scripts/ddb_local.sh up
-
-ddb-down: ## Stop DynamoDB Local
-	bash scripts/ddb_local.sh down
 
 # --- Infra (CDK; TypeScript) -----------------------------------------------
 
-synth: ## cdk synth the empty stack (infra compiles; NO deploy)
+synth: ## cdk synth the stacks (infra compiles; NO deploy)
 	cd infra && npm run build && cdk synth
+
+# --- Tier 2: integration against the REAL dev stage ([HUMAN]-invoked) -------
+
+integration: ## [HUMAN] Tier 2: run the integration suite vs the real ntake-dev table (sts self-check; DEPLOY=1 deploys NtakeStack-dev first)
+	bash scripts/integration.sh
 
 deploy-dev: ## [HUMAN] cdk deploy the dev tracer slice (needs AWS creds; Session 1.5)
 	cd infra && npm run build && cdk deploy TracerStack-dev
 
-deploy-prod: ## [HUMAN] cdk deploy the prod stage (needs AWS creds; not Session 1)
+deploy-prod: ## [HUMAN] cdk deploy the prod stage (needs AWS creds)
 	cd infra && npm run build && cdk deploy NtakeStack-prod
-
-bedrock-smoke: ## [HUMAN] dev-stage checks vs REAL Bedrock (Session 8; needs deploy)
-	$(PY) scripts/bedrock_smoke.py
 
 # --- Account preflight (one-shot; [HUMAN]-run) -----------------------------
 

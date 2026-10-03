@@ -1,18 +1,17 @@
-"""Aggregate domain action specs and expose the confirm dispatch entry point."""
+"""Aggregate domain action specs and expose the confirm dispatch entry point.
 
-# ⚠️ PARKED (AWS rebuild). Still imports `sqlalchemy` and the
-# deleted `app.persistence.models`, and `apply_action` is written around a
-# SQLAlchemy `Session`. Not yet rewired to the DynamoDB repository + DTOs
-# (AWS_LLD §2) — excluded from the gate. Session 3 rebuilds
-# `apply_action` over the `Repository` seam (built in Session 2) and the lifted
-# DTOs, re-registers the ported work-item/event/meta specs, and brings this back
-# under the gate. Old behavior: `git show main:app/assistant/actions/registry.py`.
+Session 3 port (AWS_LLD §2): ``apply_action`` is rebuilt over the
+:class:`core.repository.Repository` seam + the lifted DTOs. There is **no**
+``commit``/``flush`` — the repository has no deferred unit of work (AWS_LLD
+§2.1); each handler's repo call is atomic, and the single live-sync publish
+happens once at the confirm/execute boundary (Session 6), not here.
+"""
 
 from __future__ import annotations
 
-from app.persistence.models import Family, Member
-from app.routing.engine import ActionError, ActionRegistry, ActionSpec
-from sqlalchemy.orm import Session
+from core.engine.engine import ActionError, ActionRegistry, ActionSpec
+from core.repository import Repository
+from core.schemas import Member, TargetType
 
 from .context import NtakeActionContext
 from .events import EVENT_ACTIONS
@@ -30,10 +29,10 @@ REGISTRY: ActionRegistry[NtakeActionContext] = ActionRegistry(list(ACTIONS.value
 
 
 def apply_action(
-    session: Session,
+    repo: Repository,
     member: Member,
     name: str,
-    target_id: int | None,
+    target_id: str | None,
     params: dict,
     target_type: str | None = None,
 ) -> str:
@@ -44,21 +43,20 @@ def apply_action(
     ``target_type`` is treated as a work-item target, so existing work-item
     confirms keep logging + linking.
 
-    Does not commit — the caller commits so the write publishes once via the seam.
-    Raises ActionError for unknown names / missing params / bad targets.
+    No ``commit`` — each repo write is atomic (AWS_LLD §2.1); the caller owns the
+    one post-write publish (Session 6). Raises :class:`ActionError` for unknown
+    names / missing params / bad targets.
     """
     if target_type is None and target_id is not None:
-        target_type = "work_item"
-    family = session.get(Family, member.family_id)
+        target_type = TargetType.WORK_ITEM
+    family = repo.get_family(member.family_id)
     if family is None:
         raise ActionError(f"family not found: {member.family_id}")
     context = NtakeActionContext(
-        session=session,
+        repo=repo,
         member=member,
         family_timezone=family.timezone,
         target_id=target_id,
         target_type=target_type,
     )
-    summary = REGISTRY.dispatch(name, params, context)
-    session.flush()  # autoflush is off; make all pending rows visible pre-commit
-    return summary
+    return REGISTRY.dispatch(name, params, context)

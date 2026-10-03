@@ -7,10 +7,9 @@ Pieces:
 * :mod:`tests.harness.bedrock_double` — :class:`ScriptedBedrockClient`, the
   deterministic Bedrock Converse double (canned LINK JSON + ``toolUse`` blocks),
   the Converse-shaped analog of the old ``ScriptedLLM``.
-* :mod:`tests.harness.repos` — the repository factories the ``repo`` fixture
-  parametrizes over: the in-memory fake now, the DynamoDB-Local-backed one later
-  (Session 3). One test body, two backends.
-* :mod:`tests.harness.ddb_local` — the skipped-if-absent DynamoDB Local probe.
+* :mod:`tests.harness.repos` — the in-memory repository factory the ``repo``
+  fixture builds (Tier 1 is in-memory only; Tier 2 points a ``DynamoRepository``
+  at the real dev table via its own conftest, AWS_LLD §8).
 
 Sessions 2-9 import from here instead of re-inventing fixtures.
 """

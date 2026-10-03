@@ -31,11 +31,20 @@ def test_engine_imports_nothing_infra_specific() -> None:
     assert_imports_none_of("core.engine.engine", FORBIDDEN)
 
 
-def test_engine_does_not_import_the_parked_action_handlers() -> None:
-    """The parked, persistence-coupled action modules (Session 2) must not be
-    reachable from the engine — importing the engine must not drag them in."""
+def test_action_handlers_import_no_boto3_or_persistence() -> None:
+    """The ported action handlers (Session 3) depend only on the ``Repository``
+    *seam*, never ``boto3`` or any infra. Importing the registry (their entry
+    point) must drag in none of the forbidden packages — the ``DynamoRepository``
+    adapter is the only place ``boto3`` lives, and the handlers never import it.
+    """
+    assert_imports_none_of("core.actions.registry", FORBIDDEN)
+
+
+def test_engine_does_not_import_the_action_handlers() -> None:
+    """The engine stays persistence-ignorant: importing it must not drag in the
+    action handler modules (they depend on it, never the reverse)."""
     newly = imported_modules_on_fresh_import("core.engine.engine")
-    parked = {
+    handlers = {
         "core.actions.context",
         "core.actions.shared",
         "core.actions.registry",
@@ -43,5 +52,5 @@ def test_engine_does_not_import_the_parked_action_handlers() -> None:
         "core.actions.events",
         "core.assistant.base",
     }
-    leaked = newly & parked
-    assert not leaked, f"engine reached parked persistence-coupled modules: {leaked}"
+    leaked = newly & handlers
+    assert not leaked, f"engine reached the action handler modules: {leaked}"

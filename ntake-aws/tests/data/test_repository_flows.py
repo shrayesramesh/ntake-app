@@ -1,11 +1,11 @@
 """Integration-first flow tests for the ``Repository`` seam (AWS_LLD §2/§8).
 
 Written against the :class:`core.repository.Repository` **protocol** via the
-parametrized ``repo`` fixture — so each flow runs against ``InMemoryRepository``
-now and, **unchanged**, against ``DynamoRepository`` on DynamoDB Local in
-Session 3 (the DRY backbone: one test body, two backends). They drive whole
-flows end to end (create -> mutate -> read back the aggregate), asserting
-behavior at the seam, not implementation detail.
+``repo`` fixture — so each flow runs against ``InMemoryRepository`` at Tier 1
+(``make check``) and, **unchanged**, against ``DynamoRepository`` on the real
+``ntake-dev`` table at Tier 2 (``make integration``). They drive whole flows end
+to end (create -> mutate -> read back the aggregate), asserting behavior at the
+seam, not implementation detail.
 """
 
 from __future__ import annotations

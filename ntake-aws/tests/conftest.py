@@ -7,9 +7,9 @@ top-level package under ``ntake-aws/``: pytest puts the first parent without an
 
 Fixtures provided to every session's tests:
 
-* ``repo`` — **parametrized over both backends** (in-memory now, DynamoDB Local
-  later; the dynamo param is skipped-if-absent / not-yet-implemented). One test
-  body, two backends — the DRY backbone.
+* ``repo`` — a fresh ``InMemoryRepository`` (Tier 1 — the fast, networkless
+  gate). Tier 2 (``make integration``) uses a real ``DynamoRepository`` via its
+  own conftest, not this fixture.
 * ``scripted_bedrock`` — a factory for the deterministic Bedrock Converse double
   (canned LINK JSON + ``toolUse`` blocks).
 """
@@ -21,20 +21,21 @@ from typing import Any
 
 import pytest
 
+from core.repository_memory import InMemoryRepository
 from tests.harness.bedrock_double import ScriptedBedrockClient
-from tests.harness.repos import REPO_FACTORIES, REPO_PARAMS
+from tests.harness.repos import REPO_FACTORIES
 
 
-@pytest.fixture(params=REPO_PARAMS)
-def repo(request: pytest.FixtureRequest) -> Any:
-    """A repository instance, once per backend (``memory`` + ``dynamo``).
+@pytest.fixture
+def repo() -> InMemoryRepository:
+    """A fresh in-memory repository (Tier 1 — the fast, networkless gate).
 
-    Session 1 yields the ``PlaceholderRepository`` for ``memory`` and skips
-    ``dynamo``; Session 2-3 swap in the real impls behind the same fixture, so
-    tests written against ``repo`` need no change.
+    Under the two-tier model, Tier 1 is in-memory only; Tier 2
+    (``make integration``) points a ``DynamoRepository`` at the real dev table
+    via its own conftest, not through this fixture. The flow tests depend on the
+    ``Repository`` protocol, so one body serves both tiers.
     """
-    backend: str = request.param
-    return REPO_FACTORIES[backend]()
+    return REPO_FACTORIES["memory"]()
 
 
 @pytest.fixture

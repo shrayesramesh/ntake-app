@@ -3,8 +3,7 @@
 The harness is the DRY backbone Sessions 2-9 import, so it is itself real
 functionality worth testing. Covers: the scripted Bedrock Converse double
 (LINK + PROPOSE shapes, substring keying, deep-copy isolation, call recording),
-the parametrized ``repo`` fixture, the DynamoDB-Local probe, and the boundary
-assertion helper.
+the in-memory ``repo`` fixture, and the boundary assertion helper.
 """
 
 from __future__ import annotations
@@ -19,7 +18,6 @@ from tests.harness.bedrock_double import (
     propose_response,
 )
 from tests.harness.boundary import assert_imports_none_of
-from tests.harness.ddb_local import dynamodb_local_available
 
 # --- scripted Bedrock double ----------------------------------------------
 
@@ -89,22 +87,17 @@ def test_scripted_client_records_calls_and_isolates_copies() -> None:
     assert client.calls[0] == ("sys", _user("a note"), tool_config)
 
 
-# --- repo fixture (parametrized over both backends) -----------------------
+# --- repo fixture (in-memory, Tier 1) -------------------------------------
 
 
 def test_repo_fixture_yields_a_backend(repo: object) -> None:
-    # In Session 2 only the ``memory`` param runs (``dynamo`` is skipped); it
-    # yields the real InMemoryRepository, which structurally satisfies the
-    # Repository protocol — the parametrization is demonstrably live.
+    # Tier 1 is in-memory only: the fixture yields the real InMemoryRepository,
+    # which structurally satisfies the Repository protocol.
     assert isinstance(repo, InMemoryRepository)
     assert isinstance(repo, Repository)
 
 
-# --- DynamoDB Local probe + boundary helper -------------------------------
-
-
-def test_dynamodb_local_probe_returns_bool() -> None:
-    assert isinstance(dynamodb_local_available(), bool)
+# --- boundary helper ------------------------------------------------------
 
 
 def test_boundary_helper_passes_for_a_clean_target() -> None:

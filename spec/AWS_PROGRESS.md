@@ -368,3 +368,106 @@ back under the gate; `make integration` (Tier 2, [HUMAN]-invoked) green against 
 real `ntake-dev` table — or, if creds unavailable this sitting, land the code +
 `make integration` wiring with Tier 1 green and record the dev run as a [HUMAN]
 follow-up (don't fake it); `make synth` clean. (See AWS_PLAN Part II, Session 3.)
+
+---
+
+## Session 3 — Data layer: DynamoDB impl + first dev-stage integration slice  (done — Tier-1 green; Tier-2 wired, dev run a [HUMAN] follow-up)
+First session under the two-tier model: shipped code **+** its infra slice **+**
+its (wired, not-yet-run) dev integration. **No AWS credentials this sitting**, so
+Tier 2 is built + wired with Tier 1 green and the real-table run recorded as a
+[HUMAN] follow-up (the judgment call baked into the session scope — not faked).
+
+- **[AGENT] Infra slice (into `NtakeStack`, not the tracer).** Added the **real
+  single table** `ntake-<stage>` (`infra/lib/ntake-stack.ts`): PK/SK, **GSI1**
+  (board) `GSI1PK=FAM#<fam>#BOARD` / `GSI1SK=STATUS#…#POS#…`, **GSI2** (calendar)
+  `GSI2PK=FAM#<fam>#CAL` / `GSI2SK=TS#…`, on-demand billing, **TTL attr `ttl`
+  reserved** (nothing writes it in v1), per-stage props consumed for the first
+  time (dev `DESTROY`/no-PITR, prod `RETAIN`/**PITR**). `TableName` CfnOutput for
+  the integration harness. The Session-5a table slice, pulled forward. `make
+  synth` **clean** — `NtakeStack-dev`/`-prod` both synthesize (verified table +
+  2 GSIs + TTL + dev `Delete`/prod `Retain`+PITR in the templates); `TracerStack-dev`
+  untouched.
+- **[AGENT] `DynamoRepository`** (`adapters/dynamo_repository.py`): boto3 resource
+  over the single table, full `Repository` protocol, **reusing
+  `core/repository.py` key/sort helpers byte-for-byte** (the single source of
+  table-key knowledge — the adapter never re-derives keys). DTO⇄item via
+  `model_dump(mode="json")` + `model_validate` (ISO strings), key/`_type` attrs
+  stripped on read. **Sparse-GSI write rules:** GSI1 only when `archived_at` null;
+  GSI2 on events + due-dated unarchived work items (clearing due / archiving drops
+  it). **Two `TransactWriteItems`:** `create_event_from_update` (event `Put` +
+  work-item `list_append` `UpdateItem`); standalone `put_event` stays a **single
+  `Put`**. `append_update` is an atomic `list_append` `UpdateItem`. Client is
+  **endpoint-/region-configurable** (so the exact code Tier 1 runs in-memory is
+  what Tier 2 runs against the real table). Added `core/ids.py` — a **stdlib ULID
+  minter** (no new dependency, YAGNI) for server-side id minting; added
+  `TargetType` StrEnum to `core/schemas.py` (names domain entities; lives with the
+  DTOs).
+- **[AGENT] Ported the six parked handlers** onto the `Repository` seam + lifted
+  DTOs (`core/actions/{context,shared,registry,work_items,events,meta}.py`,
+  `core/assistant/base.py`): dropped the SQLAlchemy `Session`/`app.persistence.models`
+  deps; `shared.py` rewired off `app.persistence.temporal` onto `core.temporal`;
+  `meta.py` re-specialized to the ported `NtakeActionContext`. Fidelity rules
+  honored: **`KeyError`→`ActionError`** translation in the loaders; the co-created
+  event uses `create_event_from_update(ev, log_entry)` with the log-entry id
+  minted up front for `source_update_id` + denormalized `provenance`;
+  `archive_all_done` + checklist add/check-off are **handler-level loops** over
+  repo reads/writes (**no new repo methods** — YAGNI). Detached-DTO writes go
+  through `update_work_item`/`update_event` `changes` dicts (not autoflush).
+  `member_id` param → ULID `STRING`. All six **⚠️ PARKED banners removed** and the
+  `pyproject.toml` mypy-exclude + coverage-omit lists **deleted** (both empty now).
+- **[AGENT] Tier-1 harness updates.** Boundary test **extended to the actions
+  package** (`core.actions.registry` imports none of `boto3`/`sqlalchemy`/`fastapi`/
+  `app`; the `DynamoRepository` adapter is the only `boto3` home). New TDD handler
+  flow tests (`tests/data/test_action_handlers.py` + `test_action_validation.py`)
+  + a describe/render sweep over the whole registry (`tests/core/test_action_specs.py`)
+  + the stage-1 seam test (`tests/assistant/test_base_seam.py`). **DynamoDB-Local
+  vestige deleted:** `scripts/ddb_local.sh`, `tests/harness/ddb_local.py`, the
+  `requires_dynamodb_local` marker, the `make ddb-up/ddb-down` targets, and the
+  skipped `dynamo` fixture param — the `repo` fixture is now **in-memory only**
+  (one factory). The standalone `scripts/bedrock_smoke.py` + `make bedrock-smoke`
+  folded away (real Bedrock checks join `make integration` once the capture slice
+  lands, Session 4+).
+- **[AGENT] `make integration` (Tier 2) built.** `scripts/integration.sh`:
+  (a) `aws sts get-caller-identity` self-check — **stops with configure
+  instructions** if creds missing or wrong-account (**never silently skips** —
+  verified: it stopped cleanly here with no creds); (b) optional `DEPLOY=1` →
+  `cdk deploy NtakeStack-dev`; (c) `describe-table` guard; (d) runs the Tier-2
+  suite against the real `ntake-dev`. The Tier-2 tree (`tests/integration/`) has
+  its own conftest whose `repo` fixture **overrides** the in-memory one with a
+  `DynamoRepository` on the real table, so `test_dynamo_flows.py` re-runs the
+  **same 20 flow bodies** unchanged (one body, two tiers) alongside 4
+  **Dynamo access-pattern tests** (`test_dynamo_access_patterns.py`): sparse-GSI1
+  archive drop-out, GSI2 calendar range Query, co-created `TransactWriteItems`
+  both-sides, and **standalone create = single `Put`** (mock call-count spy). Tier
+  1 ignores `tests/integration` (`--ignore`), so the gate never needs AWS. Suite
+  **collects 24 tests without AWS** (import/wiring proven).
+- **Gate GREEN (Tier 1).** `make check`: ruff lint+format clean, **mypy clean (66
+  source files)**, **205 passed / 13 skipped**, **99.41% core coverage** (≥95
+  gate). `make synth` clean. No AWS interaction by the agent.
+
+### To-verify / deferred (open)
+- **[HUMAN] Tier-2 dev run is the open follow-up.** When creds for `111037110464`
+  are available: `cd ntake-aws && make integration DEPLOY=1` (deploys
+  `NtakeStack-dev` then runs the 24 Tier-2 tests against the real `ntake-dev`
+  table), or `make integration` if the table is already deployed. Paste the output
+  into this log to close Session 3's Tier-2 exit. The target self-checks creds and
+  stops cleanly if they're absent/wrong-account.
+- **Residual coverage:** one trivial fallback line + a few partial branches in
+  `events.py` (all-day `end_date` defaulting; the no-title create describe) remain
+  — 99.41% is well over the 95 gate; left as-is (YAGNI).
+- **Bedrock support case** (independent of Session 3) still backfills AWS_LLD §3.5
+  via `scripts/bedrock_bisect.py` whenever AWS grants invocation. The throwaway
+  `tracer/` + `TracerStack` + tracer scripts are still deleted in Session 5.
+- `make deploy-dev` still points at `TracerStack-dev` (Session 1.5's deployed
+  slice); `make integration DEPLOY=1` deploys `NtakeStack-dev` directly via the
+  script. Reconciled in Session 5 when the tracer is removed and `deploy-dev`
+  repoints at `NtakeStack-dev`.
+
+### Next session
+**Session 4 — Assistant: LINK + the scriptable seam** (Phase 3a/3c). Build the
+`BedrockClient` protocol + scripted double and the LINK constrained-JSON Converse
+seam (world view → `{work_item_ids, event_ids, member_ids}` → validate-against-
+family → whitelist; first-person linking; malformed→degrade), driven integration-
+first over the in-memory repo at Tier 1. The real-model LINK run is the Tier-2/
+[HUMAN] increment, gated on the Bedrock account-auth support case (§3.5). (See
+AWS_PLAN Part II, Session 4.)

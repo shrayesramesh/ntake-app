@@ -1,21 +1,18 @@
-"""The opaque application context passed to confirmed assistant actions."""
+"""The opaque application context passed to confirmed assistant actions.
 
-# ⚠️ PARKED (AWS rebuild). This module still imports `sqlalchemy`
-# and the deleted `app.persistence.models`; it is NOT yet rewired to the DynamoDB
-# repository + DTOs (AWS_LLD §2). It is deliberately excluded from the gate
-# (mypy/coverage/lint scope + not imported by any live module or test).
-# Session 3 replaces the `Session`/ORM-model dependency with the `Repository`
-# protocol (built in Session 2) and the lifted Pydantic DTOs, then brings it back
-# under the gate.
-# Reference for the old behavior: `git show main:app/assistant/actions/context.py`.
+Session 3 port (AWS_LLD §2): the SQLAlchemy ``Session`` the handlers used to
+unpack is replaced by the :class:`core.repository.Repository` seam, and the ORM
+``Member`` by the lifted Pydantic DTO. ``target_id`` is now a ULID **string**
+(AWS_LLD §1). The engine never inspects this; the handlers below unpack it.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.persistence.models import Member
-from app.routing.engine import ActionContext
-from sqlalchemy.orm import Session
+from core.engine.engine import ActionContext
+from core.repository import Repository
+from core.schemas import Member
 
 
 @dataclass
@@ -28,8 +25,8 @@ class NtakeActionContext(ActionContext):
     source=assistant update).
     """
 
-    session: Session
+    repo: Repository
     member: Member
     family_timezone: str
-    target_id: int | None
+    target_id: str | None
     target_type: str | None

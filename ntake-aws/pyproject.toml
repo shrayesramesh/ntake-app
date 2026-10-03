@@ -4,22 +4,6 @@ version = "0.0.1"
 description = "Family calendar + work items — AWS-native rebuild (API GW + Lambda + DynamoDB + Bedrock)"
 requires-python = ">=3.12"
 
-# ===========================================================================
-# PARKED MODULES (Session 3 rewires them off SQLAlchemy/app.persistence.models
-# onto the DynamoDB Repository + DTOs — AWS_LLD §2; the Repository seam + DTOs
-# they port onto were built in Session 2). They still import the deleted
-# `app.persistence.models` and `sqlalchemy`, so they are excluded from mypy +
-# coverage below until that port. Each file carries a ⚠️ PARKED banner. Keep this
-# list in sync with those banners.
-#
-#   core/actions/context.py
-#   core/actions/shared.py
-#   core/actions/registry.py
-#   core/actions/work_items.py
-#   core/actions/events.py
-#   core/assistant/base.py
-# ===========================================================================
-
 # ---------------------------------------------------------------------------
 # Ruff — linter + formatter (Black-compatible). Same pragmatic ruleset as the
 # old app, minus the FastAPI-specific B008 carve-out (no FastAPI here).
@@ -37,7 +21,8 @@ select = ["E", "F", "I", "B", "UP"]
 
 # ---------------------------------------------------------------------------
 # mypy — type checking. Pragmatic (not --strict) so unstubbed libs (boto3) don't
-# drown out real errors. The parked modules are excluded until Session 3.
+# drown out real errors. (Session 3 brought the formerly-parked action modules
+# back under the gate — the exclude list is gone.)
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.12"
@@ -45,15 +30,6 @@ ignore_missing_imports = true
 check_untyped_defs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
-# Parked modules (see header) — excluded from the gate until the Session 3 port.
-exclude = '''(?x)(
-    core/actions/context\.py$
-  | core/actions/shared\.py$
-  | core/actions/registry\.py$
-  | core/actions/work_items\.py$
-  | core/actions/events\.py$
-  | core/assistant/base\.py$
-)'''
 
 # ---------------------------------------------------------------------------
 # pytest
@@ -64,21 +40,12 @@ addopts = "-q"
 
 # ---------------------------------------------------------------------------
 # coverage.py (via pytest-cov: `make coverage`, and the `make check` gate).
-# `source = ["core"]` measures the lifted core; parked modules are omitted
-# until Session 3 ports them (they are never imported by current tests, so
-# including them would report 0% and sink the gate).
+# `source = ["core"]` measures the lifted + ported core. (Session 3 brought the
+# formerly-parked action modules under test — the omit list is gone.)
 # ---------------------------------------------------------------------------
 [tool.coverage.run]
 source = ["core"]
 branch = true
-omit = [
-    "core/actions/context.py",
-    "core/actions/shared.py",
-    "core/actions/registry.py",
-    "core/actions/work_items.py",
-    "core/actions/events.py",
-    "core/assistant/base.py",
-]
 
 [tool.coverage.report]
 show_missing = true

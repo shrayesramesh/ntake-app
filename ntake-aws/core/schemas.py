@@ -54,6 +54,21 @@ class CalendarKind(StrEnum):
     WORK_ITEM = "work_item"
 
 
+class TargetType(StrEnum):
+    """The kinds of existing entity an assistant action can target.
+
+    Lives with the DTOs because it names concrete domain entities — the
+    domain-agnostic engine must not know these, so the engine keeps
+    ``target_type`` an opaque ``str | None`` and the app (these specs) supplies
+    the members. A ``StrEnum`` so its members ARE their wire strings
+    (``"work_item"`` / ``"event"``): they serialize as those strings and compare
+    equal to the bare literals the handlers test against.
+    """
+
+    WORK_ITEM = "work_item"
+    EVENT = "event"
+
+
 class Member(BaseModel):
     """A family member (AWS_LLD §1.2: ``FAM#<fam>`` / ``MEM#<member>``)."""
 
@@ -357,6 +372,7 @@ __all__ = [
     "LogSegment",
     "Member",
     "ProposalRead",
+    "TargetType",
     "WorkItem",
     "WorkItemCreate",
     "WorkItemRead",

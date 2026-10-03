@@ -153,19 +153,17 @@ def seed_family(repo: object, family: Family, members: list[Member]) -> None:
     Families and members are provisioned out-of-band of the ``Repository``
     protocol (there is no ``put_family``/``put_member`` — AWS_LLD §2.1, the
     minting/admin path owns member creation). Tests still need them seeded, so
-    this harness helper does it **per-backend**, keeping the flow test body
-    backend-agnostic:
+    this harness helper dispatches to the backend's own ``seed_family``
+    provisioning method (an impl-only affordance, not part of the protocol),
+    keeping the flow test body backend-agnostic:
 
-    * ``InMemoryRepository`` exposes a ``seed_family`` provisioning method (an
-      impl-only affordance, not part of the protocol) — call it directly.
-    * ``DynamoRepository`` (Session 3) seeds via raw ``PutItem``\\s; wire that
-      branch when the Dynamo impl lands.
+    * ``InMemoryRepository`` seeds into its dicts;
+    * ``DynamoRepository`` seeds via raw ``PutItem``\\s.
     """
     seed = getattr(repo, "seed_family", None)
     if callable(seed):
         seed(family, members)
         return
     raise NotImplementedError(
-        f"seed_family not wired for backend {type(repo).__name__} "
-        "(DynamoRepository seeding arrives in Session 3)."
+        f"seed_family not available on backend {type(repo).__name__}"
     )
