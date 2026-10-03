@@ -11,7 +11,12 @@ const env = { account: "111037110464", region: "us-east-1" } as const;
 const dev: NtakeStageProps = {
   env,
   stage: "dev",
-  bedrockModelId: "anthropic.claude-3-haiku-20240307-v1:0",
+  // Claude Haiku 4.5 via its US cross-region INFERENCE PROFILE id. Modern Claude
+  // models on Bedrock are inference-profile-only (no bare ON_DEMAND id). Chosen
+  // over Nova because the PROPOSE design is built on Claude-style Converse
+  // tool-use + toolChoice (Nova rejected the tool-use call in Session 1.5).
+  // Cheapest current Claude; "small model is the cost dial" (AWS_HLD §7a).
+  bedrockModelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
   bedrockLogFidelity: "full",
   apiThrottle: { rateLimit: 20, burstLimit: 40 },
   removalPolicy: RemovalPolicy.DESTROY,
@@ -22,7 +27,7 @@ const dev: NtakeStageProps = {
 const prod: NtakeStageProps = {
   env,
   stage: "prod",
-  bedrockModelId: "anthropic.claude-3-haiku-20240307-v1:0",
+  bedrockModelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
   bedrockLogFidelity: "full",
   apiThrottle: { rateLimit: 10, burstLimit: 20 },
   removalPolicy: RemovalPolicy.RETAIN,

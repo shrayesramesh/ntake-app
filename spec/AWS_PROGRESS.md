@@ -141,3 +141,90 @@ operator runs `make deploy-dev`, and the agent validates the three seams against
 the deployed slice — feeding the multi-tool-call + enum findings back into
 AWS_LLD §3.5. (See AWS_PLAN Part II, Session 1.5.)
 
+## Session 1.5 — Tracer-bullet dev deploy  (done — with one deferred seam)
+- **[AGENT]** Built a clearly-marked **throwaway** tracer slice. Decision: a
+  **separate `TracerStack`** (deployed as `TracerStack-dev`, dev-only) rather than
+  extending the empty `NtakeStack` — so Session 5 deletes it in one move without
+  disturbing the real stack. Confirmed with the user.
+  - `ntake-aws/tracer/`: `authorizer.py` (device-token → member, **HTTP API
+    simple-response** `{isAuthorized,context}`, reuses the real
+    `core.tokens.hash_token`), `app_handler.py` (IAM proof via scoped DynamoDB
+    put+get), `bedrock_tracer.py` (2-tool `toolConfig` + `no_action`,
+    `toolChoice:any`, enum-over-whitelist; parse/summarize for §3.5),
+    `ws_handler.py` (`$connect` writes a connection item; `$disconnect` cleans up).
+  - `infra/lib/tracer-stack.ts`: 1 DynamoDB table, 1 Secrets Manager secret, 5
+    Lambdas each with its **own scoped role** (authorizer read-only on the table;
+    app/ws read-write on the table; ws-connect `execute-api:ManageConnections`;
+    bedrock `bedrock:InvokeModel` scoped to the model — never `*`), HTTP API
+    (authorized) + WebSocket API.
+  - Local tests under the existing harness: `tests/api/test_tracer_authorizer.py`,
+    `tests/api/test_tracer_http_ws.py`, `tests/assistant/test_tracer_bedrock.py`.
+- **[HUMAN]** `make deploy-dev` (→ `cdk deploy TracerStack-dev`) — the first
+  deploy. Succeeded on `111037110464` / us-east-1.
+- **Gate GREEN** at close: ruff clean, mypy 46 files, **91 passed / 5 skipped,
+  100% core coverage**. **`make synth` clean** (NtakeStack-dev/-prod untouched,
+  TracerStack-dev added). Commit on `aws-rebuild` (not pushed; additive branch).
+
+### Three-seam results
+- **IAM — PROVEN ✓.** `GET /tracer-iam` with a seeded token → 200 JSON: scoped
+  DynamoDB put+get succeeded, `authorizer_context {member_id:MEM#alex,
+  family_id:FAM#tracer}` passed through; no-token → 401. The scoped per-Lambda
+  role works end-to-end (no AccessDenied) and the authorizer→handler context pass
+  is confirmed.
+- **WebSocket — connect/routing/handshake PROVEN ✓; delivery DEFERRED.** The raw
+  stdlib client got `101 Switching Protocols` (API GW accepts `$connect`, routes
+  to the Lambda, which wrote the connection item). **Finding:** posting back to
+  the *connecting* socket from inside `$connect` does **not** work (hangs ~7s then
+  fails — an API GW quirk). The real design never does this — nudges are posted
+  from the **confirm/execute boundary** (a separate invocation to already-
+  established connections, AWS_LLD §4.2), so delivery-to-a-listening-client is
+  validated at the correct seam in **Session 6/8**, not here. The tracer's
+  self-post was removed (YAGNI; don't build the artificial path).
+- **Bedrock — BLOCKED on account authorization; §3.5 question OPEN/DEFERRED.**
+  Every `Converse` call (even plain text, no tools) returns `ValidationException:
+  "Operation not allowed"` for both Claude (Haiku 4.5 via `us.` profile) and Nova
+  Lite; the Bedrock Playground (as root) also does not respond. Account health is
+  fine (no suspension; valid payment; the billing-page restrictions were just the
+  IAM-user-can't-see-billing wall). This is a **first-time, account-level Bedrock
+  authorization** that only AWS grants — **a support case has been filed** (as
+  root). IAM/request-shape are correct (the call *reaches* Bedrock). The
+  multi-tool-call + enum questions are therefore **unanswered** — written into
+  AWS_LLD §3.5 as deferred, with the safe decision locked so Sessions 4–5 are not
+  blocked: handler consumes a **list** of toolUse blocks (1-or-many, reshape-free),
+  `toolChoice:any` is design-intent-to-confirm, **one-primary-proposal-per-capture
+  is the default** until observed otherwise.
+
+### Findings / decisions recorded in AWS_LLD §3.5
+- Claude 3 Haiku (`anthropic.claude-3-haiku-20240307-v1:0`) is **retired**; modern
+  Claude is **inference-profile-only** → pin `us.anthropic.claude-haiku-4-5-...`
+  and widen the Bedrock IAM to the inference-profile ARN **+** underlying
+  foundation-model ARNs across us-east-1/us-east-2/us-west-2 (still model-scoped).
+- HTTP API authorizer: use **simple response** (payload format 2.0), not an IAM
+  policy — the IAM-policy/format-1.0 shape was a silent-fail footgun (routes
+  returned 200 regardless of token until switched).
+- Route naming: avoid `/ping` — it is intercepted by an edge/network health-probe
+  responder before reaching API Gateway (returned a canned "Healthy Connection").
+  Tracer routes are `/tracer-iam`, `/tracer-bedrock`.
+- Added a **YAGNI** operating rule to AWS_PLAN (learned twice this session: a
+  dual-shape authorizer and a speculative `inferenceConfig`, both removed).
+
+### To-verify / deferred (open)
+- **Bedrock invocation blocked on the AWS support case.** When granted (no
+  redeploy needed), run `scripts/bedrock_bisect.py
+  us.anthropic.claude-haiku-4-5-20251001-v1:0` — it bisects plain-text → tools →
+  `auto` → `any` → the exact tracer config. Record the real multi-tool-call + enum
+  answer in AWS_LLD §3.5 and reconcile at full tool count in Session 8.
+- **WebSocket delivery** (server → listening client) is proven at the execute
+  boundary in Session 6/8, not in the tracer.
+- The throwaway `tracer/` package, `TracerStack`, and `scripts/tracer_validate.py`
+  / `nova_probe.py` / `bedrock_bisect.py` / `ws_check.py` are **deleted** when
+  Session 5 builds the real resources into `NtakeStack` and `make deploy-dev` is
+  pointed back at `NtakeStack-dev`.
+
+### Next session
+**Session 2 — Data layer: repository contract + in-memory impl** (local-first; no
+AWS, no Bedrock). Build the `Repository` protocol + `InMemoryRepository`,
+integration-first, against the Session-1 harness. (See AWS_PLAN Part II,
+Session 2.) The Bedrock support-case outcome is independent and backfills §3.5
+whenever it lands.
+

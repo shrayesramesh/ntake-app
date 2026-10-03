@@ -9,7 +9,6 @@ import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations
 import {
   HttpLambdaAuthorizer,
   HttpLambdaResponseType,
-  WebSocketLambdaAuthorizer,
 } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { WebSocketLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -125,12 +124,22 @@ export class TracerStack extends Stack {
         TRACER_BEDROCK_MODEL_ID: props.bedrockModelId,
       },
     });
+    // The model id is an INFERENCE PROFILE id (e.g. "us.anthropic.claude-haiku-...").
+    // Invoking a profile needs bedrock:InvokeModel on BOTH the profile ARN AND the
+    // underlying foundation-model ARNs in every region the profile routes to
+    // (the "us." profiles fan to us-east-1/us-east-2/us-west-2). Still scoped to
+    // this one model family — never bedrock:* on *.
+    const profileId = props.bedrockModelId; // us.anthropic.claude-...
+    const foundationModelId = profileId.replace(/^us\./, ""); // anthropic.claude-...
+    const profileRegions = ["us-east-1", "us-east-2", "us-west-2"];
     bedrockFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["bedrock:InvokeModel"],
-        // Scoped to the single tracer model, not bedrock:* on *.
         resources: [
-          `arn:aws:bedrock:${this.region}::foundation-model/${props.bedrockModelId}`,
+          `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/${profileId}`,
+          ...profileRegions.map(
+            (r) => `arn:aws:bedrock:${r}::foundation-model/${foundationModelId}`,
+          ),
         ],
       }),
     );
@@ -159,7 +168,9 @@ export class TracerStack extends Stack {
       "TracerHttpAuthorizer",
       authorizerFn,
       {
-        responseTypes: [HttpLambdaResponseType.IAM], // the authorizer returns an IAM policy
+        // SIMPLE response => the Lambda returns {isAuthorized, context} and API GW
+        // uses payload format 2.0. Simpler + less footgun-prone than an IAM policy.
+        responseTypes: [HttpLambdaResponseType.SIMPLE],
         identitySource: ["$request.header.Authorization"],
         resultsCacheTtl: Duration.seconds(0), // no caching — easier to validate
       },
@@ -169,25 +180,28 @@ export class TracerStack extends Stack {
       defaultAuthorizer: httpAuthorizer,
     });
     httpApi.addRoutes({
-      path: "/ping",
+      // NOT "/ping" — that literal path is a near-universal health-probe route and
+      // gets intercepted/answered by edge/network appliances before reaching the
+      // integration (observed in Session 1.5). Use an app-specific path.
+      path: "/tracer-iam",
       methods: [apigwv2.HttpMethod.GET],
       integration: new HttpLambdaIntegration("AppIntegration", appFn),
     });
     httpApi.addRoutes({
-      path: "/bedrock",
+      path: "/tracer-bedrock",
       methods: [apigwv2.HttpMethod.POST],
       integration: new HttpLambdaIntegration("BedrockIntegration", bedrockFn),
     });
 
-    // --- WebSocket API: $connect (authorized) / $disconnect ------------------
+    // --- WebSocket API: $connect (UNAUTHENTICATED in the tracer) / $disconnect
+    // The tracer's WS job is only to prove the post-back loop (connect → server
+    // postToConnection → client receives). Gating $connect with a custom authorizer
+    // is a Session-6 concern — and WS authorizers have no simple-response mode, so
+    // leaving it out keeps the tracer simple. $connect still writes the connection
+    // and posts back the hard-coded nudge.
     const wsApi = new apigwv2.WebSocketApi(this, "TracerWsApi", {
       connectRouteOptions: {
         integration: new WebSocketLambdaIntegration("WsConnectIntegration", wsConnectFn),
-        authorizer: new WebSocketLambdaAuthorizer(
-          "TracerWsAuthorizer",
-          authorizerFn,
-          { identitySource: ["route.request.querystring.token"] }, // WS can only pass ?token=
-        ),
       },
       disconnectRouteOptions: {
         integration: new WebSocketLambdaIntegration(

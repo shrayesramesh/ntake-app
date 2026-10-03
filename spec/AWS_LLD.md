@@ -288,6 +288,55 @@ raise into the request path), preserving the current graceful-degrade posture.
   are coupled and must be set together. (Reversible: option (b) sidesteps the loop
   entirely.)
 
+#### Session 1.5 tracer-bullet findings (2026-10-02) — Bedrock question still OPEN
+The tracer-bullet deploy was run on dev to resolve the multi-tool-call + enum
+questions against the real model. **Result: the questions remain OPEN** — the real
+Converse call could **not** be exercised because the AWS account is **not yet
+authorized to invoke Bedrock** (see below). What the tracer *did* prove, and the
+decision we are therefore locking in now so Sessions 4–5 are unblocked:
+
+- **The tracer sends the design's intended shape** — a hand-written 2-tool
+  `toolConfig` (`flag_blocked`, `set_due_date`) + `no_action`, `toolChoice:
+  {any:{}}`, ids as `enum`-over-whitelist. This matches §3.2/§3.3. The builder,
+  response parser, and findings-summarizer are unit-tested (`tracer/
+  bedrock_tracer.py`, `tests/assistant/test_tracer_bedrock.py`).
+- **Bedrock BLOCKED on account authorization (not a code/IAM/shape issue).** Every
+  `Converse` call — even **plain text with no `toolConfig`** — returns
+  `ValidationException: "Operation not allowed"` on this account, in us-east-1,
+  for both Anthropic Claude (Haiku 4.5 via the `us.` inference profile) **and**
+  Amazon Nova Lite. The Bedrock Playground (as root) likewise does not respond. A
+  **support case has been filed** to enable Bedrock model invocation; this is a
+  first-time, account-level, human-gated authorization that IAM/CDK cannot grant
+  (anticipated by the Session 0.2 caveat). The scoped `bedrock:InvokeModel` IAM is
+  correct (the call *reaches* Bedrock — "Operation not allowed", not
+  `AccessDenied`).
+- **Model id reality (recorded for Sessions 5/8):** the originally-pinned
+  `anthropic.claude-3-haiku-20240307-v1:0` is **retired** ("model version has
+  reached end of life"). Modern Claude models on this account are
+  **inference-profile-only** (no bare ON_DEMAND id) — invoke via a
+  `us.anthropic.claude-…` profile id, and the IAM must grant `bedrock:InvokeModel`
+  on **both** the inference-profile ARN **and** the underlying foundation-model
+  ARNs across the profile's regions (us-east-1/us-east-2/us-west-2). Only
+  `amazon.nova-*` expose bare ON_DEMAND ids. The tracer/stack now pin
+  `us.anthropic.claude-haiku-4-5-20251001-v1:0` with that widened (still
+  model-scoped) IAM. (Nova was tried as a cheap ON_DEMAND substitute but its
+  Converse tool-use contract differs and it hit the same account gate, so Claude
+  — the design's actual assumption — is the pin.)
+- **DECISION locked now (so Sessions 4–5 build the confirmed shape, not a hopeful
+  one):** until the multi-tool-call behavior is actually observed, **the handler
+  consumes a *list* of `toolUse` blocks** (works for 1 or many — the reshape-free
+  property above), `toolChoice: {any:{}}` stays the **design intent to confirm**,
+  and **one-primary-proposal-per-capture (fallback b) is the safe default** — it
+  needs no loop and sidesteps the 30s-budget coupling. If, once Bedrock is
+  authorized, one turn is observed to return multiple `toolUse` blocks, multi-card
+  is a free upgrade (no reshape); if not, we are already on the safe default.
+- **Re-verify when unblocked (no redeploy needed):** run
+  `scripts/bedrock_bisect.py us.anthropic.claude-haiku-4-5-20251001-v1:0` — it
+  bisects plain-text → tools → `auto` → `any` → the exact tracer config and prints
+  the stop reason + tool-block count. Record the real answer here and reconcile at
+  full tool count in **Session 8**. (This is the carried-forward item; the
+  question is **deferred, not resolved**.)
+
 ---
 
 ## 4. Live sync — WebSocket + direct publish (HLD §8)

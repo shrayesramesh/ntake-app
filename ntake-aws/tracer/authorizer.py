@@ -2,16 +2,23 @@
 
 A REQUEST Lambda authorizer that proves the device-token → member path on the
 deployed slice. It reuses the **real** lifted ``core.tokens.hash_token``
-(AWS_LLD §5.1) — that is the one genuinely-exercised production seam here — but
-everything around it (the DynamoDB token-store, the IAM policy shape) is minimal
-scaffolding, replaced by the real authorizer in Session 6.
+(AWS_LLD §5.1) — the one genuinely-exercised production seam here — but everything
+around it (the DynamoDB token-store, the response wiring) is minimal scaffolding,
+replaced by the real authorizer in Session 6.
 
-Design for testability: the decision is a **pure function** (``authorize``) that
-takes the presented token, the HMAC secret, and a ``lookup`` callable
-(hash → token record | None). The Lambda ``handler`` is a thin shell that wires
-the real secret (Secrets Manager, injected via env for the tracer) and a real
-DynamoDB ``GetItem`` lookup around that pure core, so the allow/deny logic is
-unit-tested under ``make check`` with no AWS.
+**Response format: HTTP API simple response (payload format 2.0).** The authorizer
+returns ``{"isAuthorized": bool, "context": {...}}`` — NOT a hand-rolled IAM policy
+document. Simple response is the easy, low-footgun path for an HTTP API custom
+authorizer (an IAM-policy shape mismatch is a classic first-deploy failure that
+silently fails open/closed). The tracer gates **only the HTTP API**; the WebSocket
+``$connect`` is left unauthenticated in the tracer (it exists only to prove the
+post-back loop — WS auth is a Session-6 concern, and WS authorizers have no simple
+mode, so keeping it out of the tracer removes real complexity).
+
+Design for testability: the decision is a **pure function** (``authorize``) taking
+the token, the HMAC secret, and a ``lookup`` callable (hash → record | None). The
+Lambda ``handler`` is a thin shell wiring the real secret + a DynamoDB ``GetItem``
+lookup, so the allow/deny logic is unit-tested under ``make check`` with no AWS.
 """
 
 from __future__ import annotations
@@ -28,77 +35,66 @@ TokenRecord = dict[str, Any]
 Lookup = Callable[[str], TokenRecord | None]
 
 
-def _policy(effect: str, principal_id: str, method_arn: str) -> dict[str, Any]:
-    """A minimal API-GW authorizer IAM policy document (allow or deny)."""
+def authorize(token: str | None, *, secret: str, lookup: Lookup) -> dict[str, Any]:
+    """Pure allow/deny decision for a presented device token (simple-response shape).
+
+    Hashes ``token`` with the real :func:`core.tokens.hash_token`, looks the hash
+    up via ``lookup``, and returns the HTTP API simple-response object. A missing
+    token, an unknown hash, or a revoked record all deny — indistinguishably
+    (AWS_LLD §5.2). On allow, the member/family ids ride back in ``context`` so a
+    handler never re-resolves the token.
+    """
+    if not token:
+        return {"isAuthorized": False}
+
+    record = lookup(hash_token(token, secret=secret))
+    if record is None or record.get("revoked_at"):
+        return {"isAuthorized": False}
+
     return {
-        "principalId": principal_id,
-        "policyDocument": {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Action": "execute-api:Invoke",
-                    "Effect": effect,
-                    "Resource": method_arn,
-                }
-            ],
+        "isAuthorized": True,
+        "context": {
+            "member_id": str(record.get("member_id", "")),
+            "family_id": str(record.get("family_id", "")),
         },
     }
 
 
-def authorize(
-    token: str | None,
-    *,
-    secret: str,
-    lookup: Lookup,
-    method_arn: str,
-) -> dict[str, Any]:
-    """Pure allow/deny decision for a presented device token.
-
-    Hashes ``token`` with the real :func:`core.tokens.hash_token`, looks the hash
-    up via ``lookup``, and returns an API-GW authorizer response. A missing token,
-    an unknown hash, or a revoked record all deny — indistinguishably (as the real
-    design intends, AWS_LLD §5.2). On allow, the member/family ids ride back in the
-    authorizer ``context`` so a handler never re-resolves the token.
-    """
-    if not token:
-        return _policy("Deny", "anonymous", method_arn)
-
-    record = lookup(hash_token(token, secret=secret))
-    if record is None or record.get("revoked_at"):
-        return _policy("Deny", "anonymous", method_arn)
-
-    member_id = str(record.get("member_id", ""))
-    allow = _policy("Allow", member_id or "member", method_arn)
-    allow["context"] = {
-        "member_id": member_id,
-        "family_id": str(record.get("family_id", "")),
-    }
-    return allow
+def _strip_bearer(value: str) -> str:
+    """Return the token part of a value that may be ``Bearer <token>`` or bare."""
+    if value.lower().startswith("bearer "):
+        return value[len("bearer ") :].strip()
+    return value.strip()
 
 
 def _extract_token(event: dict[str, Any]) -> str | None:
-    """Pull the bearer token from an HTTP ``Authorization`` header or ``?token=``.
+    """Pull the bearer token from the shapes an HTTP API authorizer may present.
 
-    Mirrors the real dual accommodation (AWS_LLD §5.2/§5.4): REST sends
-    ``Authorization: Bearer <t>``; the WebSocket ``$connect`` can only pass
-    ``?token=`` at connect time.
+    HTTP API payload-format-2.0 REQUEST authorizers deliver the resolved identity
+    source(s) in ``event.identitySource`` (a list). We also accept a raw
+    ``Authorization`` header. First match wins.
     """
+    identity = event.get("identitySource")
+    if isinstance(identity, list) and identity:
+        token = _strip_bearer(str(identity[0]))
+        if token:
+            return token
+
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
-    auth = headers.get("authorization", "")
-    if auth.lower().startswith("bearer "):
-        return auth[len("bearer ") :].strip()
-    params = event.get("queryStringParameters") or {}
-    token = params.get("token")
-    return token.strip() if token else None
+    auth = headers.get("authorization")
+    if auth:
+        token = _strip_bearer(auth)
+        if token:
+            return token
+    return None
 
 
-def handler(event: dict[str, Any], _context: Any = None) -> dict[str, Any]:
+def handler(event: dict[str, Any], _context: Any = None) -> dict[str, Any]:  # noqa: ARG001
     """Lambda entry point — thin shell around :func:`authorize` (deployed-only).
 
     Wires the real secret (``NTAKE_TOKEN_SECRET`` env, set by CDK from the Secrets
-    Manager secret) and a real DynamoDB ``GetItem`` lookup. Excluded from coverage:
-    it only runs in the deployed slice; the decision logic it delegates to is what
-    the local tests cover.
+    Manager secret) and a real DynamoDB ``GetItem`` lookup, and returns the
+    simple-response object the HTTP API (payload format 2.0) expects.
     """
     import boto3
 
@@ -110,10 +106,4 @@ def handler(event: dict[str, Any], _context: Any = None) -> dict[str, Any]:
         resp = table.get_item(Key={"pk": f"TOK#{token_hash}", "sk": "#META"})
         return resp.get("Item")
 
-    method_arn = event.get("methodArn") or event.get("routeArn") or "*"
-    return authorize(
-        _extract_token(event),
-        secret=secret,
-        lookup=lookup,
-        method_arn=method_arn,
-    )
+    return authorize(_extract_token(event), secret=secret, lookup=lookup)

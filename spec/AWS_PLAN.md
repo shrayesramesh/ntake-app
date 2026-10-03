@@ -362,6 +362,13 @@ pays (the one unverified, load-bearing assumption), stay local everywhere else.
   only place table keys live). No copy-paste handlers; factor shared helpers.
   Match the existing code's style and typing discipline (full type hints, no
   `Any`, the engine boundary).
+- **YAGNI (You Aren't Gonna Need It).** Build only what the session's scope
+  names. Don't add speculative config, defensive branches, abstractions, or
+  "might need it later" knobs — unused surface area is cost (later sessions must
+  read, test, and maintain it), not safety. If something genuinely seems needed
+  beyond scope, record it as a to-verify/deferred note rather than building it.
+  (Session 1.5 learned this twice: a dual-shape authorizer and a speculative
+  `inferenceConfig`, both built then removed once they proved unnecessary.)
 - **The gate is mandatory before a session is "done":** run `make check` and paste
   real output. Never claim green without running it. (Same discipline as the
   current `SKILL.md`.)
