@@ -445,35 +445,56 @@ Tier 2 is built + wired with Tier 1 green and the real-table run recorded as a
   source files)**, **205 passed / 13 skipped**, **99.41% core coverage** (≥95
   gate). `make synth` clean. No AWS interaction by the agent.
 
-### To-verify / deferred (open)
-- **[HUMAN] Tier-2 dev run — RAN once (2026-10-02), surfaced + fixed 3 real
-  bugs; re-run pending.** The owner ran `make integration` against the deployed
-  `ntake-dev`: **19/24 passed**, 5 failed across 3 root causes — exactly the
-  cloud-only truths Tier 2 exists to catch. Fixes landed (follow-up commit):
-  1. **Co-created-event `TransactWriteItems` `ValidationException` (list_append
-     operand type M).** The low-level transaction's
-     `list_append(if_not_exists(updates, :empty), :u)` was operand-type-fragile
-     (the resource-level `append_update` with the same expression passed, so it
-     was specific to the hand-serialized transaction path). **Fix:** the
-     co-created path now reads the work item, appends the log entry in Python, and
-     `SET updates = :all` in the transaction (full-list set, no `list_append`
-     operand ambiguity) — still one atomic `TransactWriteItems` (event `Put` +
-     work-item `Update`).
+### Tier-2 dev run — CLOSED GREEN (2026-10-02): 19/19 against real `ntake-dev`
+The owner ran `make integration` against the deployed `ntake-dev` table. It took
+three iterations and surfaced **four real bugs Tier 1 could not** — exactly the
+cloud-only truths the tier exists to catch — all now fixed, final run **19 passed**:
+  1. **Co-created-event `TransactWriteItems` ValidationException (list_append
+     operand type M).** The transaction's `list_append(if_not_exists(updates,
+     :empty), :u)` was operand-type-fragile (resource-level `append_update` with
+     the same expression passed, so it was specific to the hand-serialized
+     transaction). **Fix:** read the work item, append in Python, `SET updates =
+     :all` in the transaction — still one atomic `TransactWriteItems`.
   2/3. **Board/calendar GSI reads lagged a just-written mutation** (archived item
-     still on the board; due-item not yet on the calendar). Root cause: **DynamoDB
-     GSIs are eventually consistent** (no `ConsistentRead` on a GSI); the adapter
-     writes the correct keys synchronously (verified), the index just hadn't
-     propagated when the test queried. **Fix (test-tier, not adapter):** the GSI-
-     backed behaviors moved out of the verbatim shared-body re-run into **native,
-     `poll_until`-based** access-pattern tests that converge on the *exact*
-     expected result (correct for both appear + drop-out); `test_dynamo_flows.py`
-     now re-runs only the **strongly-consistent base-table** shared bodies. Seeds
-     in the access-pattern tests were enriched (3 board columns, interleaved
-     events + due item + out-of-window, two families) so the index behavior is
-     load-bearing, not trivially satisfied.
-  **Still [HUMAN]:** re-run `cd ntake-aws && make integration` (or `DEPLOY=1`) to
-  confirm all green with the fixes, and paste the output here to close the Tier-2
-  exit. Tier-1 `make check` stayed green throughout (205 passed, 99.41%).
+     still on the board; due-item not yet on the calendar). Root cause: **GSIs are
+     eventually consistent** (no `ConsistentRead` on a GSI); the adapter writes
+     correct keys synchronously. **Fix (test-tier):** the GSI-backed behaviors run
+     as **native `poll_until`-based** access-pattern tests that converge on the
+     *exact* expected result (correct for appear + drop-out); `test_dynamo_flows.py`
+     re-runs only the **strongly-consistent base-table** shared bodies.
+  4. **Transaction `Put` "Type mismatch for key PK expected: S actual: M".** The
+     root `make integration` finding (seen only once `CancellationReasons` were
+     surfaced): serializing with `TypeSerializer` and handing the result to
+     `self._table.meta.client` double-wrapped it — the **resource-attached** client
+     re-applies boto3's serialization hooks (`{"S":v}` → `{"M":{"S":v}}`). **Fix:**
+     use a **plain low-level `boto3.client("dynamodb")`** (`self._ddb`) for the
+     transaction — no resource hooks, one explicit serialize pass. This also ends
+     the resource/low-level mixing cleanly (resource `Table` for single-item ops,
+     plain client for the one transaction).
+  Plus a **test-isolation fix**: the test factory minted deterministic per-process
+  ids, which collided with leftover rows on the **persistent** dev table across
+  runs (caught by the exact-match raw-GSI assertion). Now the factory mints real
+  ULIDs (`core.ids.new_ulid`), unique across runs — DRY: tests mint ids like prod.
+  **Added (owner-requested, gap #1):** two **raw-GSI direct-query** tests that
+  assert the index itself holds/drops the `STATUS#…#POS#…` / `TS#…#EV#|WI#` keys —
+  verifying GSI1/GSI2 independently of `list_board`/`list_calendar` (previously the
+  index was only verified transitively through the repo's own reads).
+- **Deferred test gaps (owner-scoped, 2026-10-02 — not built, YAGNI):**
+  (a) **transaction rollback** — the happy path asserts both sides land; a forced-
+  failure test proving *neither* lands (the property that justifies the
+  transaction over two calls) is not written. Worth adding when the confirm/execute
+  path is wired (Session 6). (b) **concurrency / last-write-wins** (`updated_at`)
+  — explicitly a v1 non-goal (AWS_LLD §1.4). (c) **dev-table cleanup — RESOLVED
+  (owner-requested).** Test-minted ids now carry an identifiable ``itest-`` prefix
+  (opt-in `factories.set_id_prefix`, set only by the integration conftest; Tier-1
+  ids stay plain), so every test row is ``FAM#itest-<ulid>`` — recognizable in the
+  table. A session-scoped autouse fixture sweeps all ``FAM#itest-`` partitions
+  **before** (self-heals rows leaked by a crashed prior run) **and after** the run
+  (best-effort; dev is DESTROY-able). Verified: post-run
+  `scan begins_with(PK,"FAM#itest-")` → **Count 0**. (Note: ~132 orphaned rows
+  from pre-cleanup runs, plain-ULID ids, remain untouched by the prefix sweep —
+  harmless; clear with `cdk destroy NtakeStack-dev` + redeploy if a clean slate is
+  wanted.)
 - **Residual coverage:** one trivial fallback line + a few partial branches in
   `events.py` (all-day `end_date` defaulting; the no-title create describe) remain
   — 99.41% is well over the 95 gate; left as-is (YAGNI).

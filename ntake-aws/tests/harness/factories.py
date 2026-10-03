@@ -12,9 +12,9 @@ DTOs feed the in-memory and, in Session 3, the DynamoDB repositories).
 
 from __future__ import annotations
 
-import itertools
 from datetime import UTC, date, datetime
 
+from core.ids import new_ulid
 from core.schemas import (
     Event,
     EventProvenance,
@@ -24,12 +24,32 @@ from core.schemas import (
     WorkItemUpdate,
 )
 
-_counter = itertools.count(1)
+# An opt-in, identifiable prefix stamped on every minted id. Empty by default, so
+# Tier-1 (in-memory) ids stay plain ULIDs. The Tier-2 integration conftest sets
+# this to "itest-" so every row written to the real dev table is recognizable as
+# integration-test data (``FAM#itest-...``) — which makes prefix-based cleanup
+# robust (it even sweeps up rows leaked by past crashed runs) and makes test data
+# visually obvious in the table. Set via ``set_id_prefix``.
+_ID_PREFIX = ""
+
+
+def set_id_prefix(prefix: str) -> None:
+    """Set the identifiable prefix stamped on every subsequently-minted test id."""
+    global _ID_PREFIX
+    _ID_PREFIX = prefix
 
 
 def _ulid(prefix: str) -> str:
-    """A stable, unique, prefix-free id token for tests (not a real ULID)."""
-    return f"{prefix}{next(_counter):026d}"
+    """A unique, prefix-free-after-the-id-prefix token for tests.
+
+    Mints a real ULID (``core.ids.new_ulid`` — the same server-side minter
+    production uses), so ids are unique **across runs**, not just within a
+    process (the dev table persists between ``make integration`` invocations, so a
+    per-process counter would reproduce ids and collide with leftover rows). The
+    ``prefix`` arg is a readability hint, ignored; the configurable ``_ID_PREFIX``
+    (e.g. ``"itest-"`` at Tier 2) is prepended so test rows are identifiable.
+    """
+    return f"{_ID_PREFIX}{new_ulid()}"
 
 
 def _now() -> datetime:

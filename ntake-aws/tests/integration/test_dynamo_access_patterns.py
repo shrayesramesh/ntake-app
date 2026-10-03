@@ -46,8 +46,9 @@ def test_board_grouping_ordering_and_sparse_archive(
     dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
 ) -> None:
     """A rich board (multiple columns, out-of-order positions) groups by column
-    and orders within it via GSI1; archiving an item drops it from the sparse
-    index without a delete."""
+    and orders within it via GSI1. (The sparse-archive drop-out is asserted
+    directly against the index in
+    ``test_gsi1_index_holds_board_keys_and_drops_on_archive``.)"""
     repo = dynamo_repo
     fam = make_family()
     seed_family(repo, fam, [])
@@ -61,8 +62,9 @@ def test_board_grouping_ordering_and_sparse_archive(
     repo.put_work_item(
         make_work_item(fam.id, title="doing-a", status="doing", position=0)
     )
-    done = make_work_item(fam.id, title="done-a", status="done", position=0)
-    repo.put_work_item(done)
+    repo.put_work_item(
+        make_work_item(fam.id, title="done-a", status="done", position=0)
+    )
 
     board = poll_until(
         lambda: repo.list_board(fam.id),
@@ -73,17 +75,6 @@ def test_board_grouping_ordering_and_sparse_archive(
     assert _titles(board["doing"]) == ["doing-a"]
     assert _titles(board["done"]) == ["done-a"]
     assert board["on_deck"] == []
-
-    # Archiving drops the item from the sparse GSI1 board index.
-    repo.archive_work_item(fam.id, done.id)
-    board = poll_until(
-        lambda: repo.list_board(fam.id),
-        expected=[],
-        key=lambda b: _titles(b["done"]),
-    )
-    assert _titles(board["done"]) == []
-    # ...but it is still directly readable (archived, never deleted).
-    assert repo.get_work_item(fam.id, done.id) is not None
 
 
 def test_list_done_work_items_excludes_archived(
@@ -273,6 +264,84 @@ def test_board_reads_are_scoped_to_family(
     assert _titles(board_b["todo"]) == ["b-item"]
 
 
+# --- raw GSI assertions: verify the INDEX directly, not via the repo reads ---
+# These query GSI1/GSI2 straight through the table so the index is checked
+# independently of list_board / list_calendar (whose own code could otherwise
+# mask a missing-key bug symmetrically). This closes the transitive-verification
+# gap: we assert the sparse keys literally exist / are absent in the index.
+
+
+def _gsi_sks(repo: DynamoRepository, index: str, pk_attr: str, pk_value: str) -> Any:
+    """All sort-key values currently in ``index`` under ``pk_value`` (raw query)."""
+    from boto3.dynamodb.conditions import Key
+
+    sk_attr = "GSI1SK" if index == "GSI1" else "GSI2SK"
+    resp = repo._table.query(
+        IndexName=index, KeyConditionExpression=Key(pk_attr).eq(pk_value)
+    )
+    return sorted(i[sk_attr] for i in resp.get("Items", []))
+
+
+def test_gsi1_index_holds_board_keys_and_drops_on_archive(
+    dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
+) -> None:
+    """GSI1 itself carries ``STATUS#…#POS#…`` for an unarchived item and loses it
+    on archive — asserted by querying the index directly."""
+    repo = dynamo_repo
+    fam = make_family()
+    seed_family(repo, fam, [])
+    wi = make_work_item(fam.id, title="x", status="doing", position=3)
+    repo.put_work_item(wi)
+    gsi1pk = f"FAM#{fam.id}#BOARD"
+
+    keys = poll_until(
+        lambda: _gsi_sks(repo, "GSI1", "GSI1PK", gsi1pk),
+        expected=["STATUS#doing#POS#000003"],
+    )
+    assert keys == ["STATUS#doing#POS#000003"]  # exact sort-key shape in the index
+
+    repo.archive_work_item(fam.id, wi.id)
+    keys = poll_until(lambda: _gsi_sks(repo, "GSI1", "GSI1PK", gsi1pk), expected=[])
+    assert keys == []  # the sparse key is gone from the index entirely
+
+
+def test_gsi2_index_holds_event_and_due_keys_and_drops_them(
+    dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
+) -> None:
+    """GSI2 itself carries a ``TS#…#EV#`` key for an event and a ``TS#…#WI#`` key
+    for a due-dated item; deleting the event and clearing the due date remove
+    them — asserted by querying the index directly."""
+    repo = dynamo_repo
+    fam = make_family()
+    seed_family(repo, fam, [])
+    ev = make_timed_event(
+        fam.id, title="ev", start_at=datetime(2026, 2, 1, 9, 0, tzinfo=UTC)
+    )
+    due = make_work_item(
+        fam.id, title="due", due_at=datetime(2026, 2, 5, 12, 0, tzinfo=UTC)
+    )
+    repo.put_event(ev)
+    repo.put_work_item(due)
+    gsi2pk = f"FAM#{fam.id}#CAL"
+
+    keys = poll_until(
+        lambda: _gsi_sks(repo, "GSI2", "GSI2PK", gsi2pk),
+        expected=[
+            f"TS#2026-02-01T09:00:00.000000Z#EV#{ev.id}",
+            f"TS#2026-02-05T12:00:00.000000Z#WI#{due.id}",
+        ],
+    )
+    assert keys == [
+        f"TS#2026-02-01T09:00:00.000000Z#EV#{ev.id}",
+        f"TS#2026-02-05T12:00:00.000000Z#WI#{due.id}",
+    ]
+
+    repo.delete_event(fam.id, ev.id)
+    repo.update_work_item(fam.id, due.id, {"due_at": None})
+    keys = poll_until(lambda: _gsi_sks(repo, "GSI2", "GSI2PK", gsi2pk), expected=[])
+    assert keys == []  # both sparse calendar keys removed from the index
+
+
 # --- cross-item + single-op write shapes -----------------------------------
 
 
@@ -327,9 +396,9 @@ def test_standalone_event_create_is_a_single_put(
             repo._table, "put_item", wraps=repo._table.put_item
         ) as put_spy,
         mock.patch.object(
-            repo._table.meta.client,
+            repo._ddb,
             "transact_write_items",
-            wraps=repo._table.meta.client.transact_write_items,
+            wraps=repo._ddb.transact_write_items,
         ) as transact_spy,
     ):
         repo.put_event(make_timed_event(fam.id, title="standalone"))

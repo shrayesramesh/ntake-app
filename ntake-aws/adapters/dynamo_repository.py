@@ -94,6 +94,19 @@ class DynamoRepository:
                 "dynamodb", region_name=region_name, endpoint_url=endpoint_url
             )
         self._table: Table = resource.Table(table_name)
+        # A PLAIN low-level client for TransactWriteItems, kept SEPARATE from the
+        # resource. We must NOT serialize values ourselves and hand them to the
+        # resource's client (``self._table.meta.client``): the resource attaches
+        # boto3's (de)serialization transform hooks to that client, so our
+        # already-serialized values get double-wrapped (``{"S": v}`` ->
+        # ``{"M": {"S": v}}`` -> "Type mismatch for key PK expected: S actual:
+        # M"). A standalone client has no such hooks, so one explicit
+        # TypeSerializer pass is exactly right. Region defaults to the resource's.
+        self._ddb = boto3.client(
+            "dynamodb",
+            region_name=region_name or resource.meta.client.meta.region_name,
+            endpoint_url=endpoint_url,
+        )
 
     # --- provisioning (impl-only; not part of the Repository protocol) ------
 
@@ -270,47 +283,53 @@ class DynamoRepository:
 
         Event ``Put`` + work-item log ``UpdateItem``, atomic across the two
         partitions. The event's ``provenance.work_item_id`` names the work item.
+        The log append is a **SET of the full ``updates`` list** (read, append in
+        Python, write back) — unambiguous and atomic within the transaction.
 
-        The log append is done as a **SET of the full ``updates`` list** (read the
-        current list, append in Python, write it back) rather than a
-        ``list_append(if_not_exists(...))`` expression. In a low-level
-        ``TransactWriteItems`` that expression is operand-type-fragile against the
-        stored attribute; SET-ting the whole list is unambiguous and keeps the
-        write atomic. ``updated_at`` is bumped in the same Update.
+        On a ``TransactionCanceledException`` the per-item ``CancellationReasons``
+        are surfaced in the raised message (the standard way to see *which*
+        operand failed and why — otherwise the error is an opaque
+        ``[ValidationError, None]``).
         """
         if ev.provenance is None:
             raise ValueError("create_event_from_update requires event.provenance")
         work_item_id = ev.provenance.work_item_id
         wi = self._require_work_item(ev.family_id, work_item_id)  # miss -> KeyError
-        client = self._table.meta.client
+        client = self._ddb
         now_iso = datetime.now(UTC).isoformat()
         new_updates = [u.model_dump(mode="json") for u in wi.updates]
         new_updates.append(wi_log_entry.model_dump(mode="json"))
-        client.transact_write_items(
-            TransactItems=[
-                {
-                    "Put": {
-                        "TableName": self._table.name,
-                        "Item": self._to_dynamo(self._event_item(ev)),
-                    }
-                },
-                {
-                    "Update": {
-                        "TableName": self._table.name,
-                        "Key": self._to_dynamo(
-                            {
-                                "PK": family_pk(ev.family_id),
-                                "SK": work_item_sk(work_item_id),
-                            }
-                        ),
-                        "UpdateExpression": "SET updates = :all, updated_at = :now",
-                        "ExpressionAttributeValues": self._to_dynamo(
-                            {":all": new_updates, ":now": now_iso}
-                        ),
-                    }
-                },
-            ]
-        )
+        try:
+            client.transact_write_items(
+                TransactItems=[
+                    {
+                        "Put": {
+                            "TableName": self._table.name,
+                            "Item": self._to_dynamo(self._event_item(ev)),
+                        }
+                    },
+                    {
+                        "Update": {
+                            "TableName": self._table.name,
+                            "Key": self._to_dynamo(
+                                {
+                                    "PK": family_pk(ev.family_id),
+                                    "SK": work_item_sk(work_item_id),
+                                }
+                            ),
+                            "UpdateExpression": "SET updates = :all, updated_at = :now",
+                            "ExpressionAttributeValues": self._to_dynamo(
+                                {":all": new_updates, ":now": now_iso}
+                            ),
+                        }
+                    },
+                ]
+            )
+        except client.exceptions.TransactionCanceledException as exc:
+            reasons = exc.response.get("CancellationReasons")
+            raise RuntimeError(
+                f"create_event_from_update transaction cancelled: {reasons}"
+            ) from exc
 
     def delete_event(self, family_id: str, event_id: str) -> None:
         self._table.delete_item(
