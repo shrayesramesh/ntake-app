@@ -446,12 +446,34 @@ Tier 2 is built + wired with Tier 1 green and the real-table run recorded as a
   gate). `make synth` clean. No AWS interaction by the agent.
 
 ### To-verify / deferred (open)
-- **[HUMAN] Tier-2 dev run is the open follow-up.** When creds for `111037110464`
-  are available: `cd ntake-aws && make integration DEPLOY=1` (deploys
-  `NtakeStack-dev` then runs the 24 Tier-2 tests against the real `ntake-dev`
-  table), or `make integration` if the table is already deployed. Paste the output
-  into this log to close Session 3's Tier-2 exit. The target self-checks creds and
-  stops cleanly if they're absent/wrong-account.
+- **[HUMAN] Tier-2 dev run — RAN once (2026-10-02), surfaced + fixed 3 real
+  bugs; re-run pending.** The owner ran `make integration` against the deployed
+  `ntake-dev`: **19/24 passed**, 5 failed across 3 root causes — exactly the
+  cloud-only truths Tier 2 exists to catch. Fixes landed (follow-up commit):
+  1. **Co-created-event `TransactWriteItems` `ValidationException` (list_append
+     operand type M).** The low-level transaction's
+     `list_append(if_not_exists(updates, :empty), :u)` was operand-type-fragile
+     (the resource-level `append_update` with the same expression passed, so it
+     was specific to the hand-serialized transaction path). **Fix:** the
+     co-created path now reads the work item, appends the log entry in Python, and
+     `SET updates = :all` in the transaction (full-list set, no `list_append`
+     operand ambiguity) — still one atomic `TransactWriteItems` (event `Put` +
+     work-item `Update`).
+  2/3. **Board/calendar GSI reads lagged a just-written mutation** (archived item
+     still on the board; due-item not yet on the calendar). Root cause: **DynamoDB
+     GSIs are eventually consistent** (no `ConsistentRead` on a GSI); the adapter
+     writes the correct keys synchronously (verified), the index just hadn't
+     propagated when the test queried. **Fix (test-tier, not adapter):** the GSI-
+     backed behaviors moved out of the verbatim shared-body re-run into **native,
+     `poll_until`-based** access-pattern tests that converge on the *exact*
+     expected result (correct for both appear + drop-out); `test_dynamo_flows.py`
+     now re-runs only the **strongly-consistent base-table** shared bodies. Seeds
+     in the access-pattern tests were enriched (3 board columns, interleaved
+     events + due item + out-of-window, two families) so the index behavior is
+     load-bearing, not trivially satisfied.
+  **Still [HUMAN]:** re-run `cd ntake-aws && make integration` (or `DEPLOY=1`) to
+  confirm all green with the fixes, and paste the output here to close the Tier-2
+  exit. Tier-1 `make check` stayed green throughout (205 passed, 99.41%).
 - **Residual coverage:** one trivial fallback line + a few partial branches in
   `events.py` (all-day `end_date` defaulting; the no-title create describe) remain
   — 99.41% is well over the 95 gate; left as-is (YAGNI).

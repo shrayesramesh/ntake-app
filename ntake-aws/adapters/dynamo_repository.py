@@ -268,16 +268,24 @@ class DynamoRepository:
     def create_event_from_update(self, ev: Event, wi_log_entry: WorkItemUpdate) -> None:
         """Co-created event — one ``TransactWriteItems`` (AWS_LLD §1.4).
 
-        Event ``Put`` + work-item ``list_append`` ``UpdateItem``, atomic across
-        the two partitions. The event's ``provenance.work_item_id`` names the
-        work item to append to.
+        Event ``Put`` + work-item log ``UpdateItem``, atomic across the two
+        partitions. The event's ``provenance.work_item_id`` names the work item.
+
+        The log append is done as a **SET of the full ``updates`` list** (read the
+        current list, append in Python, write it back) rather than a
+        ``list_append(if_not_exists(...))`` expression. In a low-level
+        ``TransactWriteItems`` that expression is operand-type-fragile against the
+        stored attribute; SET-ting the whole list is unambiguous and keeps the
+        write atomic. ``updated_at`` is bumped in the same Update.
         """
         if ev.provenance is None:
             raise ValueError("create_event_from_update requires event.provenance")
         work_item_id = ev.provenance.work_item_id
-        self._require_work_item(ev.family_id, work_item_id)  # miss -> KeyError
+        wi = self._require_work_item(ev.family_id, work_item_id)  # miss -> KeyError
         client = self._table.meta.client
         now_iso = datetime.now(UTC).isoformat()
+        new_updates = [u.model_dump(mode="json") for u in wi.updates]
+        new_updates.append(wi_log_entry.model_dump(mode="json"))
         client.transact_write_items(
             TransactItems=[
                 {
@@ -295,16 +303,9 @@ class DynamoRepository:
                                 "SK": work_item_sk(work_item_id),
                             }
                         ),
-                        "UpdateExpression": (
-                            "SET updates = list_append("
-                            "if_not_exists(updates, :empty), :u), updated_at = :now"
-                        ),
+                        "UpdateExpression": "SET updates = :all, updated_at = :now",
                         "ExpressionAttributeValues": self._to_dynamo(
-                            {
-                                ":u": [wi_log_entry.model_dump(mode="json")],
-                                ":empty": [],
-                                ":now": now_iso,
-                            }
+                            {":all": new_updates, ":now": now_iso}
                         ),
                     }
                 },
