@@ -30,7 +30,7 @@ COV_MIN := 95
   help setup \
   test test-core test-data test-assistant test-api test-infra \
   lint format typecheck coverage check \
-  synth integration deploy-dev deploy-prod dev-reset \
+  synth integration deploy-dev deploy-prod dev-reset bedrock-preflight \
   setup-aws clean
 
 help: ## Show available targets
@@ -112,6 +112,9 @@ synth: ## cdk synth the stacks (infra compiles; NO deploy)
 
 integration: ## [HUMAN] Tier 2: run the integration suite vs the real ntake-dev table (sts self-check; DEPLOY=1 deploys NtakeStack-dev first)
 	bash scripts/integration.sh
+
+bedrock-preflight: ## [HUMAN] diagnose Bedrock model-access prerequisites (FTU form, marketplace perms, Nova-vs-Claude probe)
+	$(PY) scripts/bedrock_preflight.py
 
 deploy-dev: ## [HUMAN] cdk deploy the dev tracer slice (needs AWS creds; Session 1.5)
 	cd infra && npm run build && cdk deploy TracerStack-dev

@@ -312,6 +312,43 @@ decision we are therefore locking in now so Sessions 4–5 are unblocked:
   (anticipated by the Session 0.2 caveat). The scoped `bedrock:InvokeModel` IAM is
   correct (the call *reaches* Bedrock — "Operation not allowed", not
   `AccessDenied`).
+- **CORRECTION (2026-10-02, verified against the official model-access doc + a
+  symptom-matching re:Post thread) — the Session 0.2 "retired, nothing to
+  manually grant, auto-enables" note UNDER-STATED the prerequisites.** How model
+  access *should* work on a clean account, per
+  `docs.aws.amazon.com/bedrock/latest/userguide/model-access.html`:
+  (1) the invoking identity needs **AWS Marketplace perms**
+  (`aws-marketplace:Subscribe`/`ViewSubscriptions`/`Unsubscribe`) for the
+  first-invoke auto-subscription; (2) **Anthropic models require a one-time First
+  Time Use (FTU) use-case form** — submitted once per account via the console
+  model catalog or the `PutUseCaseForModelAccess` API, granted immediately — this
+  is **self-service, NOT a support case**, and was missed by the 0.2 note; (3) a
+  valid payment method. **Error-type disambiguation:** a missing FTU form /
+  Marketplace perms yields **`AccessDeniedException`**; our symptom was
+  **`ValidationException: Operation not allowed` on *every* model including
+  first-party Nova Lite (which has no FTU form)** — that specific signature is a
+  **new/dormant-account anti-fraud hold on the bedrock-runtime data plane**, which
+  only AWS lifts (the support case is correct). **Account nuance:** this account
+  is from ~2014–2016 with a card, so "new account" fits poorly; the dormant-/
+  low-Bedrock-usage variant of the same hold is the fit.
+- **`make bedrock-preflight` RESULT (2026-10-02) — hold CONFIRMED; Session 1.5 was
+  right.** The new standalone probe (`scripts/bedrock_preflight.py`) run on
+  `111037110464`: **Nova Lite Converse → `ValidationException: Operation not
+  allowed`**, and Claude the same. Because Nova is first-party with **no FTU form
+  and no Marketplace handshake**, its failure is conclusive — this is the
+  account-level data-plane hold, **not** a form/perms/shape issue. So the support
+  case remains the only path; also confirm a **real credit card** (not just promo
+  credits) is on file (the common reason the hold persists). Two side facts the
+  probe surfaced: (a) the **Anthropic FTU use-case form is NOT yet submitted** —
+  it is a genuine *second* prerequisite (the 0.2 note missed it) but is
+  **downstream of the hold** (submitting it now won't help until the hold lifts;
+  Nova needs no form yet also fails), so submit it when convenient so it isn't a
+  second surprise later; (b) the probe's Marketplace-perms check initially
+  false-alarmed (`aws-marketplace` is not a boto3 client — fixed to use
+  `marketplace-catalog`); it is non-decisive anyway (the Nova Converse result is
+  the signal). **Re-run `make bedrock-preflight` whenever the ticket is touched;
+  when Nova/Claude return OK the hold is lifted** → submit the FTU form (if not
+  already), then backfill §3.5 via `scripts/bedrock_bisect.py`.
 - **Model id reality (recorded for Sessions 5/8):** the originally-pinned
   `anthropic.claude-3-haiku-20240307-v1:0` is **retired** ("model version has
   reached end of life"). Modern Claude models on this account are
