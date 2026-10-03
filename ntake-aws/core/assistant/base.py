@@ -16,13 +16,13 @@ The app-specific capture *value types* stay in ``core.assistant.capture``; this
 re-exports them too so a backend needs only ``from core.assistant.base import …``.
 """
 
-# ⚠️ PARKED FOR SESSION 2 (AWS rebuild). The stage-1 ``CaptureResolver`` seam
+# ⚠️ PARKED (AWS rebuild). The stage-1 ``CaptureResolver`` seam
 # below still takes a SQLAlchemy ``Session`` and imports the deleted
 # ``app.persistence.models`` (+ the old ``app.assistant.capture`` path). The
 # stage-2 contract it re-exports (``AssistantClient``/``ProposedAction``) is
 # already live in ``core.engine.engine`` and ``core.assistant.capture``; this
-# module's own ``CaptureResolver`` is rewired to the ``Repository`` seam in
-# Session 2 (AWS_LLD §2/§3), so it is excluded from the Session 1 gate. Old
+# module's own ``CaptureResolver`` is rewired to the ``Repository`` seam (built in
+# Session 2) in Session 3 (AWS_LLD §2/§3), so it is excluded from the gate. Old
 # behavior: ``git show main:app/assistant/base.py``.
 
 from __future__ import annotations

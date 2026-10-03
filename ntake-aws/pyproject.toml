@@ -5,11 +5,12 @@ description = "Family calendar + work items — AWS-native rebuild (API GW + Lam
 requires-python = ">=3.12"
 
 # ===========================================================================
-# PARKED MODULES (Session 2 rewires them off SQLAlchemy/app.persistence.models
-# onto the DynamoDB Repository + DTOs — AWS_LLD §2). They still import the
-# deleted `app.persistence.models` and `sqlalchemy`, so they are excluded from
-# mypy + coverage below until Session 2 brings them back under the gate. Each
-# file carries a ⚠️ PARKED banner. Keep this list in sync with those banners.
+# PARKED MODULES (Session 3 rewires them off SQLAlchemy/app.persistence.models
+# onto the DynamoDB Repository + DTOs — AWS_LLD §2; the Repository seam + DTOs
+# they port onto were built in Session 2). They still import the deleted
+# `app.persistence.models` and `sqlalchemy`, so they are excluded from mypy +
+# coverage below until that port. Each file carries a ⚠️ PARKED banner. Keep this
+# list in sync with those banners.
 #
 #   core/actions/context.py
 #   core/actions/shared.py
@@ -36,7 +37,7 @@ select = ["E", "F", "I", "B", "UP"]
 
 # ---------------------------------------------------------------------------
 # mypy — type checking. Pragmatic (not --strict) so unstubbed libs (boto3) don't
-# drown out real errors. The parked modules are excluded until Session 2.
+# drown out real errors. The parked modules are excluded until Session 3.
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.12"
@@ -44,7 +45,7 @@ ignore_missing_imports = true
 check_untyped_defs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
-# Parked modules (see header) — excluded from the Session 1 gate.
+# Parked modules (see header) — excluded from the gate until the Session 3 port.
 exclude = '''(?x)(
     core/actions/context\.py$
   | core/actions/shared\.py$
@@ -64,7 +65,7 @@ addopts = "-q"
 # ---------------------------------------------------------------------------
 # coverage.py (via pytest-cov: `make coverage`, and the `make check` gate).
 # `source = ["core"]` measures the lifted core; parked modules are omitted
-# until Session 2 ports them (they are never imported by Session-1 tests, so
+# until Session 3 ports them (they are never imported by current tests, so
 # including them would report 0% and sink the gate).
 # ---------------------------------------------------------------------------
 [tool.coverage.run]

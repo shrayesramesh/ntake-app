@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import pytest
 
+from core.repository import Repository
+from core.repository_memory import InMemoryRepository
 from tests.harness.bedrock_double import (
     ScriptedBedrockClient,
     link_response,
@@ -18,7 +20,6 @@ from tests.harness.bedrock_double import (
 )
 from tests.harness.boundary import assert_imports_none_of
 from tests.harness.ddb_local import dynamodb_local_available
-from tests.harness.repos import PlaceholderRepository
 
 # --- scripted Bedrock double ----------------------------------------------
 
@@ -92,10 +93,11 @@ def test_scripted_client_records_calls_and_isolates_copies() -> None:
 
 
 def test_repo_fixture_yields_a_backend(repo: object) -> None:
-    # In Session 1 only the ``memory`` param runs (``dynamo`` is skipped); the
-    # placeholder reports its backend so the parametrization is demonstrably live.
-    assert isinstance(repo, PlaceholderRepository)
-    assert repo.ping() == "memory"
+    # In Session 2 only the ``memory`` param runs (``dynamo`` is skipped); it
+    # yields the real InMemoryRepository, which structurally satisfies the
+    # Repository protocol — the parametrization is demonstrably live.
+    assert isinstance(repo, InMemoryRepository)
+    assert isinstance(repo, Repository)
 
 
 # --- DynamoDB Local probe + boundary helper -------------------------------
