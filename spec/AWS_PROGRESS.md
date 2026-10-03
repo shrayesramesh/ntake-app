@@ -494,7 +494,8 @@ cloud-only truths the tier exists to catch — all now fixed, final run **19 pas
   `scan begins_with(PK,"FAM#itest-")` → **Count 0**. (Note: ~132 orphaned rows
   from pre-cleanup runs, plain-ULID ids, remain untouched by the prefix sweep —
   harmless; clear with `cdk destroy NtakeStack-dev` + redeploy if a clean slate is
-  wanted.)
+  wanted — now a one-liner: **`make dev-reset`** (destroys NtakeStack-dev; dev
+  only; recreate with `make integration DEPLOY=1`).)
 - **Residual coverage:** one trivial fallback line + a few partial branches in
   `events.py` (all-day `end_date` defaulting; the no-title create describe) remain
   — 99.41% is well over the 95 gate; left as-is (YAGNI).

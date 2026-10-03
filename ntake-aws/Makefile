@@ -30,7 +30,7 @@ COV_MIN := 95
   help setup \
   test test-core test-data test-assistant test-api test-infra \
   lint format typecheck coverage check \
-  synth integration deploy-dev deploy-prod \
+  synth integration deploy-dev deploy-prod dev-reset \
   setup-aws clean
 
 help: ## Show available targets
@@ -118,6 +118,11 @@ deploy-dev: ## [HUMAN] cdk deploy the dev tracer slice (needs AWS creds; Session
 
 deploy-prod: ## [HUMAN] cdk deploy the prod stage (needs AWS creds)
 	cd infra && npm run build && cdk deploy NtakeStack-prod
+
+dev-reset: ## [HUMAN] destroy NtakeStack-dev (DROPS the dev table + ALL its data) for a clean slate; recreate with 'make integration DEPLOY=1'
+	@echo "This DESTROYS NtakeStack-dev and all data in the ntake-dev table (dev only, removalPolicy=DESTROY)."
+	@echo "Prod is never touched. Recreate the empty table with: make integration DEPLOY=1"
+	cd infra && npm run build && cdk destroy NtakeStack-dev
 
 # --- Account preflight (one-shot; [HUMAN]-run) -----------------------------
 
