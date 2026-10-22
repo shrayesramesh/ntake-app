@@ -10,8 +10,8 @@ Fixtures provided to every session's tests:
 * ``repo`` — a fresh ``InMemoryRepository`` (Tier 1 — the fast, networkless
   gate). Tier 2 (``make integration``) uses a real ``DynamoRepository`` via its
   own conftest, not this fixture.
-* ``scripted_bedrock`` — a factory for the deterministic Bedrock Converse double
-  (canned LINK JSON + ``toolUse`` blocks).
+* ``scripted_anthropic`` — a factory for the deterministic Anthropic Messages
+  double (canned LINK forced-tool JSON + PROPOSE ``tool_use`` blocks).
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ import pytest
 
 from core.repository_memory import InMemoryRepository
 from tests.harness.anthropic_double import ScriptedAnthropicClient
-from tests.harness.bedrock_double import ScriptedBedrockClient
 from tests.harness.repos import REPO_FACTORIES
 
 
@@ -37,26 +36,6 @@ def repo() -> InMemoryRepository:
     ``Repository`` protocol, so one body serves both tiers.
     """
     return REPO_FACTORIES["memory"]()
-
-
-@pytest.fixture
-def scripted_bedrock() -> Callable[..., ScriptedBedrockClient]:
-    """Factory for a :class:`ScriptedBedrockClient` (canned LINK/PROPOSE responses).
-
-    Returned as a factory (not a bare instance) so a test seeds its own canned
-    ``responses`` / ``default`` inline:
-
-        client = scripted_bedrock(responses={"groceries": link_response(...)})
-    """
-
-    def _make(
-        responses: dict[str, dict[str, Any]] | None = None,
-        *,
-        default: dict[str, Any] | None = None,
-    ) -> ScriptedBedrockClient:
-        return ScriptedBedrockClient(responses=responses, default=default)
-
-    return _make
 
 
 @pytest.fixture

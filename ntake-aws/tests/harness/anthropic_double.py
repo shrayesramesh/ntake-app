@@ -1,6 +1,6 @@
 """ScriptedAnthropicClient — the deterministic Anthropic Messages double.
 
-The Messages-shaped successor to ``ScriptedBedrockClient`` (AWS_LLD §3.4). Both
+The deterministic double for the Anthropic Messages seam (AWS_LLD §3.4). Both
 LINK (forced-tool constrained JSON) and PROPOSE (tool-use) sit behind the
 ``core.assistant.anthropic_client.AnthropicClient`` protocol; this double lets
 those flows run with **no network and no key**, canned responses keyed off the
@@ -11,8 +11,9 @@ user text. Shaped like the real Messages response verified by
 * a tool call is ``{"type": "tool_use", "id", "name", "input": {...}}``;
 * ``stop_reason`` is ``"tool_use"`` (a forced/used tool) or ``"end_turn"``.
 
-(The Converse-shaped ``bedrock_double`` remains for the throwaway tracer until
-Session 5 deletes it; this is the real seam's double.)
+(This is the real seam's double; the Converse-shaped Bedrock double it succeeded
+was removed with the throwaway tracer in Session 5, since the project is on the
+Anthropic Messages API.)
 """
 
 from __future__ import annotations

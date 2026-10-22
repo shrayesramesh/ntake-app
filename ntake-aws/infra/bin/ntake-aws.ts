@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { App, RemovalPolicy } from "aws-cdk-lib";
 import { NtakeStack, NtakeStageProps } from "../lib/ntake-stack.js";
-import { TracerStack } from "../lib/tracer-stack.js";
 
 // Pinned account + region (AWS_LLD header; AWS_PLAN Phase 0). Session 1 does NOT
 // deploy — `cdk synth` only. The env is set so synth produces a stage-correct
@@ -38,18 +37,5 @@ const prod: NtakeStageProps = {
 const app = new App();
 new NtakeStack(app, "NtakeStack-dev", dev);
 new NtakeStack(app, "NtakeStack-prod", prod);
-
-// ⚠️ THROWAWAY tracer-bullet slice (AWS_PLAN Session 1.5) — a SEPARATE stack,
-// dev-only, deleted when Session 5 builds the real resources into NtakeStack.
-// Deployed with `make deploy-dev` → `cdk deploy TracerStack-dev` (the [HUMAN]
-// step). Kept apart from NtakeStack so removing the scaffolding can never
-// disturb the real stack. No prod tracer.
-new TracerStack(app, "TracerStack-dev", {
-  env,
-  // The tracer genuinely probes Bedrock (that is what it was built to de-risk),
-  // so it keeps the Bedrock inference-profile id regardless of the NtakeStack
-  // pivot to the Anthropic API. Throwaway; deleted in Session 5.
-  bedrockModelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-});
 
 app.synth();

@@ -19,7 +19,7 @@ MYPY   := $(VENV)/bin/mypy
 
 # Python sources under the gate (lint scope). All six formerly-parked action
 # modules are live as of Session 3 — no exclusions remain.
-SRC    := core handlers adapters tracer tests
+SRC    := core handlers adapters tests
 
 # Coverage gate: the lifted + ported core is unit/flow-tested (LLD §8).
 COV_MIN := 95
@@ -30,7 +30,7 @@ COV_MIN := 95
   help setup \
   test test-core test-data test-assistant test-api test-infra \
   lint format typecheck coverage check \
-  synth integration deploy-dev deploy-prod dev-reset bedrock-preflight \
+  synth integration deploy-dev deploy-prod dev-reset \
   setup-aws secrets-anthropic clean
 
 help: ## Show available targets
@@ -90,7 +90,7 @@ format: ## Auto-fix lint + format (ruff)
 
 typecheck: ## Static type check (mypy)
 	@test -x $(MYPY) || { echo "No venv — run 'make setup' first."; exit 1; }
-	$(MYPY) core handlers adapters tracer tests
+	$(MYPY) core handlers adapters tests
 
 coverage: ## Run tests with a coverage report (terminal, shows missing lines)
 	$(_require_pytest)
@@ -110,14 +110,11 @@ synth: ## cdk synth the stacks (infra compiles; NO deploy)
 
 # --- Tier 2: integration against the REAL dev stage ([HUMAN]-invoked) -------
 
-integration: ## [HUMAN] Tier 2: run the integration suite vs the real ntake-dev table (sts self-check; DEPLOY=1 deploys NtakeStack-dev first)
-	bash scripts/integration.sh
+integration: ## [HUMAN] Tier 2: run the integration suite vs the real ntake-dev table (sts self-check; DEPLOY=1 deploys NtakeStack-dev first; PYTEST_ARGS='-s' to see live LLM prints)
+	PYTEST_ARGS="$(PYTEST_ARGS)" bash scripts/integration.sh
 
-bedrock-preflight: ## [HUMAN] diagnose Bedrock model-access prerequisites (FTU form, marketplace perms, Nova-vs-Claude probe)
-	$(PY) scripts/bedrock_preflight.py
-
-deploy-dev: ## [HUMAN] cdk deploy the dev tracer slice (needs AWS creds; Session 1.5)
-	cd infra && npm run build && cdk deploy TracerStack-dev
+deploy-dev: ## [HUMAN] cdk deploy the dev stage NtakeStack-dev (needs AWS creds)
+	cd infra && npm run build && cdk deploy NtakeStack-dev
 
 deploy-prod: ## [HUMAN] cdk deploy the prod stage (needs AWS creds)
 	cd infra && npm run build && cdk deploy NtakeStack-prod

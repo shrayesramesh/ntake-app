@@ -1,9 +1,9 @@
 """Placeholder so ``make test-api`` collects until Session 6.
 
 Then: each route through its thin handler over the in-memory repo + scripted
-Bedrock (health, events read, work-item/board read+append, /capture propose-only,
-/actions/confirm execute+publish-once), plus the single-publish-boundary
-invariant and the authorizer hashing. See AWS_LLD §4/§5.
+Anthropic seam (health, events read, work-item/board read+append, /capture
+propose-only, /actions/confirm execute+publish-once), plus the
+single-publish-boundary invariant and the authorizer hashing. See AWS_LLD §4/§5.
 """
 
 from __future__ import annotations
