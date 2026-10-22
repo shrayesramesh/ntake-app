@@ -43,7 +43,8 @@ class ProposedAction:
     """A single proposed, unconfirmed action — exactly what an assistant returns.
 
     Domain-free: ``name`` is a registry key, ``params`` a plain dict. ``target_id``
-    /``target_type`` identify what it operates on (opaque to the engine).
+    /``target_type`` identify what it operates on (opaque to the engine; the app's
+    ids are ULID strings under the AWS rebuild — AWS_LLD §1).
     ``llm_rationale`` is the model's own narration (may be wrong/empty). There is
     deliberately no ``action_summary`` here — that is derived from the registry's
     ``describe`` (ground truth), not carried by the model.
@@ -56,7 +57,7 @@ class ProposedAction:
     name: str
     params: dict
     llm_rationale: str = ""
-    target_id: int | None = None
+    target_id: str | None = None
     target_type: str | None = None
     proposal_id: str = ""
     target_ref: str | None = None

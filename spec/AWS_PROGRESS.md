@@ -625,3 +625,181 @@ cards (selection-not-execution, consume a list for parallel tool use), the
 BUG-001..008 hardening suite, and the §3.6 action/parameter factoring. Tier-1-first
 against the scripted double; the live PROPOSE call joins `make integration`. (See
 AWS_PLAN Part II, Session 5.)
+
+
+## Session 5 — Assistant: PROPOSE tool-use + schema translation  (done — Tier-1 green; Tier-2 live PROPOSE a [HUMAN] follow-up)
+Built the whole PROPOSE stage, TDD + behaviour-faithful to the reference
+(`git show main:app/assistant/local_llm/propose.py`), over the Session-4
+`AnthropicClient` seam + the scripted double. Per the owner's steering, led with
+the **behavioural flow test** (focused-context in → scripted `tool_use` out →
+cards, nothing written) to pin the observable contract, then filled in the
+implementation-detail unit tests (schema translation, the BUG-001..008 drops).
+- **[AGENT] `core/assistant/anthropic_propose.py`** — `AnthropicAssistant`
+  (`AssistantClient[FocusedContext]`), factored at the §3.6 action/parameter split
+  into three separable pieces so the deferred GENERATE⇒DECIDE swap is localized:
+  1. **action-space projection** — `build_tools_schema(registry, whitelists)`
+     (pure): one Anthropic tool per `ActionSpec` (`name`/`description`/
+     `input_schema`), `input_schema` assembled from `params` (required derived,
+     `exclusive_params`→`oneOf`, `additionalProperties:false`), with the
+     **per-request id-enum overlay** on `member_id` (= LINK's resolved member ids)
+     and the **empty-whitelist tool-omission** rule (a required id param with an
+     empty enum ⇒ omit the tool, so a degraded LINK lands on `no_action`/a
+     no-target create rather than an unfillable tool);
+  2. **the model call** — the one swappable unit behind `AnthropicClient`, with
+     `tool_choice: {"type": "any"}` (MUST use a registered tool; `no_action` is a
+     registered tool);
+  3. **result mapping** — `_proposals_from` (pure): consume a **list** of
+     `tool_use` blocks (parallel tool use, §3.5), drop-invalid (`spec.accepts` +
+     `_has_valid_local_times` + **app-side id re-validation against the whitelist**
+     + `needs_target`/target-attach), map each to a `ProposedAction`. **Selection,
+     not execution** — never returns a `tool_result`, never loops, writes nothing
+     (only the verb comes from the model; the concrete `target_id`/`target_type` is
+     attached by the app from LINK's resolved ids). **Graceful-degrade:** any
+     failure (API raise, missing blocks, malformed `input`) → `[]`, never raises.
+  Reuses `build_tools_view` is NOT reused (the prose view is replaced by the
+  `tools` schema); reuses the registry (`REGISTRY`/`DataType.json_schema`),
+  `FocusedContext` primaries, and `validate_family_local_datetime`.
+  System prompt is short/token-efficient (the tool schemas carry the shape
+  constraint). v1 builds **no** separate param-generator/decision interface (the
+  §3.6 refactor is YAGNI until then — only piece 2 changes under it).
+- **[AGENT] Engine `ProposedAction.target_id` loosened `int | None` → `str | None`**
+  (owner-confirmed): the reference predated the ULID ripple; ids are ULID strings
+  app-wide (matches `ProposalRead.target_id: str | None`). Dead int path dropped
+  (not `str | int | None`). One-line change + docstring note; the engine stays
+  domain-neutral (id value opaque).
+- **[AGENT] Tier-1 harness (led with behaviour):**
+  `tests/assistant/test_propose_resolver.py` (15 flow tests — the contract:
+  tool_choice=any + registry projection sent; map-without-executing (repo
+  untouched); single `create_message` call / no loop / no tool_result; `no_action`
+  a normal selection; **multiple blocks → multiple cards**; work-item/event target
+  attach from resolved ids; target-needing-action-without-id dropped;
+  fabricated-member-id dropped vs whitelist; whitelisted survives; graceful-degrade
+  (raise/missing-content/malformed-input/unknown-action → `[]`); valid survives
+  alongside invalid). Then the implementation-detail units:
+  `test_propose_schema.py` (7 — projection internals: one-tool-per-action,
+  required derived, datatype fragments, `oneOf`, member-id enum overlay,
+  empty-whitelist omission) and `test_propose_hardening.py` (BUG-001..008 port vs
+  the Anthropic double: missing/empty required param; timed action missing a time;
+  **BUG-002** keep well-formed local vs drop UTC-`Z`/wrong-shape/non-string;
+  valid-alongside-invalid; malformed-envelope degrade). Owner-confirmed scope: the
+  reference's *transport*-level drops (4xx/5xx/timeout/non-JSON→`{}`) are NOT
+  re-expressed — that boundary now lives in the resolver's blanket `except` (as
+  LINK), and `HttpAnthropicClient` is Tier-2-only.
+- **[AGENT] Tier 2 wired (not run this sitting):**
+  `tests/integration/test_propose_live.py` — two live PROPOSE calls against the
+  real Anthropic API (reuses the deployed `{api_key, workspace_id}` secret; **no
+  Bedrock gate**), self-skipping if the secret is unset (never a false pass),
+  mirroring `test_link_live.py`. Lands in `tests/integration/`, which
+  `scripts/integration.sh` already runs, so **no Makefile/script change needed** to
+  "extend `make integration`". Suite collects **25 tests without AWS** (2 new live
+  PROPOSE + the existing 23).
+- **[AGENT] Tier-2 suite consolidated to happy-path + irreducible contracts
+  (owner-requested).** Collapsed Tier 2 from **25 tests to 6**, on the principle:
+  if the in-memory double can give a trustworthy answer, the assertion is boundary
+  logic and belongs at Tier 1 (fast, exact); only properties where in-memory and
+  DynamoDB can *disagree* stay at Tier 2. Verified first that
+  `tests/data/test_repository_flows.py` **already** covers every boundary-logic
+  case backend-agnostically (archived-exclusion, board grouping/ordering, family
+  scoping, calendar unify/range, due-bridge set/clear, all-day timezone,
+  co-created pair outcome) — so nothing was lost by removing the Tier-2 re-runs.
+  - **Deleted** `tests/integration/test_dynamo_flows.py` (all 7 bodies re-ran
+    strongly-consistent base-table logic already proven at Tier 1; the transaction
+    case is also asserted natively below).
+  - **Deleted** `test_link_live.py` (real LINK over *in-memory* — half-integrated)
+    and `test_propose_live.py` (real PROPOSE over a *stubbed* `(none linked)`
+    context with empty whitelists — the gap the owner caught). Both are subsumed by
+    the joint pipeline test.
+  - **Trimmed** `test_dynamo_access_patterns.py` from 14 → **5 irreducible
+    contracts**: the co-created `TransactWriteItems` (both sides land; the home of
+    the double-serialization + `list_append` operand-type bugs), the single-`Put`
+    standalone create (write-primitive spy), the two **raw-GSI** key-shape +
+    sparse-drop assertions (GSI1 `STATUS#…#POS#…`, GSI2 `TS#…#EV#`/`TS#…#WI#`), and
+    **one** representative GSI eventual-consistency drop-out through the repo read
+    (archive → leaves calendar). Dropped the 9 that re-assert Tier-1-covered
+    semantics (board grouping, done-list, calendar unify/range, due set/clear,
+    all-day, delete-event, family-scoping, the two base-table list_* reads).
+  - **Result:** Tier 2 = **2 happy-path assistant pipeline tests
+    (`test_capture_pipeline_live.py`) + 5 Dynamo-only contracts**. The true
+    full-stack e2e (HTTP→auth→Lambda→publish→Dynamo→model) remains the Session-8
+    sweep, after Session 6 builds the handlers. Suite collects **7 tests without
+    AWS**.
+- **[AGENT] §3.5 multi-tool-call signal (owner-requested, observe-not-assert).**
+  Added `test_live_multi_intent_note_tool_call_signal` to the pipeline module: a
+  genuinely multi-intent note ("call the plumber about friday **and** add milk to
+  the grocery list" — two independent intents over two seeded targets) runs the
+  real LINK→PROPOSE pipeline, and the resulting **card count + names are recorded**
+  (`record_property` + a printed `[§3.5 multi-tool-call signal]` line) so the
+  Session-8 full-tool-count reconciliation has real data. The count is
+  **deliberately NOT asserted** — whether real Claude fans out vs. prefers one is
+  the open §3.5 question; the design consumes a *list* of `tool_use` blocks either
+  way (reshape-free), so only the invariant contract is asserted (≥1 card, every
+  card a registered action).
+- **Gate GREEN (Tier 1):** `make check` — ruff lint+format clean, mypy clean (84
+  source files), **295 passed / 12 skipped, 99.15% core coverage** (≥95 gate);
+  `core/assistant/anthropic_propose.py` **100%**. (Baseline at session start: 262
+  passed; +33 new tests.)
+
+### To-verify / deferred (open)
+- **Tier-2 live PROPOSE run is a [HUMAN] follow-up:** run `make integration`
+  (key is set; no Bedrock gate) to confirm registry→`tools` + `tool_choice:any`
+  are accepted by the real Messages API, the model returns `tool_use` block(s),
+  enum-over-whitelist holds, and the **multi-tool-call** behaviour (§3.5 — does
+  real Claude emit multiple tool calls for a multi-intent note, or prefer one?) at
+  the current tool count. Reconciled at full tool count in Session 8.
+- **Tracer teardown is its own step (owner-confirmed, NOT this session):** delete
+  the throwaway `tracer/`, `TracerStack`, `tests/harness/bedrock_double.py` +
+  `scripted_bedrock` fixture + `tests/assistant/test_tracer_bedrock.py`, the
+  bedrock/tracer probe scripts (`bedrock_bisect.py`/`bedrock_preflight.py`/
+  `nova_probe.py`/`tracer_validate.py`/`ws_check.py`), and repoint `make
+  deploy-dev` at `NtakeStack-dev`. Mechanical, touches CDK/infra — kept out of the
+  PROPOSE session to isolate risk. (`scripts/spike/` is already gone.)
+- `core/assistant/anthropic_link.py` + `world.py` residual partial branches
+  (94%/97%) are unchanged from Session 4 — well over the 95 gate; left as-is.
+
+### Next session
+**Session 6 — Thin handlers + authorizer + confirm/execute + live-sync publish**
+(Phase 4). The HTTP/auth surface + the execute→publish boundary: drive each route
+through its thin handler over the in-memory repo + scripted Anthropic seam
+(health, reads, `/capture` propose-only writes-nothing, `/actions/confirm`
+executes via the registry + publishes once), the single-publish-boundary
+invariant test, the authorizer (HMAC→member) + minting, and the HTTP/WS API +
+per-Lambda roles into `NtakeStack`. (See AWS_PLAN Part II, Session 6.)
+
+
+## Tracer teardown  (done — its own commit, after Session 5)
+Deleted the throwaway Session-1.5 tracer slice now that all three things it was
+built to de-risk are resolved: IAM/authorizer-context pass (proven; rebuilt
+properly in Session 6), WebSocket connect/routing (proven; delivery deferred to
+the Session-6 execute boundary), and the Bedrock multi-tool-call question (**moot**
+— the project pivoted off Bedrock to the Anthropic API, AWS_LLD §3.5/§10). The
+tracer was pure dead weight: a deployed `TracerStack-dev`, a `tracer/` package,
+two tracer tests on the Tier-1 gate, the Converse-shaped `bedrock_double` only it
+used, and five Bedrock/tracer probe scripts.
+- **Deleted (code):** the whole `tracer/` package (`__init__`, `app_handler`,
+  `authorizer`, `bedrock_tracer`, `ws_handler`); `infra/lib/tracer-stack.ts`
+  (+ compiled `.js`/`.d.ts`); `tests/harness/bedrock_double.py`;
+  `tests/api/test_tracer_authorizer.py`, `tests/api/test_tracer_http_ws.py`,
+  `tests/assistant/test_tracer_bedrock.py`; the probe scripts
+  `scripts/{bedrock_bisect,bedrock_preflight,nova_probe,tracer_validate,ws_check}.py`.
+- **Edited (rewire):** `infra/bin/ntake-aws.ts` drops the `TracerStack` import +
+  instantiation (now only `NtakeStack-dev`/`-prod`); `tests/conftest.py` drops the
+  `scripted_bedrock` fixture + `ScriptedBedrockClient` import (keeps
+  `scripted_anthropic`); `tests/test_harness.py` drops the Bedrock-double
+  self-tests (the Anthropic double has its own suite); `tests/harness/__init__.py`
+  + `anthropic_double.py` docstrings drop the stale `bedrock_double` references;
+  `tests/api/test_placeholder.py` docstring "scripted Bedrock" → "scripted
+  Anthropic seam".
+- **Makefile:** removed `tracer` from the lint/mypy `SRC` paths; removed the
+  `bedrock-preflight` target; **repointed `make deploy-dev` at `NtakeStack-dev`**
+  (was `cdk deploy TracerStack-dev`) — the real dev stack, consistent with
+  `make integration DEPLOY=1`.
+- **[HUMAN] follow-up — destroy the deployed tracer:** `TracerStack-dev` is still
+  live on `111037110464`. Run **`cd infra && npm run build && cdk destroy
+  TracerStack-dev`** (dev-only; never touches `NtakeStack`/prod) to remove its
+  table + secret + 5 Lambdas + the HTTP/WS APIs. The code is gone so it will never
+  be re-synthesized/redeployed; the destroy just reclaims the deployed resources.
+- **Gate GREEN:** `make check` — ruff + mypy + format clean, **268 passed / 12
+  skipped, 99.15% core coverage** (−27 tests vs Session 5's 295 = the removed
+  tracer/bedrock-double self-tests; core coverage unchanged — the tracer was never
+  in the `core` coverage target). **`make synth` clean** — only
+  `NtakeStack-dev`/`-prod` synthesize; no `TracerStack`.

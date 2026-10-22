@@ -1,18 +1,30 @@
-"""Tier-2: Dynamo-specific access-pattern tests (AWS_LLD §1), native + poll-based.
+"""Tier-2: the irreducible DynamoDB-only contracts (AWS_LLD §1).
 
-These pin the single-table mechanics that only the real table exercises — the
-two GSIs, the sparse-archive drop-out, the unified calendar Query, the co-created
-``TransactWriteItems``, and the single-``Put`` standalone create. Written
-**natively** (not re-used from the shared bodies) because every GSI read is
-**eventually consistent**: each assertion uses ``poll_until`` to converge on the
-*exact* expected result, which is correct for both an item appearing and an item
-dropping out — a blanket "retry until non-empty" cannot express the drop-out
-(negative) cases.
+Trimmed to the single-table mechanics that **only the real table can tell the
+truth about** — the properties where the in-memory double and DynamoDB can
+genuinely disagree, which is the entire reason Tier 2 exists. Everything that is
+repository *semantics* (archived-exclusion, board grouping/ordering, family
+scoping, calendar unify/range, the due-bridge, all-day timezone math, the
+co-created pair's observable outcome) is pinned exactly and instantly at Tier 1
+in ``tests/data/test_repository_flows.py`` via the backend-agnostic ``repo``
+fixture — re-running those bodies against the real table only duplicates logic
+and adds latency/flake, so they are not repeated here.
 
-Seeds are deliberately **rich** — several items across multiple board columns,
-multiple interleaved events + due items, a family with members — so grouping,
-ordering, and the sparse-index drop-out are genuinely demonstrated, not trivially
-satisfied by a one-item fixture.
+What remains is irreducible:
+
+* **Write primitives.** The ``TransactWriteItems`` co-created pair and the
+  single-``Put`` standalone create — asserted via call-spies. In-memory has no
+  transaction/serializer, so the double-serialization + ``list_append``
+  operand-type bugs (both found at Tier 2) can only surface here.
+* **Raw GSI key shape + sparse drop-out.** The literal ``STATUS#…#POS#…`` /
+  ``TS#…`` sort keys in the actual index, and their removal on archive/clear —
+  in-memory has no GSI, and a happy-path flow never asserts a key *disappeared*.
+* **GSI eventual consistency.** One representative drop-out read through the repo
+  (archive → leaves the calendar) exercised with ``poll_until`` — a behavior the
+  synchronous in-memory double cannot even exhibit.
+
+Seeds carry the ``itest-`` prefix (integration conftest) so the cleanup sweep
+removes every row this suite writes.
 """
 
 from __future__ import annotations
@@ -23,9 +35,8 @@ from typing import Any
 from unittest import mock
 
 from adapters.dynamo_repository import DynamoRepository
-from core.schemas import CalendarKind, EventProvenance
+from core.schemas import EventProvenance
 from tests.harness.factories import (
-    make_all_day_event,
     make_family,
     make_member,
     make_timed_event,
@@ -39,236 +50,73 @@ def _titles(rows: Any) -> list[str]:
     return [r.title for r in rows]
 
 
-# --- GSI1 board: grouping + intra-column order + sparse-archive drop-out ----
+# --- write primitives: the one transaction vs. the single Put --------------
 
 
-def test_board_grouping_ordering_and_sparse_archive(
-    dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
+def test_co_created_event_transact_writes_both_sides(
+    dynamo_repo: DynamoRepository,
 ) -> None:
-    """A rich board (multiple columns, out-of-order positions) groups by column
-    and orders within it via GSI1. (The sparse-archive drop-out is asserted
-    directly against the index in
-    ``test_gsi1_index_holds_board_keys_and_drops_on_archive``.)"""
+    """create_event_from_update is one TransactWriteItems: the event Put and the
+    work-item log append both land (base-table reads → strongly consistent, no
+    poll needed). The double-serialization + list_append operand-type bugs lived
+    in this transaction path; only the real table surfaces them."""
     repo = dynamo_repo
     fam = make_family()
-    seed_family(repo, fam, [])
-    # Insert out of order across three columns to prove grouping + sort.
-    repo.put_work_item(
-        make_work_item(fam.id, title="todo-b", status="todo", position=1)
-    )
-    repo.put_work_item(
-        make_work_item(fam.id, title="todo-a", status="todo", position=0)
-    )
-    repo.put_work_item(
-        make_work_item(fam.id, title="doing-a", status="doing", position=0)
-    )
-    repo.put_work_item(
-        make_work_item(fam.id, title="done-a", status="done", position=0)
-    )
-
-    board = poll_until(
-        lambda: repo.list_board(fam.id),
-        expected=(["todo-a", "todo-b"], ["doing-a"], ["done-a"]),
-        key=lambda b: (_titles(b["todo"]), _titles(b["doing"]), _titles(b["done"])),
-    )
-    assert _titles(board["todo"]) == ["todo-a", "todo-b"]  # ordered by position
-    assert _titles(board["doing"]) == ["doing-a"]
-    assert _titles(board["done"]) == ["done-a"]
-    assert board["on_deck"] == []
-
-
-def test_list_done_work_items_excludes_archived(
-    dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
-) -> None:
-    """The done-column GSI1 Query returns done+unarchived items; archiving one
-    drops it."""
-    repo = dynamo_repo
-    fam = make_family()
-    seed_family(repo, fam, [])
-    d1 = make_work_item(fam.id, title="d1", status="done", position=0)
-    d2 = make_work_item(fam.id, title="d2", status="done", position=1)
-    repo.put_work_item(d1)
-    repo.put_work_item(d2)
-    repo.put_work_item(make_work_item(fam.id, title="t1", status="todo", position=0))
-
-    done = poll_until(
-        lambda: repo.list_done_work_items(fam.id),
-        expected=["d1", "d2"],
-        key=lambda rows: sorted(_titles(rows)),
-    )
-    assert sorted(_titles(done)) == ["d1", "d2"]
-
-    repo.archive_work_item(fam.id, d1.id)
-    done = poll_until(
-        lambda: repo.list_done_work_items(fam.id),
-        expected=["d2"],
-        key=lambda rows: sorted(_titles(rows)),
-    )
-    assert sorted(_titles(done)) == ["d2"]
-
-
-# --- GSI2 calendar: unified range Query, ordering, due-bridge, drop-out -----
-
-
-def test_calendar_range_unifies_events_and_due_items_in_order(
-    dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
-) -> None:
-    """One GSI2 range Query returns in-window events + due-dated items together,
-    time-ordered, and excludes out-of-window rows."""
-    repo = dynamo_repo
-    fam = make_family()
-    seed_family(repo, fam, [])
-    repo.put_event(
-        make_timed_event(
-            fam.id, title="late-ev", start_at=datetime(2026, 2, 10, 9, 0, tzinfo=UTC)
-        )
-    )
-    repo.put_event(
-        make_timed_event(
-            fam.id, title="early-ev", start_at=datetime(2026, 2, 2, 9, 0, tzinfo=UTC)
-        )
-    )
-    repo.put_event(
-        make_timed_event(
-            fam.id, title="out", start_at=datetime(2027, 1, 1, 9, 0, tzinfo=UTC)
-        )
-    )
-    repo.put_work_item(
-        make_work_item(
-            fam.id, title="due-mid", due_at=datetime(2026, 2, 5, 17, 0, tzinfo=UTC)
-        )
-    )
-
-    window = (datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 3, 1, tzinfo=UTC))
-    rows = poll_until(
-        lambda: repo.list_calendar(fam.id, *window),
-        expected=["early-ev", "due-mid", "late-ev"],
-        key=_titles,
-    )
-    assert _titles(rows) == ["early-ev", "due-mid", "late-ev"]
-    kinds = {r.title: r.kind for r in rows}
-    assert kinds["due-mid"] == CalendarKind.WORK_ITEM
-    assert kinds["early-ev"] == CalendarKind.EVENT
-
-
-def test_due_at_set_then_cleared_bridges_and_leaves_calendar(
-    dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
-) -> None:
-    """Setting due_at puts the item on the calendar (GSI2 due-bridge); clearing
-    it removes the GSI2 key again."""
-    repo = dynamo_repo
-    fam = make_family()
-    seed_family(repo, fam, [])
-    wi = make_work_item(fam.id, title="later-due")
+    mem = make_member(fam.id, display_name="Alex")
+    seed_family(repo, fam, [mem])
+    wi = make_work_item(fam.id, title="plan party")
     repo.put_work_item(wi)
-    window = (datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 3, 1, tzinfo=UTC))
 
-    repo.update_work_item(
-        fam.id, wi.id, {"due_at": datetime(2026, 2, 5, 12, 0, tzinfo=UTC)}
+    log_entry = make_update(
+        author_id=mem.id, source="assistant", body="Created calendar event: Party"
     )
-    rows = poll_until(
-        lambda: repo.list_calendar(fam.id, *window), expected=["later-due"], key=_titles
+    ev = make_timed_event(
+        fam.id,
+        title="Party",
+        source_update_id=log_entry.update_id,
+        provenance=EventProvenance(
+            work_item_id=wi.id,
+            member_id=mem.id,
+            member_name=mem.display_name,
+            note_snippet="plan party",
+            at=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+        ),
     )
-    assert _titles(rows) == ["later-due"]
+    repo.create_event_from_update(ev, log_entry)
 
-    repo.update_work_item(fam.id, wi.id, {"due_at": None})
-    rows = poll_until(
-        lambda: repo.list_calendar(fam.id, *window), expected=[], key=_titles
-    )
-    assert _titles(rows) == []
+    got_ev = repo.get_event(fam.id, ev.id)
+    assert got_ev is not None and got_ev.source_update_id == log_entry.update_id
+    got_wi = repo.get_work_item(fam.id, wi.id)
+    assert got_wi is not None
+    assert [u.body for u in got_wi.updates] == ["Created calendar event: Party"]
 
 
-def test_archive_drops_due_item_from_calendar(
-    dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
+def test_standalone_event_create_is_a_single_put(
+    dynamo_repo: DynamoRepository,
 ) -> None:
-    """Archiving a due-dated item drops it from the calendar too (GSI2 sparse)."""
+    """A standalone event create goes through one ``put_item`` and NO
+    ``transact_write_items`` (the co-created path is the only transaction)."""
     repo = dynamo_repo
     fam = make_family()
     seed_family(repo, fam, [])
-    due = make_work_item(
-        fam.id, title="due", status="done", due_at=datetime(2026, 2, 5, tzinfo=UTC)
-    )
-    repo.put_work_item(due)
-    window = (datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 3, 1, tzinfo=UTC))
-    poll_until(
-        lambda: repo.list_calendar(fam.id, *window), expected=["due"], key=_titles
-    )
 
-    repo.archive_work_item(fam.id, due.id)
-    rows = poll_until(
-        lambda: repo.list_calendar(fam.id, *window), expected=[], key=_titles
-    )
-    assert _titles(rows) == []
+    with (
+        mock.patch.object(
+            repo._table, "put_item", wraps=repo._table.put_item
+        ) as put_spy,
+        mock.patch.object(
+            repo._ddb,
+            "transact_write_items",
+            wraps=repo._ddb.transact_write_items,
+        ) as transact_spy,
+    ):
+        repo.put_event(make_timed_event(fam.id, title="standalone"))
 
-
-def test_all_day_event_appears_on_its_local_day(
-    dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
-) -> None:
-    """An all-day event sorts by family-midnight UTC (needs the family tz), so it
-    lands on its local day, not a shifted neighbour."""
-    repo = dynamo_repo
-    fam = make_family(timezone="America/New_York")
-    seed_family(repo, fam, [])
-    repo.put_event(make_all_day_event(fam.id, title="holiday", start_date=None))
-    window = (datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 2, 28, tzinfo=UTC))
-    rows = poll_until(
-        lambda: repo.list_calendar(fam.id, *window), expected=["holiday"], key=_titles
-    )
-    assert _titles(rows) == ["holiday"]
+    assert put_spy.call_count == 1
+    assert transact_spy.call_count == 0
 
 
-def test_delete_event_removes_it_from_calendar(
-    dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
-) -> None:
-    repo = dynamo_repo
-    fam = make_family()
-    seed_family(repo, fam, [])
-    ev = make_timed_event(fam.id, title="cancelled")
-    repo.put_event(ev)
-    window = (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 12, 31, tzinfo=UTC))
-    poll_until(
-        lambda: repo.list_calendar(fam.id, *window), expected=["cancelled"], key=_titles
-    )
-
-    repo.delete_event(fam.id, ev.id)
-    assert repo.get_event(fam.id, ev.id) is None
-    rows = poll_until(
-        lambda: repo.list_calendar(fam.id, *window), expected=[], key=_titles
-    )
-    assert _titles(rows) == []
-
-
-def test_board_reads_are_scoped_to_family(
-    dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
-) -> None:
-    """GSI1 is partitioned by family — one family's board never sees another's."""
-    repo = dynamo_repo
-    fam_a = make_family()
-    fam_b = make_family()
-    seed_family(repo, fam_a, [])
-    seed_family(repo, fam_b, [])
-    repo.put_work_item(make_work_item(fam_a.id, title="a-item", status="todo"))
-    repo.put_work_item(make_work_item(fam_b.id, title="b-item", status="todo"))
-
-    board_a = poll_until(
-        lambda: repo.list_board(fam_a.id),
-        expected=["a-item"],
-        key=lambda b: _titles(b["todo"]),
-    )
-    board_b = poll_until(
-        lambda: repo.list_board(fam_b.id),
-        expected=["b-item"],
-        key=lambda b: _titles(b["todo"]),
-    )
-    assert _titles(board_a["todo"]) == ["a-item"]
-    assert _titles(board_b["todo"]) == ["b-item"]
-
-
-# --- raw GSI assertions: verify the INDEX directly, not via the repo reads ---
-# These query GSI1/GSI2 straight through the table so the index is checked
-# independently of list_board / list_calendar (whose own code could otherwise
-# mask a missing-key bug symmetrically). This closes the transitive-verification
-# gap: we assert the sparse keys literally exist / are absent in the index.
+# --- raw GSI assertions: verify the INDEX directly + sparse drop-out --------
 
 
 def _gsi_sks(repo: DynamoRepository, index: str, pk_attr: str, pk_value: str) -> Any:
@@ -342,104 +190,29 @@ def test_gsi2_index_holds_event_and_due_keys_and_drops_them(
     assert keys == []  # both sparse calendar keys removed from the index
 
 
-# --- cross-item + single-op write shapes -----------------------------------
+# --- GSI eventual consistency: one representative drop-out through the repo --
 
 
-def test_co_created_event_transact_writes_both_sides(
-    dynamo_repo: DynamoRepository,
+def test_archive_drops_due_item_from_calendar(
+    dynamo_repo: DynamoRepository, poll_until: Callable[..., Any]
 ) -> None:
-    """create_event_from_update is one TransactWriteItems: the event Put and the
-    work-item log append both land (base-table reads → strongly consistent, no
-    poll needed)."""
+    """Archiving a due-dated item drops it from the calendar (GSI2 sparse), read
+    back through ``list_calendar`` — the representative eventual-consistency
+    drop-out the synchronous in-memory double cannot exhibit."""
     repo = dynamo_repo
     fam = make_family()
-    mem = make_member(fam.id, display_name="Alex")
-    seed_family(repo, fam, [mem])
-    wi = make_work_item(fam.id, title="plan party")
-    repo.put_work_item(wi)
-
-    log_entry = make_update(
-        author_id=mem.id, source="assistant", body="Created calendar event: Party"
+    seed_family(repo, fam, [])
+    due = make_work_item(
+        fam.id, title="due", status="done", due_at=datetime(2026, 2, 5, tzinfo=UTC)
     )
-    ev = make_timed_event(
-        fam.id,
-        title="Party",
-        source_update_id=log_entry.update_id,
-        provenance=EventProvenance(
-            work_item_id=wi.id,
-            member_id=mem.id,
-            member_name=mem.display_name,
-            note_snippet="plan party",
-            at=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
-        ),
+    repo.put_work_item(due)
+    window = (datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 3, 1, tzinfo=UTC))
+    poll_until(
+        lambda: repo.list_calendar(fam.id, *window), expected=["due"], key=_titles
     )
-    repo.create_event_from_update(ev, log_entry)
 
-    got_ev = repo.get_event(fam.id, ev.id)
-    assert got_ev is not None and got_ev.source_update_id == log_entry.update_id
-    got_wi = repo.get_work_item(fam.id, wi.id)
-    assert got_wi is not None
-    assert [u.body for u in got_wi.updates] == ["Created calendar event: Party"]
-
-
-def test_standalone_event_create_is_a_single_put(
-    dynamo_repo: DynamoRepository,
-) -> None:
-    """A standalone event create goes through one ``put_item`` and NO
-    ``transact_write_items`` (the co-created path is the only transaction)."""
-    repo = dynamo_repo
-    fam = make_family()
-    seed_family(repo, fam, [])
-
-    with (
-        mock.patch.object(
-            repo._table, "put_item", wraps=repo._table.put_item
-        ) as put_spy,
-        mock.patch.object(
-            repo._ddb,
-            "transact_write_items",
-            wraps=repo._ddb.transact_write_items,
-        ) as transact_spy,
-    ):
-        repo.put_event(make_timed_event(fam.id, title="standalone"))
-
-    assert put_spy.call_count == 1
-    assert transact_spy.call_count == 0
-
-
-def test_list_work_items_base_table_excludes_archived(
-    dynamo_repo: DynamoRepository,
-) -> None:
-    """``list_work_items`` is a base-table WI# Query (strongly consistent): all
-    non-archived items (done included), archived dropped."""
-    repo = dynamo_repo
-    fam = make_family()
-    seed_family(repo, fam, [])
-    repo.put_work_item(make_work_item(fam.id, title="todo-live", status="todo"))
-    repo.put_work_item(make_work_item(fam.id, title="done-live", status="done"))
-    gone = make_work_item(fam.id, title="archived", status="todo")
-    repo.put_work_item(gone)
-    repo.archive_work_item(fam.id, gone.id)
-
-    # Base-table read — no GSI lag, assert directly.
-    titles = sorted(_titles(repo.list_work_items(fam.id)))
-    assert titles == ["done-live", "todo-live"]  # done included, archived excluded
-
-
-def test_list_events_base_table_returns_full_dtos(
-    dynamo_repo: DynamoRepository,
-) -> None:
-    """``list_events`` is a base-table EV# Query returning full ``Event`` DTOs
-    (timing + all_day survive, unlike ``CalendarRow``)."""
-    repo = dynamo_repo
-    fam = make_family()
-    seed_family(repo, fam, [])
-    repo.put_event(make_timed_event(fam.id, title="Dentist"))
-    repo.put_event(make_all_day_event(fam.id, title="Trip"))
-
-    events = repo.list_events(fam.id)
-    by_title = {e.title: e for e in events}
-    assert set(by_title) == {"Dentist", "Trip"}
-    assert by_title["Dentist"].all_day is False
-    assert by_title["Dentist"].start_at is not None  # full timing survives
-    assert by_title["Trip"].all_day is True
+    repo.archive_work_item(fam.id, due.id)
+    rows = poll_until(
+        lambda: repo.list_calendar(fam.id, *window), expected=[], key=_titles
+    )
+    assert _titles(rows) == []

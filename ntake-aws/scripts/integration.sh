@@ -78,6 +78,9 @@ fi
 # --- 4. run the Tier-2 suite against the real table ------------------------
 say "==> Running the Tier-2 integration suite against ${TABLE} (${REGION})…"
 cd "$HERE"
+# `-rA` surfaces recorded properties + the short test summary. Pass extra pytest
+# args via PYTEST_ARGS, e.g.  make integration PYTEST_ARGS='-s'  to see the live
+# LLM request/response prints from the observing client in the pipeline tests.
 NTAKE_TABLE_NAME="$TABLE" NTAKE_REGION="$REGION" \
-  "$PYTEST" tests/integration -v
+  "$PYTEST" tests/integration -v -rA ${PYTEST_ARGS:-}
 say "integration: all passed against ${TABLE}."

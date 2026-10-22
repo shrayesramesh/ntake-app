@@ -8,10 +8,9 @@ Tier 1 never needs AWS.
 Fixtures:
 
 * **``repo`` / ``dynamo_repo``** — a ``DynamoRepository`` (see
-  :mod:`adapters.dynamo_repository`) on the real table. ``test_dynamo_flows.py``
-  uses ``repo`` to re-run the subset of shared flow bodies that touch only
-  **strongly-consistent base-table reads** (``GetItem`` / base ``Query`` on
-  PK/SK), identical across tiers.
+  :mod:`adapters.dynamo_repository`) on the real table. ``dynamo_repo`` is the
+  explicit handle the trimmed Tier-2 contracts use; ``repo`` overrides the Tier-1
+  in-memory fixture so any future shared body can run against the real table.
 * **``poll_until``** — retry a GSI read until it ``== expected`` (GSIs are
   eventually consistent; you cannot ``ConsistentRead`` one), correct for both
   "appears" and "drops out".
