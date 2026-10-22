@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 
 from core.repository_memory import InMemoryRepository
+from tests.harness.anthropic_double import ScriptedAnthropicClient
 from tests.harness.bedrock_double import ScriptedBedrockClient
 from tests.harness.repos import REPO_FACTORIES
 
@@ -54,5 +55,25 @@ def scripted_bedrock() -> Callable[..., ScriptedBedrockClient]:
         default: dict[str, Any] | None = None,
     ) -> ScriptedBedrockClient:
         return ScriptedBedrockClient(responses=responses, default=default)
+
+    return _make
+
+
+@pytest.fixture
+def scripted_anthropic() -> Callable[..., ScriptedAnthropicClient]:
+    """Factory for a :class:`ScriptedAnthropicClient` (canned LINK/PROPOSE responses).
+
+    The real seam's double (Anthropic Messages shape). Returned as a factory so a
+    test seeds its own canned ``responses`` / ``default`` inline:
+
+        client = scripted_anthropic(responses={"plumber": link_response(...)})
+    """
+
+    def _make(
+        responses: dict[str, dict[str, Any]] | None = None,
+        *,
+        default: dict[str, Any] | None = None,
+    ) -> ScriptedAnthropicClient:
+        return ScriptedAnthropicClient(responses=responses, default=default)
 
     return _make

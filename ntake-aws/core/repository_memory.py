@@ -159,6 +159,33 @@ class InMemoryRepository:
             if wi.status == WorkItemStatus.DONE and wi.archived_at is None
         ]
 
+    def list_work_items(self, family_id: str) -> list[WorkItem]:
+        """All non-archived work items (done included) — the LINK world-view set.
+
+        Unlike ``list_board`` (grouped by column, loses a flat list) this returns a
+        flat list of the full aggregates; archived items carry no board/calendar
+        GSI key and are likewise absent here. The caller (world-view) applies any
+        further filtering/ordering. In DynamoDB: one family-partition Query on
+        ``begins_with(SK, "WI#")`` filtering out ``archived_at`` (AWS_LLD §2.1).
+        """
+        return [
+            copy.deepcopy(wi)
+            for wi in self._work_items.get(family_id, {}).values()
+            if wi.archived_at is None
+        ]
+
+    def list_events(self, family_id: str) -> list[Event]:
+        """All events for the family, as full DTOs — the LINK event set.
+
+        Returns the full ``Event`` (timing, participants, provenance), unlike
+        ``list_calendar``'s thin ``CalendarRow``. The world-view applies the
+        prev-week-into-future window and deep-context the participant scan — both
+        filter in code, so this read stays unfiltered (one read serves both; a
+        participated event outside the window must still be reachable). In
+        DynamoDB: one family-partition Query on ``begins_with(SK, "EV#")``.
+        """
+        return [copy.deepcopy(ev) for ev in self._events.get(family_id, {}).values()]
+
     def get_family(self, family_id: str) -> Family | None:
         fam = self._families.get(family_id)
         return copy.deepcopy(fam) if fam is not None else None

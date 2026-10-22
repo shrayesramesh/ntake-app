@@ -72,23 +72,23 @@ class FocusedContext(ActionContext):
     now: datetime
     capture_author: str = ""
     deep_context: str = ""
-    resolved_work_item_ids: list[int] = field(default_factory=list)
-    resolved_event_ids: list[int] = field(default_factory=list)
-    resolved_member_ids: list[int] = field(default_factory=list)
+    resolved_work_item_ids: list[str] = field(default_factory=list)
+    resolved_event_ids: list[str] = field(default_factory=list)
+    resolved_member_ids: list[str] = field(default_factory=list)
 
     @property
-    def primary_work_item_id(self) -> int | None:
+    def primary_work_item_id(self) -> str | None:
         """The work-item target to attach, or None. v1 resolves ≤1 per type, so
         "primary" = the first resolved id; a readable accessor for stage 2."""
         return self.resolved_work_item_ids[0] if self.resolved_work_item_ids else None
 
     @property
-    def primary_event_id(self) -> int | None:
+    def primary_event_id(self) -> str | None:
         """The event target to attach, or None (first resolved event id)."""
         return self.resolved_event_ids[0] if self.resolved_event_ids else None
 
     @property
-    def primary_member_id(self) -> int | None:
+    def primary_member_id(self) -> str | None:
         """The member the note is about, or None (first resolved member id).
 
         Used to attribute an action to a named person (e.g. attach a participant
@@ -102,14 +102,14 @@ class FocusedContext(ActionContext):
         Describes back to the user what the assistant understood (text + resolved
         ids). The FakeAssistant stamps this verbatim onto each proposal's
         ``llm_rationale`` (pass-through — no intelligence); a real assistant
-        (the local LLM) will instead write a genuine natural-language description
-        there.
+        (the LINK resolver) will instead write a genuine natural-language
+        description there.
         """
         parts = [f"Understood: “{self.text}”"]
         if self.resolved_work_item_ids:
-            ids = ", ".join(f"#{i}" for i in self.resolved_work_item_ids)
+            ids = ", ".join(self.resolved_work_item_ids)
             parts.append(f"work items: {ids}")
         if self.resolved_event_ids:
-            ids = ", ".join(f"e{i}" for i in self.resolved_event_ids)
+            ids = ", ".join(self.resolved_event_ids)
             parts.append(f"events: {ids}")
         return " · ".join(parts)

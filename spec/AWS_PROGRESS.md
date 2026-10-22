@@ -527,3 +527,101 @@ family → whitelist; first-person linking; malformed→degrade), driven integra
 first over the in-memory repo at Tier 1. The real-model LINK run is the Tier-2/
 [HUMAN] increment, gated on the Bedrock account-auth support case (§3.5). (See
 AWS_PLAN Part II, Session 4.)
+
+
+## Pivot — Bedrock → Anthropic API  (done, before Session 4)
+The assistant seams moved off **Amazon Bedrock** onto the **Anthropic Messages
+API** (`api.anthropic.com`), because the Session 1.5 tracer found Bedrock
+invocation blocked by an account-level hold only AWS can lift (LLD §3.5). A
+provider swap, not an architecture change: LINK ⇒ PROPOSE, registry→tools, the
+scriptable seam all unchanged — only the wire protocol (Converse → Messages) and
+the credential path (`bedrock:InvokeModel` IAM → an API key in Secrets Manager).
+- **Docs:** HLD (decisions §2/§5/§6 + new §10 pivot rationale, §2a posture, §3
+  topology, §4 flows, §5 package shape, §7/§7a seams + LLM-tier, §9 Secrets
+  Manager, §10 logging, §11 props, §12–§14) and LLD (§3.1–§3.6, §6, §7, §8) fully
+  pivoted. `REQUIREMENTS` §5a unchanged in substance (Bedrock→Anthropic wording).
+  **Jev / GENERATE⇒DECIDE recorded as a deferred post-v1 refactor (LLD §3.6)**,
+  with PROPOSE's action/parameter split point documented as the designated seam.
+- **CDK:** props renamed (`bedrockModelId`→`anthropicModelId`,
+  `bedrockLogFidelity`→`assistantLogFidelity`); an **empty** `anthropic-api-key`
+  Secrets Manager secret added to `NtakeStack` (value set out-of-band). Tracer
+  left intact (deleted Session 5). `make secrets-anthropic` + `scripts/
+  secrets-anthropic.sh` store `{api_key, workspace_id}` JSON (key prompted, never
+  in argv; workspace id is account-level so the Messages API needs the
+  `anthropic-workspace-id` header).
+- **Reality-check:** `scripts/spike/link_probe.py` (throwaway) hit the real
+  Messages API and resolved the open §3.1 question — **forced-tool** (a single
+  `record_links` tool whose `input_schema` IS the `{ids}` object) over
+  prompt-and-parse (which fenced the JSON + appended prose). Kept as reference
+  until Session 4 green; safe to delete now.
+
+## Session 4 — Assistant: LINK + the scriptable seam  (done — Tier-1 + Tier-2 green)
+Built the whole LINK stage, TDD + behaviour-faithful to the reference (exact
+world-view / deep-context strings pinned), over the `Repository` seam + ULID ids.
+- **[AGENT] Ported LINK supporting cast into `core/assistant/`:** `world.py`
+  (`build_world_view` — members + non-archived-done-included work items + events in
+  a 7-day-back window, family-tz rendered; id tokens `[w:<id>]`/`[e:<id>]`/`[m:<id>]`
+  = Option A), `linking.py` (`add_capturing_member_for_first_person`, pure),
+  `deep.py` (`resolve_ids` + `deep_context` — the PROPOSE input: linked items +
+  footprint-member assigned items + participated events, full update log/checklist,
+  dedup). **`resolve_ids` now de-dups** (family-validate + dedup + first-seen order)
+  — a deliberate fix over the reference's dup-leaking filter (LLD §3.1).
+- **[AGENT] Two new repository reads** (LINK needs them; LLD §2.1):
+  `list_work_items` (non-archived, done included) + `list_events` (all, full DTOs)
+  on the protocol, `InMemoryRepository`, AND `DynamoRepository` (single base-table
+  family-partition Query on `begins_with(SK, "WI#"|"EV#")`; `list_work_items`
+  filters archived in Python). Tier-2 access-pattern tests added.
+- **[AGENT] The `AnthropicClient` seam:** `core/assistant/anthropic_client.py` (a
+  generic `create_message(system, messages, tools?, tool_choice?)` protocol, kept
+  provider-generic per LLD §3.6), `tests/harness/anthropic_double.py`
+  (`ScriptedAnthropicClient` + `link_response`/`propose_response`, real Messages
+  shape — `content` list, `tool_use` blocks, `stop_reason`), and the real
+  `adapters/anthropic_http.py` (`HttpAnthropicClient` — reads `{api_key,
+  workspace_id}` from Secrets Manager, cached; stdlib `urllib` POST; the only place
+  the Anthropic API is reached). The Converse-shaped `bedrock_double` is kept for
+  the throwaway tracer (deleted Session 5); new `scripted_anthropic` conftest
+  fixture (kept `scripted_bedrock`).
+- **[AGENT] The LINK resolver:** `core/assistant/anthropic_link.py`
+  (`AnthropicCaptureResolver.focus`) — world-view → forced `record_links` call →
+  defensive parse of `tool_use.input` → first-person linking → `resolve_ids` →
+  `deep_context` → `FocusedContext`. **Graceful-degrade:** any failure (API raise,
+  missing `tool_use` block, malformed `input`) degrades the model's contribution
+  to no-linked-ids and never raises; deterministic first-person linking still
+  applies. System prompt trimmed ~50% for token efficiency (the forced tool
+  carries the output-shape constraint). `FocusedContext` ids int→str (ULID ripple).
+- **[AGENT] Tier-1 harness:** 5 world-view + 4 linking + 19 deep-context (incl. 11
+  complex edges: dedup linked+assigned, linked+participated event dedup, author
+  footprint, non-footprint exclusion, out-of-order update sort, empty-header
+  omission, all-day+tags, start==end collapse, participant case/whitespace match +
+  no false-match, resolve_ids dedup) + 9 LINK-resolver flow + 7 double tests.
+  Deleted the stale skipped `test_placeholder.py`.
+- **Gate GREEN (Tier 1):** `make check` — ruff + format + mypy clean, **262 passed /
+  12 skipped, 99.07% core coverage** (≥95 gate).
+- **Tier 2 GREEN (real `ntake-dev`, [HUMAN]-run):** `make integration` → **all
+  passed** (23 tests). The two **live LINK calls** confirmed the whole seam against
+  the real model: Secrets Manager `{api_key, workspace_id}` read, egress to
+  `api.anthropic.com`, the forced-tool response shape, and **real Claude
+  (`claude-haiku-4-5`) grounding** "the plumber is coming friday" → the in-family
+  work item, and resolving nothing for an unrelated note. Surfaced + fixed one real
+  bug (`DynamoRepository` missing the two new protocol methods → `isinstance`
+  conformance failure), which is why the Dynamo impl landed this session rather than
+  deferred.
+
+### To-verify / deferred (open)
+- **The BUG-001..008 hardening regression suite** (reference:
+  `git show main:tests/assistant/test_local_llm_hardening.py`) is **Session 5** work
+  — it exercises `propose()` (param-contract drops, BUG-002 local-weekday/time,
+  UTC-leak drop, graceful-degrade). Recorded in AWS_PLAN Session 5.
+- **PROPOSE's action/parameter split factoring** (LLD §3.6) applies when PROPOSE is
+  built (Session 5): keep schema-projection / model-call / card-mapping separable so
+  the future GENERATE⇒DECIDE swap is localized.
+- `scripts/spike/` (the throwaway probe) can be deleted now it has served its purpose.
+
+### Next session
+**Session 5 — Assistant: PROPOSE tool-use + schema translation** (Phase 3b/3d).
+Registry→Anthropic `tools`, `tool_choice:{type:any}` with `no_action`, ids as
+enum-over-whitelist + app-side re-validation, `tool_use` block(s) → `ProposedAction`
+cards (selection-not-execution, consume a list for parallel tool use), the
+BUG-001..008 hardening suite, and the §3.6 action/parameter factoring. Tier-1-first
+against the scripted double; the live PROPOSE call joins `make integration`. (See
+AWS_PLAN Part II, Session 5.)

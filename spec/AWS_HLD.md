@@ -17,7 +17,8 @@
 
 ### Goals
 - Build the product as a **serverless AWS stack**: CloudFront + API Gateway
-  (HTTP + WebSocket) + Lambda + DynamoDB + Bedrock, defined entirely in **CDK**.
+  (HTTP + WebSocket) + Lambda + DynamoDB, with the assistant on the **Anthropic
+  API** (Claude), defined entirely in **CDK**.
 - Preserve the product's **behavioral contracts**: propose-and-confirm (never
   auto-apply), the append-only work-item update log, `family_id` scoping,
   device-token identity + attribution, live push to the wall display (DISP-2),
@@ -46,23 +47,24 @@
    all new.
 2. **Compute: Lambda, thin shape-agnostic handlers.** The "FastAPI+Mangum vs.
    native handlers" question is deliberately demoted: the domain logic lives in
-   the registry + repository + the Bedrock agent loop, so the HTTP handlers hold
-   almost no logic and the envelope shape barely matters. Handlers are thin I/O.
-   **Languages:** the application (handlers, core, adapters) is **Python** (lifts
-   the existing core directly); the **infra/CDK is TypeScript**. **Capture-path
-   Lambda timeout: 30s** (covers the two sequential Bedrock calls); memory sized
-   in the LLD, provisioned concurrency only if measured need.
+   the registry + repository + the two-call assistant pipeline, so the HTTP
+   handlers hold almost no logic and the envelope shape barely matters. Handlers
+   are thin I/O. **Languages:** the application (handlers, core, adapters) is
+   **Python** (lifts the existing core directly); the **infra/CDK is TypeScript**.
+   **Capture-path Lambda timeout: 30s** (covers the two sequential Anthropic
+   calls); memory sized in the LLD, provisioned concurrency only if measured need.
 3. **Data model: DynamoDB single table, idiomatic, reshaped for access patterns**
    (not a 1:1 translation of the 7 relational tables). See §6.
 4. **Persistence seam: a repository carried in the action context** (the seat the
    SQLAlchemy `Session` used to occupy) — **no separate unit-of-work interface**,
    because the single-item work-item model makes the hot path atomic on its own.
    See §6.
-5. **Assistant: two Bedrock seams.** LINK = deterministic grounding via a
-   constrained-JSON seam; PROPOSE = **Bedrock Converse tool-use** over the
-   registry-as-`toolConfig`. Execution stays behind human Confirm. See §7.
-6. **LLM tier: Amazon Bedrock**, chosen deliberately over SageMaker / self-hosted
-   (options in §7a); model size is the cost dial.
+5. **Assistant: two Anthropic-API seams.** LINK = deterministic grounding via a
+   constrained-JSON seam; PROPOSE = **Anthropic Messages API tool-use** over the
+   registry-as-`tools`. Execution stays behind human Confirm. See §7.
+6. **LLM tier: the Anthropic API** (Claude), called directly over HTTPS with an
+   API key (**not** Amazon Bedrock — see §7a for why the pivot). Model size
+   (e.g. a Haiku-class model) is the cost dial.
 7. **Identity: device tokens**, promoted to the primary security boundary now
    that Tailscale is gone, enforced by a **Lambda custom authorizer**. See §9.
 8. **Live sync: API Gateway WebSocket API, published directly from the confirm/
@@ -72,6 +74,28 @@
 9. **Infra: CDK**, single account, **dev + prod stages**, **two-tier testing** —
    a fast local Tier-1 gate (in-memory, no AWS) plus an incremental Tier-2
    `make integration` against the cloud **dev stage** that grows per session. See §11.
+10. **LLM provider pivot: Bedrock → the Anthropic API (2026-10).** The original
+    design put both assistant seams on **Amazon Bedrock** (Converse). During the
+    Session 1.5 tracer-bullet deploy this was found to be **blocked by an
+    account-level Bedrock invocation hold** on `111037110464` — every `Converse`
+    call, even plain text and even first-party Nova, returns
+    `ValidationException: "Operation not allowed"`, and the self-service
+    first-time-use path is itself gated ("create a support case"). Only AWS can
+    lift it, with no ETA (see LLD §3.5 for the full diagnosis). Rather than block
+    the whole assistant on an AWS support case, the seams move to the **Anthropic
+    API directly** (`api.anthropic.com` + an API key), which the hold does not
+    touch. This is a **provider swap, not an architecture change**: the pipeline
+    stays **LINK ⇒ PROPOSE**, the registry still projects to tool-use, and the
+    scriptable seam is unchanged in role — only the wire protocol (Converse →
+    Anthropic Messages) and the credential path (`bedrock:InvokeModel` IAM →
+    an API key in Secrets Manager) change. The key lucky timing: the **real
+    provider adapter was never written** (it was the next session), so there is
+    no Bedrock adapter code to tear out.
+    *(Deferred refactor, recorded so the reasoning is not lost: a later direction
+    explored restructuring capture into **GENERATE ⇒ DECIDE** — Anthropic for
+    free-form generation, a System-One decision model (TypeSafe **Jev**) for
+    calibrated routing/binding. Shelved for v1 to ship on Claude first; it is a
+    post-v1 refactor, not part of this build. See LLD §3.6.)*
 
 ---
 
@@ -84,21 +108,25 @@ explicit, not emergent:
 - **NFR-PRIVACY — downgraded from hard constraint to accepted tradeoff.** The
   original design kept all family data and messages on owned hardware with **no
   third-party cloud in the data path**. The AWS build stores household data in
-  **DynamoDB** and routes capture text through **Bedrock**; data now lives in and
-  transits a managed cloud. (Available mitigations if ever wanted: Bedrock's
-  no-training-on-input posture, VPC/PrivateLink, CMK encryption, region pinning —
-  but data still leaves owned hardware.) This downgrade is what makes the whole
-  Dynamo + Bedrock direction coherent rather than a violation.
+  **DynamoDB** and routes capture text through the **Anthropic API**; data now
+  lives in and transits managed clouds (AWS for storage, Anthropic for the model
+  calls). (Available mitigations if ever wanted: Anthropic's API no-training-on-
+  data default + zero-retention options, region pinning, CMK encryption on the
+  table — but data still leaves owned hardware, and capture text now transits a
+  second vendor.) This downgrade is what makes the whole Dynamo + hosted-LLM
+  direction coherent rather than a violation.
 - **NFR-COST — changed.** The original "essentially electricity" story
-  (self-hosted, local model, no per-call fees) becomes **per-call Bedrock cost +
-  managed-service charges** (API Gateway, Lambda, DynamoDB, CloudFront, WebSocket
-  minutes). Still low at a 2–4 person household's volume and scale-to-zero helps;
-  the cost dial is model size (§7a). No longer zero-marginal-cost per capture.
-- **Bedrock-call logging default — flips a privacy sub-rule.** The original
+  (self-hosted, local model, no per-call fees) becomes **per-call Anthropic API
+  cost + managed-service charges** (API Gateway, Lambda, DynamoDB, CloudFront,
+  WebSocket minutes). Still low at a 2–4 person household's volume and scale-to-
+  zero helps; the cost dial is Claude **model size** (§7a). No longer
+  zero-marginal-cost per capture.
+- **Assistant-call logging default — flips a privacy sub-rule.** The original
   observability rule was "do not log raw household note text by default." The AWS
-  build logs **full-fidelity** Bedrock calls (prompt + reply) **by default** to
-  enable prompt improvement, opt-out to metadata-only via a CDK stack prop, with a
-  180-day S3 lifecycle-rule expiry (stored in S3, not the table — see §10). See §10.
+  build logs **full-fidelity** assistant (Anthropic) calls (prompt + reply) **by
+  default** to enable prompt improvement, opt-out to metadata-only via a CDK stack
+  prop, with a 180-day S3 lifecycle-rule expiry (stored in S3, not the table —
+  see §10). See §10.
 
 Everything else (propose-and-confirm, append-only log, `family_id` scoping,
 device-token identity + attribution, live push, UTC/family-local time) is
@@ -135,18 +163,21 @@ preserved.
         └───┬──────────┬───┘                       post the {entity,id,op} nudge)
             │          │
             ▼          ▼
-   ┌─────────────┐  ┌─────────┐
-   │  DynamoDB   │  │ Bedrock │
-   │ single table│  │(Converse│
-   │             │  │ tool-use)│
-   └──────┬──────┘  └─────────┘
+   ┌─────────────┐  ┌──────────────────┐
+   │  DynamoDB   │  │  Anthropic API   │  (external HTTPS, api.anthropic.com)
+   │ single table│  │ Claude Messages: │  key from Secrets Manager
+   │             │  │ LINK JSON +      │
+   │             │  │ PROPOSE tool-use │
+   └──────┬──────┘  └──────────────────┘
           │
           ▼
    (future) S3 — cold work-item log segments (escape hatch, not built v1)
    (future) DynamoDB Streams — completeness-by-construction upgrade (not built v1)
 ```
 
-Tailscale is **gone**: its only job was being the network perimeter for a home PC
+The capture Lambda reads the **Anthropic API key from Secrets Manager** at cold
+start and calls `api.anthropic.com` over HTTPS (egress from the Lambda to the
+public internet — no Bedrock, no VPC endpoint in v1). Tailscale is **gone**: its only job was being the network perimeter for a home PC
 with no public endpoint; CloudFront + API Gateway + the authorizer are the
 perimeter now.
 
@@ -158,10 +189,10 @@ perimeter now.
 1. PWA sends capture text with the device token.
 2. The **authorizer** resolves the token → member (§9); the handler loads the
    family's **focused context** (single-Query reads, §6).
-3. **LINK** (Bedrock constrained-JSON seam) resolves which existing entities the
+3. **LINK** (Anthropic constrained-JSON seam) resolves which existing entities the
    text refers to → their real ids, validated against the family (grounding).
-4. **PROPOSE** (Bedrock Converse tool-use) selects action(s) from the
-   registry-as-`toolConfig` and fills typed args, with ids constrained to LINK's
+4. **PROPOSE** (Anthropic Messages tool-use) selects action(s) from the
+   registry-as-`tools` and fills typed args, with ids constrained to LINK's
    whitelist. Returns tool-use blocks → proposal cards. **Nothing is written.**
 5. Cards return to the author's device for Confirm / Dismiss.
 
@@ -186,24 +217,26 @@ Dismiss writes nothing. Correcting a proposal = restate (unchanged contract).
 ntake-aws/                     ← new AWS-native application
   infra/                       ← CDK app: HTTP API, WS API, DynamoDB (+ TTL,
                                  GSIs), Lambdas, CloudFront, S3 (static assets +
-                                 Bedrock-logs bucket w/ lifecycle rule), IAM,
+                                 assistant-logs bucket w/ lifecycle rule), IAM,
+                                 Secrets Manager (HMAC secret + Anthropic API key),
                                  authorizer wiring; per-stage props (dev/prod)
   handlers/                    ← thin Lambda handlers (REST, ws_connect/disconnect)
   adapters/
     dynamo_repository.py       ← the repository over the single table (owns the
                                  TransactWriteItems for cross-item cases)
-    bedrock_link.py            ← LINK: constrained-JSON Converse seam
-    bedrock_propose.py         ← PROPOSE: Converse tool-use seam
+    anthropic_link.py          ← LINK: constrained-JSON Anthropic seam
+    anthropic_propose.py       ← PROPOSE: Anthropic Messages tool-use seam
     ws_publisher.py            ← direct postToConnection to a family's conns
                                  (called at the confirm/execute boundary)
     authorizer.py              ← device-token Lambda authorizer
-    bedrock_log.py             ← full-fidelity Bedrock call logging → S3 (§10)
+    assistant_log.py           ← full-fidelity assistant (Anthropic) call
+                                 logging → S3 (§10)
   core/  (lifted, infra-agnostic — reused unchanged)
     engine/                    ← registry, ActionSpec, dispatch, propose contract
     actions/                   ← the ntake action specs + handlers
     schemas, temporal, token hashing
   tests/                       ← in-memory fake repo (Tier-1, fast), scripted
-                                 Bedrock seams, cdk synth assertions; the Tier-2
+                                 assistant seams, cdk synth assertions; the Tier-2
                                  `make integration` suite runs the same flow
                                  tests against the real dev-stage table/stack
 ```
@@ -288,52 +321,70 @@ single atomic item write. (Exact PK/SK + GSI keys in the LLD.)
 
 ---
 
-## 7. Assistant on Bedrock — two seams
+## 7. Assistant on the Anthropic API — two seams
+
+> **Pipeline unchanged by the pivot.** The two-stage **LINK ⇒ PROPOSE** shape, the
+> registry-as-tools projection, enum-over-whitelist grounding, and the scriptable
+> seam are all exactly as originally designed; only the wire protocol moves from
+> Bedrock Converse to the **Anthropic Messages API** (`POST
+> /v1/messages`). The concrete request/response mapping is in LLD §3.
 
 ### LINK — deterministic grounding (constrained-JSON seam)
-`bedrock_link` makes one constrained-JSON Converse call that returns
+`anthropic_link` makes one constrained-JSON Messages call that returns
 `{work_item_ids, event_ids, member_ids}`; the app validates these against the
 family (validate-don't-trust) to produce the resolved whitelist. Deterministic
 first-person linking (the capturing member for `I`/`me`/`my`) is preserved. LINK
 never emits actions — it only grounds.
 
-### PROPOSE — Bedrock Converse tool-use (over the registry)
-- The **action registry projects onto `toolConfig`**: each `ActionSpec` →
-  a tool (`name`, `description`, `inputSchema` from the typed `params`). This
+### PROPOSE — Anthropic Messages tool-use (over the registry)
+- The **action registry projects onto `tools`**: each `ActionSpec` →
+  a tool (`name`, `description`, `input_schema` from the typed `params`). This
   projection already exists (`build_tools_schema`) and becomes the single source
   of the tool menu — the parallel prose "tools view" largely dissolves, removing
   the view/schema desync risk.
-- **`toolChoice: "any"`** forces the model to pick a registered tool (no free
-  text), with **`no_action` as a registered tool** — this resolves the "nothing to
-  propose" case cleanly. *(Confirmed from the Bedrock `ToolChoice` docs: `any` =
-  "must request at least one tool, no text generated".)*
+- **`tool_choice: {"type": "any"}`** forces the model to pick a registered tool
+  (no free text), with **`no_action` as a registered tool** — this resolves the
+  "nothing to propose" case cleanly. *(Anthropic's `tool_choice: any` = "use any
+  of the provided tools, but it must use at least one.")*
 - **ids are constrained to LINK's whitelist as `enum`s** in the tool
-  `inputSchema`, so the model can disambiguate *which* resolved entity ("assign to
+  `input_schema`, so the model can disambiguate *which* resolved entity ("assign to
   Sam") but **cannot fabricate** an id. **Defense-in-depth:** the app re-validates
   every returned id against the whitelist regardless, so the grounding guarantee
   holds even if enum-constrained decoding is best-effort rather than hard. *(Note:
   enum-over-whitelist is a **grounding** guarantee and a modest id-minimization,
-  **not** a privacy measure — household text/context still goes to Bedrock per
-  §2a.)*
-- **Selection, not execution.** The handler takes the returned tool-use block(s),
-  converts each to a **proposal card**, and **stops** — it never returns a
-  `toolResult` and never loops. Execution happens only on human **Confirm**, via
+  **not** a privacy measure — household text/context still goes to the Anthropic
+  API per §2a.)*
+- **Selection, not execution.** The handler takes the returned `tool_use`
+  block(s), converts each to a **proposal card**, and **stops** — it never returns
+  a `tool_result` and never loops. Execution happens only on human **Confirm**, via
   `ActionSpec.execute` over the repository. This is the hard propose-and-confirm
   contract, preserved by *not* completing the agent loop.
 - **Multiple proposals:** one capture may yield several cards (a blocker flag *and*
-  a due date). This maps to **multiple tool-use blocks in one response** —
-  **flagged to-verify** against Bedrock/Claude. Fallback if a single turn returns
-  one call: loop PROPOSE, or accept one primary proposal per capture (acceptable
-  for v1).
+  a due date). This maps to **multiple `tool_use` blocks in one response** — which
+  the Anthropic Messages API supports natively (parallel tool use), so the
+  Bedrock-era "one call per turn?" open risk (old §13 / LLD §3.5) **largely
+  dissolves**. The handler still consumes a **list** of `tool_use` blocks, so
+  behavior is unchanged whether the model returns one or many.
 
 ### Determinism & tests
-Scriptable Bedrock seams (the `ScriptedLLM` equivalent) keep PROPOSE/LINK tests
+Scriptable Anthropic seams (the `ScriptedLLM` equivalent) keep PROPOSE/LINK tests
 deterministic with no network. Prompt *quality* against real Claude is validated
-in the **dev stage** (§11), not locally — the one thing local can't prove.
+in the **dev stage** (§11), not locally — the one thing local can't prove. (Since
+the Anthropic API is not gated by the Bedrock hold, real-model validation can now
+run as soon as the key is in Secrets Manager, not after an AWS support case.)
 
-### 7a. LLM tier — options considered
-- **Bedrock (chosen).** Turnkey serverless, first-class Converse tool-use (what
-  the whole PROPOSE design rests on), model choice is config, scales to zero.
+### 7a. LLM tier — why the Anthropic API (and what was reconsidered)
+- **Anthropic API, direct (chosen).** Claude's Messages API offers first-class
+  tool-use (what the whole PROPOSE design rests on), a plain HTTPS + API-key
+  integration with no AWS-side provisioning gate, and model choice as config.
+  **Decisive factor:** it sidesteps the **account-level Bedrock invocation hold**
+  that blocked the original choice with no AWS-grantable ETA (decision §10, LLD
+  §3.5). The key lives in Secrets Manager (§9/§10), not in code.
+- **Bedrock (original choice, now blocked).** Was chosen for turnkey serverless
+  Converse tool-use. Abandoned **not** on its merits but because invocation is
+  held at the account level and only AWS can lift it. Claude-via-Bedrock remains a
+  drop-in future option if the hold is ever lifted (same model, different wire
+  protocol) — but is not depended on.
 - **SageMaker.** Rejected: a real-time GPU endpoint is always-on and the most
   expensive option (idle ~99% at household scale), serverless SageMaker is
   CPU-only (too weak), and there's no managed tool-use. Only warranted by a
@@ -341,9 +392,9 @@ in the **dev stage** (§11), not locally — the one thing local can't prove.
 - **Self-hosted model called from Lambda (hybrid).** Rejected: reintroduces home-PC
   availability + cloud→home networking, and only *half*-preserves privacy (data
   still in DynamoDB), so it's incoherent once NFR-PRIVACY is an accepted tradeoff.
-- **Cost dial (within Bedrock):** run LINK + PROPOSE on a **small model**
-  (Claude Haiku / Nova) — both tasks are grounding/selection, not frontier
-  reasoning. A per-stage config value, not an architecture change.
+- **Cost dial:** run LINK + PROPOSE on a **small Claude model** (Haiku-class) —
+  both tasks are grounding/selection, not frontier reasoning. A per-stage config
+  value (`anthropicModelId`), not an architecture change.
 
 ---
 
@@ -406,39 +457,49 @@ becomes structural. Mechanism-ready, flip-on-later — the same posture as S3 sp
   WebSocket `$connect` authorizes the same way.
 - **Hardening implied by the promotion:** API Gateway **throttling/rate limits**
   so a lost token can't be abused at volume; the secret in Secrets Manager.
+- **Secrets Manager holds two secrets now:** the **HMAC token secret** (above) and
+  the **Anthropic API key** (the LLM pivot, §7/§7a/§10). Both are created by CDK
+  as **empty secrets** (name + ARN + IAM wiring in code); the *values* are put in
+  **out-of-band** via `aws secretsmanager put-secret-value` (a `[HUMAN]` step) so
+  no secret value ever lands in the repo, the synthesized template, or CloudFormation
+  state. The capture Lambda gets `secretsmanager:GetSecretValue` scoped to the
+  Anthropic-key secret's ARN only; this **replaces** the Bedrock-era
+  `bedrock:InvokeModel` grant entirely.
 - **Admin/minting path (v1):** token-only like the rest, **with a noted follow-on**
   to add a guard (IP allowlist / second factor) since it now mints credentials
   over the public internet. Cognito remains a possible future swap; out of scope.
 
 ---
 
-## 10. Bedrock call logging (prompt improvement)
-- **Every** LINK and PROPOSE Bedrock call is logged to enable prompt iteration:
-  prompt-version/schema identity, model id, latency, token usage, finish reason,
+## 10. Assistant call logging (prompt improvement)
+- **Every** LINK and PROPOSE Anthropic call is logged to enable prompt iteration:
+  prompt-version/schema identity, model id, latency, token usage, stop reason,
   degrade-to-`{}` / empty flags, resolved ids — **plus**, by default, the **full
   prompt text and raw reply**.
 - **Full-fidelity is the default** (opt-out, not opt-in). Opt-out to metadata-only
-  is a **CDK stack prop** (`bedrockLogFidelity: "full" | "metadata"`, default
+  is a **CDK stack prop** (`assistantLogFidelity: "full" | "metadata"`, default
   `"full"`) — a deploy-time, typed, reviewable config, **not an env var** (env vars
   are deploy-baked in Lambda and wouldn't be a runtime knob anyway) and not a
   runtime flag. A future runtime toggle, if ever needed, is SSM/AppConfig.
 - **Storage: S3** — one JSON object per call, keyed by family + date
-  (`bedrock-logs/<family>/<date>/<ulid>.json`), so the prompt-optimizer tooling
+  (`assistant-logs/<family>/<date>/<ulid>.json`), so the prompt-optimizer tooling
   pulls a family/date range with a cheap `ListObjectsV2` + `GetObject` batch. S3 is
   the right home: these are large, write-once/read-rarely blobs read **offline in
   batches**, not in the request path — putting them in DynamoDB would spend
   hot-path item budget (and brush the 400KB item ceiling on a big PROPOSE prompt)
   on data the app never reads live. Keeping them out of the table also leaves the
   single table lean and keeps backup/PITR scope to family data only. The
-  Bedrock-calling Lambda gets an `s3:PutObject` grant to this bucket (the only new
-  IAM). *(If cheap aggregate queries over metadata are ever wanted without reading
-  blobs, the future split is metadata → a queryable store, blobs → S3; v1 keeps
-  everything in the one object.)*
+  capture Lambda gets an `s3:PutObject` grant to this bucket. *(If cheap aggregate
+  queries over metadata are ever wanted without reading blobs, the future split is
+  metadata → a queryable store, blobs → S3; v1 keeps everything in the one object.)*
 - **Retention:** a **180-day S3 lifecycle rule** expires objects (the direct
   analog of a DynamoDB TTL; can also tier to cheaper classes before expiry if ever
   wanted). Kept simple — the whole object expires at 180 days.
 - This is the third accepted posture change (§2a) — it flips "don't log raw
-  household text by default".
+  household text by default". *(Note: the raw prompt/reply logged here is the same
+  household text that already transits the Anthropic API per §2a; S3 logging adds
+  an at-rest copy under the family's own bucket, not a new disclosure to a third
+  party.)*
 
 ---
 
@@ -449,8 +510,8 @@ becomes structural. Mechanism-ready, flip-on-later — the same posture as S3 sp
   separate-account overhead.
 - **One CDK app, per-stage props.** `NtakeStack(dev)` / `NtakeStack(prod)`, each
   an isolated resource set (own table, Lambdas, APIs, CloudFront). Environment
-  differences are **typed stack props**: `bedrockLogFidelity`, Bedrock model,
-  throttle limits, and **removal/retention policy**.
+  differences are **typed stack props**: `assistantLogFidelity`, the Claude model
+  (`anthropicModelId`), throttle limits, and **removal/retention policy**.
 - **Prod data protection:** prod DynamoDB is `RETAIN` + **point-in-time recovery**
   (replacing the old weekly `VACUUM INTO` snapshot) so a bad deploy or `destroy`
   can't wipe family data. Dev resources are `DESTROY` for easy teardown.
@@ -460,18 +521,18 @@ becomes structural. Mechanism-ready, flip-on-later — the same posture as S3 sp
   the end"):
   - **Tier 1 — local/fast (the default `make check` gate, no AWS, no Docker):**
     domain logic + the single-table access patterns via the **in-memory fake
-    repository**; handlers invoked locally; scripted Bedrock; `cdk synth` to
+    repository**; handlers invoked locally; scripted Anthropic seam; `cdk synth` to
     validate infra compiles. Always green offline — the fast TDD inner loop.
     (No DynamoDB Local — dropped; Tier 1 is in-memory, Tier 2 is the real table.)
   - **Tier 2 — remote/integration (`make integration`), built up incrementally:**
     the single-table GSIs/`UpdateItem`/`TransactWriteItems`/TTL against the **real
     dev-stage table**, plus the cloud-only seams local testing structurally cannot
-    prove — **IAM** (the #1 first-deploy failure), **Bedrock** (tool-use shape,
-    region availability, enum adherence, prompt quality), and the **API Gateway +
-    authorizer + WebSocket post-back** loop. Each feature session ships its code +
-    its infra slice into `NtakeStack` + its Tier-2 integration, so the dev stage
-    grows gradually. `make integration` self-checks credentials and can deploy
-    (`DEPLOY=1`); it is a **[HUMAN]-invoked** step.
+    prove — **IAM** (the #1 first-deploy failure), the **Anthropic API seam**
+    (tool-use shape, enum adherence, prompt quality, egress + Secrets Manager key
+    read), and the **API Gateway + authorizer + WebSocket post-back** loop. Each
+    feature session ships its code + its infra slice into `NtakeStack` + its Tier-2
+    integration, so the dev stage grows gradually. `make integration` self-checks
+    credentials and can deploy (`DEPLOY=1`); it is a **[HUMAN]-invoked** step.
   - **Therefore:** the dev stage is a **continuous** integration surface (not a
     single end-stage waypoint) — the same flow tests run both tiers (in-memory,
     then the real table), and each session's cloud-only behavior is shaken out
@@ -490,10 +551,10 @@ becomes structural. Mechanism-ready, flip-on-later — the same posture as S3 sp
 hashing**, and the propose-and-confirm + append-only-log + attribution contracts.
 
 **Built new:** the **DynamoDB repository** (single-table, co-located items,
-transaction-aware for cross-item cases), the **two Bedrock seams** (constrained-JSON
-LINK + tool-use PROPOSE), the **WebSocket live-sync** (direct-post from the execute
-boundary), the **Lambda authorizer**, **Bedrock-call logging**, the **CDK** stacks,
-and the **thin HTTP handlers**.
+transaction-aware for cross-item cases), the **two Anthropic-API seams**
+(constrained-JSON LINK + tool-use PROPOSE), the **WebSocket live-sync** (direct-post
+from the execute boundary), the **Lambda authorizer**, **assistant-call logging**,
+the **CDK** stacks, and the **thin HTTP handlers**.
 
 **Carried over, with one real change — the frontend (§12a):** the operator
 admin/minting **Lambda** (stack-run, not home-PC CLI — §9, LLD §5.3) and the demo
@@ -526,18 +587,25 @@ renders HTML at request time. Decision, scoped to a **very simple client**:
 ---
 
 ## 13. Risks / open questions (for the LLD)
-- **Multiple tool-use blocks per turn** — verify against Bedrock/Claude; fallback
-  defined (loop or one-proposal-per-capture).
+- **Multiple tool-use blocks per turn** — **largely resolved by the pivot:** the
+  Anthropic Messages API supports parallel tool use (multiple `tool_use` blocks in
+  one response) natively, so the Bedrock-era "one call per turn?" uncertainty is
+  gone. Still confirm actual multi-card behavior against the real Claude model in
+  the dev stage; the handler consumes a list regardless (LLD §3.5).
 - **Enum-constrained decoding strictness** — mitigated by app-side whitelist
-  re-validation; confirm behavior.
+  re-validation; confirm behavior against Claude tool-use.
 - **Single-table key/GSI design** — exact PK/SK, the two GSIs, the sparse-archive
   and unified-time keys, ULID formatting.
 - **Nested-attribute update ergonomics** — conditional updates (archive-only-if-
   done), checklist check-off by name, position management inside nested lists.
 - **Cross-item transaction scope** — the co-created-event `TransactWriteItems`
   shape; 100-item/4MB caps (comfortable at household scale).
-- **Bedrock schema translation** — mapping the typed `params` to Converse tool
-  `inputSchema`; LINK constrained-JSON shape; prompt-quality validation plan.
+- **Anthropic schema translation** — mapping the typed `params` to the Messages
+  tool `input_schema`; LINK constrained-JSON shape; prompt-quality validation plan.
+- **Anthropic API dependency** — a second external vendor in the data path (§2a);
+  egress from the capture Lambda to `api.anthropic.com`, API-key rotation via
+  Secrets Manager, provider availability/latency outside AWS. (Claude-via-Bedrock
+  is the fallback if the Bedrock hold is ever lifted — same model, different wire.)
 - **Cold starts** on the synchronous two-call capture path — latency budget;
   provisioned concurrency only if measured need.
 - **ULID ripple** — API/schema id types and the LLM-facing id handling.
@@ -547,7 +615,8 @@ renders HTML at request time. Decision, scoped to a **very simple client**:
   one confirm/execute boundary; guard that invariant (a boundary test), and treat
   **DynamoDB Streams + fan-out** as the ready hardening upgrade if a write path
   ever bypasses it or completeness bugs appear.
-- **Cost** — per-call Bedrock + managed-service posture (§2a); model-size dial.
+- **Cost** — per-call Anthropic API + managed-service posture (§2a); Claude
+  model-size dial.
 
 ---
 
@@ -555,8 +624,8 @@ renders HTML at request time. Decision, scoped to a **very simple client**:
 Write the LLD in this order: (1) DynamoDB single-table schema + access patterns
 (keys, the two GSIs, item shapes, ULID), (2) the repository interface + its one
 DynamoDB implementation (incl. the cross-item `TransactWriteItems`), (3) the two
-Bedrock seams + schema/tool translation + prompt-quality plan, (4) WebSocket
+Anthropic seams + schema/tool translation + prompt-quality plan, (4) WebSocket
 live-sync (connections table, direct-post from the execute boundary, 410 pruning),
-(5) the Lambda authorizer + minting path, (6) Bedrock-call logging, (7) the CDK
+(5) the Lambda authorizer + minting path, (6) assistant-call logging, (7) the CDK
 stack layout + per-stage props, (8) the test strategy per tier (Tier 1 in-memory
 local; Tier 2 `make integration` against the dev stage).

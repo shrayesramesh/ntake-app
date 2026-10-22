@@ -405,3 +405,41 @@ def test_standalone_event_create_is_a_single_put(
 
     assert put_spy.call_count == 1
     assert transact_spy.call_count == 0
+
+
+def test_list_work_items_base_table_excludes_archived(
+    dynamo_repo: DynamoRepository,
+) -> None:
+    """``list_work_items`` is a base-table WI# Query (strongly consistent): all
+    non-archived items (done included), archived dropped."""
+    repo = dynamo_repo
+    fam = make_family()
+    seed_family(repo, fam, [])
+    repo.put_work_item(make_work_item(fam.id, title="todo-live", status="todo"))
+    repo.put_work_item(make_work_item(fam.id, title="done-live", status="done"))
+    gone = make_work_item(fam.id, title="archived", status="todo")
+    repo.put_work_item(gone)
+    repo.archive_work_item(fam.id, gone.id)
+
+    # Base-table read — no GSI lag, assert directly.
+    titles = sorted(_titles(repo.list_work_items(fam.id)))
+    assert titles == ["done-live", "todo-live"]  # done included, archived excluded
+
+
+def test_list_events_base_table_returns_full_dtos(
+    dynamo_repo: DynamoRepository,
+) -> None:
+    """``list_events`` is a base-table EV# Query returning full ``Event`` DTOs
+    (timing + all_day survive, unlike ``CalendarRow``)."""
+    repo = dynamo_repo
+    fam = make_family()
+    seed_family(repo, fam, [])
+    repo.put_event(make_timed_event(fam.id, title="Dentist"))
+    repo.put_event(make_all_day_event(fam.id, title="Trip"))
+
+    events = repo.list_events(fam.id)
+    by_title = {e.title: e for e in events}
+    assert set(by_title) == {"Dentist", "Trip"}
+    assert by_title["Dentist"].all_day is False
+    assert by_title["Dentist"].start_at is not None  # full timing survives
+    assert by_title["Trip"].all_day is True

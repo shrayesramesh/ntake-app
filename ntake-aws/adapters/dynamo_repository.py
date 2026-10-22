@@ -224,6 +224,28 @@ class DynamoRepository:
         )
         return [WorkItem.model_validate(self._strip(i)) for i in resp.get("Items", [])]
 
+    def list_work_items(self, family_id: str) -> list[WorkItem]:
+        """All non-archived work items (done included) — the LINK world-view set.
+
+        A single base-table family-partition Query on ``begins_with(SK, "WI#")``
+        (AWS_LLD §2.1). The base table holds every work item including archived
+        ones (only the GSI1 board key is sparse), so archived items are filtered
+        out here to match the protocol contract (and ``InMemoryRepository``).
+        """
+        items = self._query_pk_prefix(family_pk(family_id), "WI#")
+        work_items = [WorkItem.model_validate(self._strip(i)) for i in items]
+        return [wi for wi in work_items if wi.archived_at is None]
+
+    def list_events(self, family_id: str) -> list[Event]:
+        """All events for the family, as full DTOs — the LINK event set.
+
+        A single base-table family-partition Query on ``begins_with(SK, "EV#")``
+        (AWS_LLD §2.1); returns the full ``Event`` (timing, participants), unlike
+        ``list_calendar``'s thin ``CalendarRow``.
+        """
+        items = self._query_pk_prefix(family_pk(family_id), "EV#")
+        return [Event.model_validate(self._strip(i)) for i in items]
+
     def get_family(self, family_id: str) -> Family | None:
         item = self._get(family_pk(family_id), _FAMILY_SK)
         return Family.model_validate(self._strip(item)) if item else None

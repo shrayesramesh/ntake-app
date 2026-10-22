@@ -44,13 +44,13 @@ def test_focused_context_primaries_return_first_resolved_id() -> None:
         text="x",
         timezone="UTC",
         now=NOW,
-        resolved_work_item_ids=[7, 8],
-        resolved_event_ids=[3],
-        resolved_member_ids=[2, 5],
+        resolved_work_item_ids=["wi_7", "wi_8"],
+        resolved_event_ids=["ev_3"],
+        resolved_member_ids=["mem_2", "mem_5"],
     )
-    assert fc.primary_work_item_id == 7
-    assert fc.primary_event_id == 3
-    assert fc.primary_member_id == 2
+    assert fc.primary_work_item_id == "wi_7"
+    assert fc.primary_event_id == "ev_3"
+    assert fc.primary_member_id == "mem_2"
 
 
 def test_focused_context_render_describes_focus() -> None:
@@ -58,12 +58,12 @@ def test_focused_context_render_describes_focus() -> None:
         text="pay the gas bill",
         timezone="UTC",
         now=NOW,
-        resolved_work_item_ids=[7],
-        resolved_event_ids=[3],
+        resolved_work_item_ids=["wi_7"],
+        resolved_event_ids=["ev_3"],
     )
     rendered = fc.render()
     assert "pay the gas bill" in rendered
-    assert "#7" in rendered and "e3" in rendered
+    assert "wi_7" in rendered and "ev_3" in rendered
 
 
 def test_focused_context_render_text_only_when_nothing_resolved() -> None:

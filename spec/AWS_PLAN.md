@@ -8,8 +8,8 @@
 > **Method:** TDD — tests first; the local gate (ruff + mypy + the test suite)
 > must be clean before a checkpoint is done. Rule carried over from the original:
 > **TDD the code you own; smoke-test the environment you don't** (here: AWS
-> services — IAM, Bedrock, API Gateway — are validated in the cloud **dev stage**,
-> not asserted locally).
+> services — IAM, API Gateway — and the **Anthropic API** are validated in the
+> cloud **dev stage**, not asserted locally).
 >
 > **Who does what:** steps tagged **[HUMAN]** are operator actions in the AWS
 > console/CLI with the owner's own credentials (an agent must not do these).
@@ -27,7 +27,17 @@ server, SQLAlchemy/SQLite, Alembic, SSE, Tailscale, systemd) carries over.
 
 Account: `111037110464` — a **private (non-Amazon) AWS account**. Root user exists
 **with MFA already enabled**. Nothing else is set up yet. **Region: `us-east-1`**
-(pinned — Bedrock-capable; used by the setup script and CDK config).
+(pinned — used by the setup script and CDK config).
+
+> **Assistant provider — the Anthropic API (not Bedrock).** The two assistant
+> seams (LINK, PROPOSE) call the **Anthropic Messages API** directly over HTTPS
+> with an API key stored in Secrets Manager — **not** Amazon Bedrock. Bedrock was
+> the original choice but is blocked by an account-level invocation hold only AWS
+> can lift; the seams pivoted to the Anthropic API (HLD decision §10, LLD §3.5).
+> Anything below that still says "Bedrock" in a **Session 1.5 / Phase 0 historical
+> note** is the record of what happened then; the **build target is the Anthropic
+> API**. The pivot is a provider swap only — the LINK ⇒ PROPOSE pipeline, the
+> registry→tools projection, and the scriptable seam are unchanged.
 
 ---
 
@@ -66,7 +76,7 @@ point" below).
 | Engine (registry, `ActionSpec`, `DataType`, dispatch, propose contract, `propose_bounded`) | `app/routing/engine.py` | Already infra-agnostic; the boundary test target |
 | Action specs + handlers + registry | `app/assistant/actions/` (`registry.py`, `work_items.py`, `events.py`, `meta.py`, `shared.py`, `context.py`) | Handlers currently take a `Session` via `NtakeActionContext` → **rewrite to the `Repository`** (LLD §2); specs/describe/render_card lift as-is |
 | Seam contracts + capture value types | `app/assistant/base.py`, `app/assistant/capture.py` | `CaptureResolver`/`AssistantClient`/`FocusedContext`/`ProposedAction` |
-| Tools view/schema projection | `app/assistant/tools_view.py` + the `DataType.json_schema` fragments in `engine.py` | Feeds the §3.3 `toolConfig` translation |
+| Tools view/schema projection | `app/assistant/tools_view.py` + the `DataType.json_schema` fragments in `engine.py` | Feeds the §3.3 Anthropic tool `input_schema` translation |
 | API DTOs | `app/schemas.py` | ints → ULID strings (LLD §1 ripple) |
 | Temporal (UTC ↔ family-local) | `app/persistence/temporal.py` | Pure; lifts clean |
 | Token hashing | `app/identity/tokens.py` | HMAC; secret source changes to Secrets Manager (LLD §5.1) |
@@ -76,7 +86,7 @@ point" below).
 |---|---|---|
 | Persistence | `app/persistence/` (SQLAlchemy models, `database.py`, `migrations.py`), `alembic/` | `DynamoRepository` + `InMemoryRepository` (LLD §2) |
 | HTTP app | `app/main.py` (FastAPI routes), `app/web.py`, `app/web_shell.py` | thin Lambda handlers (LLD §4/§5) |
-| LLM runtime | `app/assistant/local_llm/` (httpx/llamafile) | the two Bedrock seams (LLD §3) |
+| LLM runtime | `app/assistant/local_llm/` (httpx/llamafile) | the two Anthropic-API seams (LLD §3) |
 | Live sync | `app/event_emitter.py`, the `register_change_events`/SSE path | WebSocket direct-post (LLD §4) |
 | Config/CLI/ops | `app/config.py`, `app/manage.py`, `setup.sh`, backup/Tailscale scripts | CDK + minting admin path (LLD §5/§7) |
 
@@ -114,20 +124,23 @@ first-time setup to **two console actions in one sitting, then one script**. Aft
 that, *all* future work (dev + prod deploys, redeploys) is `cdk deploy` from the
 CLI — no console, ever.
 
-### The irreducible human minimum — two console actions, one session  [HUMAN]
-AWS gates exactly two things behind a human in the console; do them in one login:
+### The irreducible human minimum — console actions, one session  [HUMAN]
 - **0a. Create a non-root admin identity + CLI credentials.** Only the root user
   can bootstrap the first non-root principal, so this one console login is
   unavoidable. Preferred: **IAM Identity Center** user + admin permission set
   (short-lived CLI creds, no static keys); simpler: an **IAM user** +
   `AdministratorAccess` + access keys. **MFA either way.** (Root + MFA is already
-  done ✓; don't use root after this.)
-- **0b. Enable Bedrock model access** (same console session). Bedrock → **Model
-  access** → enable the Claude/Nova model in the target region. This is a
-  one-time, account-level, human-gated opt-in (a usage acknowledgment) that **CDK
-  cannot grant** — without it, Converse fails even with correct IAM. Pick the
-  region here too (**us-east-1**, the pinned region — Bedrock-capable);
-  it's one config value, pinned in CDK.
+  done ✓; don't use root after this.) Pick the region here too (**us-east-1**, the
+  pinned region — one config value, pinned in CDK).
+- **0b. Obtain an Anthropic API key** (not an AWS console action — done in the
+  **Anthropic console**, `console.anthropic.com`). Create a workspace-scoped API
+  key for this app; it is the assistant's credential (LINK + PROPOSE). The key is
+  **not** set here — it is stored out-of-band into Secrets Manager after the dev
+  stack exists, via `make secrets-anthropic` (Phase 5 / Session 4+). *(This
+  replaces the original "0b. Enable Bedrock model access" step: Bedrock invocation
+  is blocked by an account-level hold on this account, so the seams use the
+  Anthropic API instead — HLD decision §10, LLD §3.5. There is **no Bedrock model
+  access to enable** for the build target.)*
 
 ### Everything else — one script, then CDK  [AGENT provides / HUMAN runs once]
 - **0c. Configure the CLI + run `./setup-aws.sh`** (provided in Phase 1): verifies
@@ -139,9 +152,10 @@ AWS gates exactly two things behind a human in the console; do them in one login
   action. IAM, Secrets Manager, throttles, lifecycle rules — all CDK.
 
 **Done when:** `aws sts get-caller-identity` shows the non-root admin on
-`111037110464`, Bedrock model access is enabled in the region, and
-`./setup-aws.sh` (bootstrap) succeeds. Net human effort: **one console session +
-one script run.**
+`111037110464`, an **Anthropic API key exists** (stored into Secrets Manager once
+the dev stack is up — Session 4+), and `./setup-aws.sh` (bootstrap) succeeds. Net
+human effort: **one console session + one script run** (+ obtaining the Anthropic
+key in the Anthropic console).
 
 ---
 
@@ -194,34 +208,42 @@ repository; access patterns verified on the real dev-stage table via
 
 ---
 
-## Phase 3 — Assistant on Bedrock: two seams  [AGENT] (+ [HUMAN] model access)
+## Phase 3 — Assistant on the Anthropic API: two seams  [AGENT]
 
-LINK + PROPOSE against Bedrock (HLD §7). Code + deterministic tests are local;
-real-model behavior is validated in Phase 5 (dev stage).
+LINK + PROPOSE against the **Anthropic Messages API** (HLD §7). Code +
+deterministic tests are local (Tier 1, scripted seam, no key, no network);
+real-model behavior is validated incrementally in the dev stage (Tier 2) — and,
+unlike the Bedrock plan, **this is no longer gated on any AWS authorization**:
+the Anthropic key is a Secrets Manager value, so the real-model run is available
+as soon as the key is set.
 
-- **3a.** **LINK** = constrained-JSON Converse seam → `{work_item_ids,
+- **3a.** **LINK** = constrained-JSON Messages seam → `{work_item_ids,
   event_ids, member_ids}` → app validates against the family (validate-don't-
   trust) → whitelist. Deterministic first-person linking preserved.
-- **3b.** **PROPOSE** = Converse **tool-use** over the registry-as-`toolConfig`;
-  `toolChoice: "any"` with `no_action` as a tool; ids as **enum-over-whitelist**
-  in the tool `inputSchema`, **plus app-side whitelist re-validation**
-  (defense-in-depth). Returns tool-use block(s) → proposal cards; **stops** (no
-  `toolResult`, no loop) — execution only on Confirm.
-- **3c.** Scriptable Bedrock seams (the `ScriptedLLM` analog) keep LINK/PROPOSE
-  tests deterministic, no network.
-- **3d.** **Resolve the to-verify:** does one Converse turn return **multiple
-  tool-use blocks**? Verify against the real model in Phase 5; if not, fall back
-  to loop-PROPOSE or one-proposal-per-capture (HLD §13).
+- **3b.** **PROPOSE** = Messages **tool-use** over the registry-as-`tools`;
+  `tool_choice: {"type": "any"}` with `no_action` as a tool; ids as
+  **enum-over-whitelist** in the tool `input_schema`, **plus app-side whitelist
+  re-validation** (defense-in-depth). Returns `tool_use` block(s) → proposal
+  cards; **stops** (no `tool_result`, no loop) — execution only on Confirm.
+- **3c.** Scriptable Anthropic seams (the `ScriptedLLM` analog, Anthropic-shaped)
+  keep LINK/PROPOSE tests deterministic, no network, no key.
+- **3d.** **Multi-tool-call — resolved by the pivot (HLD §7 / LLD §3.5):** the
+  Anthropic Messages API supports parallel tool use (multiple `tool_use` blocks in
+  one response) natively, so the Bedrock-era "one call per turn?" risk is gone. The
+  handler consumes a **list** of blocks regardless. Remaining check is prompt
+  quality (does Claude actually emit multiple for a multi-intent note) — verified
+  against the real model in the dev stage; one-proposal-per-capture is the
+  acceptable fallback if it prefers one.
 
-**Done:** both seams built; deterministic tests green; the multi-tool-call
-question has a plan (verified in Phase 5).
+**Done:** both seams built; deterministic tests green; the real-model run wired
+into `make integration` (runnable now, not blocked).
 
 ---
 
 ## Phase 4 — Thin handlers + API + identity  [AGENT]
 
 Wire the HTTP surface and auth (HLD §4, §9). Handlers are thin I/O over the
-registry + repository + Bedrock loop.
+registry + repository + the Anthropic assistant seams.
 
 - **4a.** REST handlers for the carried-over routes (health, events read,
   work-item/board read + append, `/capture`, `/actions/confirm`) — thin, logic in
@@ -252,30 +274,32 @@ testing can't (HLD §11).
 
 - **5a.** CDK stack (**extends the minimal tracer-bullet slice from Part II
   Session 1.5** into the full stack — not a from-zero build): HTTP API, WS API,
-  DynamoDB (+ GSIs, TTL), Lambdas, CloudFront, S3 (static assets + **Bedrock-logs
-  bucket w/ 180-day lifecycle rule**, HLD §10), IAM (scoped per-Lambda),
-  authorizer wiring, Secrets Manager secret. **Per-stage typed props:**
-  `bedrockLogFidelity` (default `full`), Bedrock model, throttle limits,
-  removal/retention policy. **Billing budget + alert as an AWS Budgets construct**
-  (so cost protection deploys with the stack, not a console step — NFR-COST, §2a).
-- **5b.** **Bedrock call logging → S3** (HLD §10): full-fidelity default,
-  per-call JSON object keyed `bedrock-logs/<family>/<date>/<ulid>.json`;
-  `s3:PutObject` grant on the Bedrock-calling Lambda.
+  DynamoDB (+ GSIs, TTL), Lambdas, CloudFront, S3 (static assets + **assistant-logs
+  bucket w/ 180-day lifecycle rule**, HLD §10), IAM (scoped per-Lambda — capture
+  Lambda gets `secretsmanager:GetSecretValue` on the Anthropic-key secret, **no**
+  `bedrock:InvokeModel`), authorizer wiring, **two Secrets Manager secrets** (HMAC
+  token + Anthropic API key, both created empty — values set out-of-band via
+  `make secrets-anthropic`). **Per-stage typed props:** `assistantLogFidelity`
+  (default `full`), `anthropicModelId`, throttle limits, removal/retention policy.
+  **Billing budget + alert as an AWS Budgets construct** (so cost protection
+  deploys with the stack, not a console step — NFR-COST, §2a).
+- **5b.** **Assistant call logging → S3** (HLD §10): full-fidelity default,
+  per-call JSON object keyed `assistant-logs/<family>/<date>/<ulid>.json`;
+  `s3:PutObject` grant on the capture (Anthropic-calling) Lambda.
 - **5c.** Deploy the **full `dev`** stack **[HUMAN: `cdk deploy`]** — `DESTROY`
-  removal, disposable table, fake data. (First cloud contact + the IAM / Bedrock
-  multi-tool-call / enum / WebSocket-loop questions were de-risked earlier by the
+  removal, disposable table, fake data. (First cloud contact + the IAM /
+  WebSocket-loop questions were de-risked earlier by the
   **tracer-bullet deploy (Part II, Session 1.5)**; this is the *full-stack*
   integration against the real handlers/repository/seams.) **Re-validate at full
-  scale:** IAM across all Lambdas, **real Bedrock** with the complete
-  `toolConfig` (confirm the Session-1.5 tool-use/enum/multi-tool-call findings
-  still hold at full tool count; prompt quality eyeballed), and the full API
-  Gateway → authorizer → WebSocket post-back loop.
+  scale:** IAM across all Lambdas, the **real Anthropic API** with the complete
+  tool set (confirm tool-use/enum/multi-tool-call behavior at full tool count,
+  Secrets Manager key read + egress to `api.anthropic.com`; prompt quality
+  eyeballed), and the full API Gateway → authorizer → WebSocket post-back loop.
 - **5d.** API Gateway **throttling/rate limits** (token is now the primary
   internet boundary, HLD §9).
 
-**Done:** full dev stack live; IAM + Bedrock + live-sync validated at scale;
-findings reconciled with the Session-1.5 tracer bullet; LLD updated if anything
-changed at full scale.
+**Done:** full dev stack live; IAM + the Anthropic seam + live-sync validated at
+scale; LLD updated if anything changed at full scale.
 
 ---
 
@@ -303,9 +327,10 @@ real device; live sync verified across two devices.
 ## Phase 7 — Prod cutover  [AGENT config / HUMAN deploy]
 
 - **7a.** Prod stack props: **`RETAIN` + point-in-time recovery** on the table
-  (replaces the old weekly snapshot), tighter throttles, the chosen model,
-  `bedrockLogFidelity` as desired.
-- **7b. [HUMAN]** Deploy **`prod`**; mint real device tokens; enroll real devices
+  (replaces the old weekly snapshot), tighter throttles, the chosen Claude model,
+  `assistantLogFidelity` as desired.
+- **7b. [HUMAN]** Deploy **`prod`**; set the prod Anthropic key
+  (`make secrets-anthropic prod`); mint real device tokens; enroll real devices
   via QR.
 - **7c. [HUMAN]** Admin/minting hardening follow-on (IP allowlist / second factor
   on the credential-minting path, HLD §9) — tracked, not blocking initial prod.
@@ -346,36 +371,37 @@ The flow is **two-tier** (operating-model change, 2026-10-02 — supersedes the
 original "local-first for everything, cloud only at Sessions 5/8"):
 
 - **Tier 1 — local/fast (the default gate, `make check`).** ruff + mypy + the
-  unit/contract suite against the **in-memory repository** + **scripted Bedrock**.
-  **No Docker, no DynamoDB Local, no AWS, no credentials, no heavy deps.** Always
-  green offline on any machine — this is every TDD inner loop and what a fresh
-  agent context runs. Fast, free, flake-free.
+  unit/contract suite against the **in-memory repository** + **scripted Anthropic
+  seam**. **No Docker, no DynamoDB Local, no AWS, no credentials, no heavy deps.**
+  Always green offline on any machine — this is every TDD inner loop and what a
+  fresh agent context runs. Fast, free, flake-free.
 - **Tier 2 — remote/integration (`make integration`), built up incrementally.**
   Runs the **same** protocol-level flow/access-pattern tests against the **real
-  dev stage** (real DynamoDB now; real Bedrock + API GW + WebSocket as those land)
-  — and can **deploy** first. Each feature session from Session 3 on ships its
-  **code + its infra slice (into `NtakeStack`) + its dev integration**, so the
-  dev stage grows gradually alongside the app rather than being deferred to one
-  big-bang integration at the end. `make integration` needs AWS credentials and
-  is a **[HUMAN]-invoked** step (it self-checks `sts get-caller-identity` and
+  dev stage** (real DynamoDB now; the real Anthropic API + API GW + WebSocket as
+  those land) — and can **deploy** first. Each feature session from Session 3 on
+  ships its **code + its infra slice (into `NtakeStack`) + its dev integration**,
+  so the dev stage grows gradually alongside the app rather than being deferred to
+  one big-bang integration at the end. `make integration` needs AWS credentials
+  and is a **[HUMAN]-invoked** step (it self-checks `sts get-caller-identity` and
   stops with configure instructions if creds are missing — it never silently
   skips).
 
 **Why the change:** continuous dev-stage integration front-loads the cloud-only
-risks (IAM, real DynamoDB semantics, Bedrock) session-by-session instead of
-stacking untested assumptions into Sessions 5/8. Tier 1 keeps the inner loop fast
-and portable; Tier 2 proves each slice against real AWS as it is built. The
-Session 1.5 tracer-bullet was the first taste of this (it caught the Bedrock
-account-auth block and the retired-model reality early); the two-tier model
-generalizes that shift-left to every session. DynamoDB Local is **dropped**
-entirely (YAGNI — Tier 1 is in-memory, Tier 2 is the real table).
+risks (IAM, real DynamoDB semantics, the Anthropic seam) session-by-session
+instead of stacking untested assumptions into Sessions 5/8. Tier 1 keeps the inner
+loop fast and portable; Tier 2 proves each slice against real AWS as it is built.
+The Session 1.5 tracer-bullet was the first taste of this (it caught the Bedrock
+account-auth block early — which is what drove the pivot to the Anthropic API,
+HLD §10); the two-tier model generalizes that shift-left to every session.
+DynamoDB Local is **dropped** entirely (YAGNI — Tier 1 is in-memory, Tier 2 is the
+real table).
 
 ## Operating rules (every session)
 
 - **TDD, integration-first.** For each unit of functionality, **write the test
   first**, watch it fail, then write code to pass it. **Prefer integration tests
   that exercise a whole interface/flow** (e.g. a capture→propose round trip
-  through the real registry + in-memory repo + scripted Bedrock seam; a repository
+  through the real registry + in-memory repo + scripted Anthropic seam; a repository
   method against the real dev-stage table via `make integration`) **over**
   mock-heavy per-function tests — *supplement* with unit tests for specific pure
   functions (temporal math, schema translation, key composition). The goal: tests
@@ -407,18 +433,21 @@ entirely (YAGNI — Tier 1 is in-memory, Tier 2 is the real table).
   it **never silently skips and never fakes a pass**:
   - **credentials** — via `aws sts get-caller-identity` (missing/wrong-account →
     stop with configure instructions);
-  - **model-dependent slices (LINK/PROPOSE/capture, Sessions 4–8)** — a **Bedrock
-    authorization self-check**: because the account is Bedrock-invocation-blocked
-    (support case pending, §3.5), the real-model Converse call cannot run yet, so
-    the integration path must **detect the block and stop cleanly** ("Bedrock not
-    authorized — [HUMAN] follow-up"), exactly like the `sts` guard. **The agent
-    still builds the real Tier-2 path** (so when the ticket clears, `make
-    integration` exercises the real call with **no code change**); it does not
-    defer the *wiring*, only the *run*.
-  So "I can't run the real model yet" is handled by a wired, self-skipping Tier-2
-  path — not by dropping the Tier-2 gate or claiming Tier-1-only. (Same
-  never-silently-skip discipline as the `sts` self-check and the current
-  `SKILL.md`.)
+  - **model-dependent slices (LINK/PROPOSE/capture, Sessions 4–8)** — an
+    **Anthropic-key self-check**: the real-model run calls the Anthropic Messages
+    API with the key from Secrets Manager (`ntake-dev/anthropic-api-key`). The
+    integration path checks the secret has a value (and, locally, that
+    `ANTHROPIC_API_KEY` is set for a direct run); if absent, it **stops cleanly**
+    ("Anthropic key not set — run `make secrets-anthropic` / export
+    `ANTHROPIC_API_KEY`"), exactly like the `sts` guard. **Unlike the Bedrock
+    plan, there is no AWS-side authorization gate** — the key is the only
+    precondition, and it is already in place, so the real-model run is **runnable
+    now**, not deferred. The agent builds the real Tier-2 path and runs it to close
+    the session.
+  So an unmet precondition (missing creds or key) is handled by a wired,
+  self-checking Tier-2 path that stops cleanly — not by dropping the Tier-2 gate or
+  claiming Tier-1-only. (Same never-silently-skip discipline as the `sts`
+  self-check and the current `SKILL.md`.)
 - **Tooling is `make` + `scripts/`** (see "Tooling to build" below) — agents use
   targets, not raw commands.
 - **Scope + honesty.** Change only what the session names. If blocked, stop and
@@ -447,16 +476,24 @@ Mirror the current repo's thin-launcher pattern — a `Makefile` delegating to
 | `make synth` | `cdk synth` (infra compiles, no deploy) |
 | `make integration` | **Tier 2: run the integration suite against the real dev stage.** Self-checks `aws sts get-caller-identity` (stops with configure instructions if creds missing/wrong-account). `make integration DEPLOY=1` **deploys first** (`cdk deploy NtakeStack-dev`) then tests; without the arg it tests whatever is already deployed. **[HUMAN]-invoked** (needs creds). Grows each session as infra slices land. |
 | `make deploy-dev` / `deploy-prod` | `cdk deploy` the stage (human-initiated; `deploy-dev` is also what `integration DEPLOY=1` calls) |
+| `make secrets-anthropic` | **[HUMAN]** set/rotate the Anthropic API key into Secrets Manager (`ntake-<stage>/anthropic-api-key`); `STAGE=dev\|prod`. Key read from `$ANTHROPIC_API_KEY` or a silent prompt — never passed as an argument. Run after the stage is deployed (CDK creates the empty secret). |
 
 Scripts under `scripts/`: `setup.sh` (venv+install+verify), `setup-aws.sh`
-(assert non-root admin on `111037110464` + `cdk bootstrap us-east-1`), and
+(assert non-root admin on `111037110464` + `cdk bootstrap us-east-1`),
 `integration.sh` (the `sts` self-check + optional `cdk deploy` + run the Tier-2
-suite). Keep each thin and single-purpose (DRY: `make` calls scripts, scripts
+suite), and `secrets-anthropic.sh` (set/rotate the Anthropic key, value-safe).
+Keep each thin and single-purpose (DRY: `make` calls scripts, scripts
 don't duplicate `make`). **Dropped (YAGNI, 2026-10-02):** `ddb_local.sh` /
 `make ddb-up` / `ddb-down` (no DynamoDB Local — Tier 1 is in-memory, Tier 2 is the
-real table) and the standalone `bedrock_smoke.py` / `make bedrock-smoke` (real
-Bedrock checks are part of `make integration` once the capture path's infra slice
-lands).
+real table) and the standalone `bedrock_smoke.py` / `make bedrock-smoke` (the real
+Anthropic-seam check is part of `make integration` once the capture path's infra
+slice lands).
+
+> **Bedrock probe scripts (`bedrock_preflight.py`, `bedrock_bisect.py`) + `make
+> bedrock-preflight`** remain in the tree only as the path to *re-enable the
+> Bedrock fallback* if its hold is ever lifted (LLD §3.5). They are **off the
+> critical path** — the build target is the Anthropic API, which needs none of
+> them.
 
 ---
 
@@ -483,18 +520,29 @@ fixtures.
 - **Establish the test harness (the DRY backbone — LLD §8):** the
   parametrize-over-both-repos fixture (one test body runs against
   `InMemoryRepository` now and `DynamoRepository` later), the **scripted
-  `BedrockClient` double** (canned LINK JSON + `toolUse` blocks), the DynamoDB
+  assistant-client double** (canned LINK JSON + tool-use blocks), the DynamoDB
   Local wiring (`make ddb-up/down`, skipped-if-absent), and the boundary-test
   tooling. Put these in `tests/conftest.py` + a `tests/harness/` so Sessions 2–9
   import, not re-build. *(Historical: the DynamoDB-Local wiring + the
   backend-parametrized fixture were built here, then **removed in Session 3** when
   the two-tier model dropped DynamoDB Local — see the 2026-10-02 decision note in
-  `AWS_PROGRESS.md`.)*
+  `AWS_PROGRESS.md`. The double shipped as a Converse-shaped `ScriptedBedrockClient`;
+  **Session 4 re-homes it as the Anthropic-shaped `ScriptedAnthropicClient`** under
+  the provider pivot — LLD §3.4 — since no real Bedrock adapter was ever written.)*
 - `make synth` on a minimal empty CDK stack (TS CDK) passes.
 **Exit:** `make check` green; boundary test green; the shared harness exists and
 is documented; `make synth` clean. Commit.
 
 ## Session 1.5 — Tracer-bullet dev deploy (de-risk the cloud-only assumptions early)  [HUMAN deploy]
+> **Historical (done). This session's Bedrock finding drove the pivot.** The
+> tracer proved IAM ✓ and WebSocket connect/routing ✓, but found **Bedrock
+> invocation blocked by an account-level hold** — which is why the assistant seams
+> moved to the **Anthropic API** (HLD §10, LLD §3.5). The "real Bedrock tool-use"
+> goal below is the record of what it *tried*; the actual build target for
+> Sessions 4–5 is the Anthropic Messages API, and the multi-tool-call question is
+> resolved by the pivot (parallel tool use is native). Read this as history, not
+> as instructions for a fresh session.
+
 **Goal:** prove the three truths local tests *cannot* — **IAM**, **real Bedrock
 tool-use**, and the **API-GW → authorizer → WebSocket post-back** loop — with a
 minimal throwaway slice, **before** Sessions 2–7 build on those assumptions. This
@@ -570,40 +618,59 @@ unavailable this sitting, land the code + the `make integration` wiring with Tie
 `make synth` clean (real table slice added to `NtakeStack`). Commit.
 
 ## Session 4 — Assistant: LINK + the scriptable seam  (Phase 3a/3c)
-**Goal:** grounding works deterministically with no network.
+**Goal:** grounding works deterministically with no network; the real-model LINK
+call runs against the Anthropic API in Tier 2 (no AWS authorization gate).
 - **Integration-first:** test the LINK flow end to end — world view in →
-  scripted Converse JSON out → validate-against-family → resolved whitelist →
+  scripted Anthropic JSON out → validate-against-family → resolved whitelist →
   deep-context (over the in-memory repo). Include malformed-reply → degrade.
-- Build the `BedrockClient` protocol + scripted double; implement the LINK call
-  shape. The real boto3 Converse client is **endpoint-ready** but its real-model
-  run is Tier 2 (below), gated on the Bedrock account-auth support case (§3.5).
+- Build the **`AnthropicClient` protocol** + the **scripted double**
+  (re-home the Session-1 Converse-shaped `ScriptedBedrockClient` to the
+  Anthropic Messages shape — top-level `content` list; `{"type":"tool_use",...}`
+  blocks; `stop_reason` — LLD §3.4). Implement the LINK call shape (constrained
+  JSON via the Messages API; see LLD §3.1 for the forced-tool-vs-prompt choice).
+- The **real** `AnthropicClient` (the `anthropic` SDK or a thin `requests`/`urllib`
+  Messages call) reads the API key from Secrets Manager (`ntake-dev/anthropic-api-key`)
+  at cold start, or from `ANTHROPIC_API_KEY` for a direct Tier-2 run. **Keep the
+  key out of logs/traces; fail closed on a missing/invalid key** (don't degrade in
+  a way that hides a misconfig). No `bedrock-runtime` anywhere.
 **Exit:** LINK flow tests green at Tier 1 (incl. first-person linking, degrade);
-`make check` green. **Tier 2 (incremental):** if the capture path's infra slice +
-Bedrock access are available, extend `make integration` to run one real LINK
-Converse call against dev and confirm the constrained-JSON shape; otherwise record
-it as the [HUMAN] dev-integration follow-up (tracked with the §3.5 support case).
-Commit.
+`make check` green (real output pasted). **Tier 2:** extend `make integration` to
+run one **real LINK call against the Anthropic API** and confirm the
+constrained-JSON shape — **runnable now** (the key is set via
+`make secrets-anthropic`; no support-case gate). **[HUMAN]-invoked**; if the key
+isn't set this sitting, the path stops cleanly and the run is a recorded [HUMAN]
+follow-up (don't fake it). Commit.
 
 ## Session 5 — Assistant: PROPOSE tool-use + schema translation  (Phase 3b/3d)
-**Goal:** registry→toolConfig, selection-not-execution, enum-over-whitelist.
-- **Unit:** `ActionSpec.params`/`DataType` → tool `inputSchema` translation
+**Goal:** registry→`tools`, selection-not-execution, enum-over-whitelist.
+- **Unit:** `ActionSpec.params`/`DataType` → tool `input_schema` translation
   (pure); the per-request id-enum overlay.
-- **Integration:** focused-context in → scripted `toolUse` block(s) out →
+- **Integration:** focused-context in → scripted `tool_use` block(s) out →
   `ProposedAction` cards; assert **no execution** happens (nothing written), ids
   re-validated against the whitelist, `no_action` handled, and **multiple
-  toolUse blocks → multiple cards** (the handler consumes a list; §3.5 fallback is
-  a call-count change).
-**Exit:** PROPOSE flow + translation tests green at Tier 1; `make check` green.
-**Tier 2 (incremental):** when Bedrock access + the capture slice are available,
-extend `make integration` to run the real PROPOSE tool-use call against dev and
-confirm enum-over-whitelist + the multi-tool-call behavior (§3.5) at the current
-tool count — reconciled at full tool count once all actions are registered. If
-Bedrock is still blocked, record as the [HUMAN] follow-up. Commit.
+  `tool_use` blocks → multiple cards** (the handler consumes a list; the Messages
+  API supports parallel tool use natively — §3.5).
+- **Port the BUG-001..008 hardening regression suite** (reference:
+  `git show main:tests/assistant/test_local_llm_hardening.py`): the validated
+  PROPOSE-stage drops — missing/empty required param dropped; timed action missing
+  a required time dropped; **BUG-002** explicit-local-weekday/time validation
+  (keep a well-formed local time; drop a UTC-suffixed / wrong-shape value rather
+  than exposing it as a proposal); a valid call survives alongside an invalid one;
+  graceful-degrade (malformed model reply → no proposals, never raises). These
+  pin behavior the self-hosted app already validated; re-express them against the
+  Anthropic scripted double. (Deferred here from Session 4 — they exercise
+  `propose()`, which Session 5 builds.)
+**Exit:** PROPOSE flow + translation + hardening tests green at Tier 1; `make check`
+green. **Tier 2:** extend `make integration` to run the **real PROPOSE tool-use
+call against the Anthropic API** and confirm enum-over-whitelist + the
+multi-tool-call behavior (§3.5) at the current tool count — reconciled at full tool
+count once all actions are registered. Runnable now (key set; no Bedrock gate); if
+the key isn't set this sitting, record as the [HUMAN] follow-up. Commit.
 
 ## Session 6 — Thin handlers + authorizer + confirm/execute + live-sync publish  (Phase 4)
 **Goal:** the HTTP/auth surface and the execute→publish boundary.
 - **Integration-first:** drive each route through its thin handler over the
-  in-memory repo + scripted Bedrock: health, events read, work-item/board read +
+  in-memory repo + scripted Anthropic seam: health, events read, work-item/board read +
   append, `/capture` (propose-only, writes nothing), `/actions/confirm` (executes
   via the registry, writes via repo, **publishes once**). Assert the
   **single-publish-boundary invariant** test (§4.3).
@@ -624,15 +691,16 @@ LLD §4.2). Commit.
 in Sessions 3/6) with the remaining resources, correctly scoped; logging adapter
 done.
 - **Infra:** add CloudFront + the two S3 buckets (static assets via OAC; the
-  Bedrock-logs bucket w/ 180-day lifecycle), the AWS Budgets construct, the
-  Secrets Manager secret (if not already from the API slice), and finalize
-  per-stage prop differences (dev `DESTROY`/no-PITR vs prod `RETAIN`/PITR,
-  throttles, model, `bedrockLogFidelity`).
+  assistant-logs bucket w/ 180-day lifecycle), the AWS Budgets construct, the
+  Secrets Manager secrets (HMAC token + Anthropic key, if not already from earlier
+  slices), and finalize per-stage prop differences (dev `DESTROY`/no-PITR vs prod
+  `RETAIN`/PITR, throttles, `anthropicModelId`, `assistantLogFidelity`).
 - **Infra tests:** `cdk synth` + template assertions — per-Lambda IAM scoping
-  (`bedrock:InvokeModel` only on capture, `s3:PutObject` only on logging, table
-  grants per handler), the two GSIs, the logs-bucket lifecycle rule, the Budgets
-  construct, dev-vs-prod prop differences.
-- Bedrock-logging adapter → S3 (full|metadata fidelity), unit-tested on object
+  (`secretsmanager:GetSecretValue` on the Anthropic-key secret only on capture —
+  **no** `bedrock:InvokeModel`; `s3:PutObject` only on logging; table grants per
+  handler), the two GSIs, the logs-bucket lifecycle rule, the Budgets construct,
+  dev-vs-prod prop differences.
+- Assistant-logging adapter → S3 (full|metadata fidelity), unit-tested on object
   shape + fidelity switch.
 **Exit:** `make synth` + infra assertions green; `make check` green. **Tier 2:**
 `make integration DEPLOY=1` deploys the now-complete dev stack and the integration
@@ -642,15 +710,16 @@ suite still passes end to end. Commit.
 **Goal:** a final, whole-stack `make integration` pass on dev — reconciling the
 per-session slices into one end-to-end run. (Under the two-tier model, cloud
 integration already happened **incrementally** in Sessions 3/6/7; this is the
-consolidation sweep + the full-tool-count Bedrock reconciliation, not first cloud
+consolidation sweep + the full-tool-count Anthropic reconciliation, not first cloud
 contact.)
 - **[HUMAN]** `make integration DEPLOY=1` (deploy the complete dev stack, then run
   the whole Tier-2 suite).
-- **[AGENT]** confirm the real capture→propose→confirm flow end to end against
-  real Bedrock + real DynamoDB + the real authorizer and WebSocket post-back on
-  the deployed dev stack (disposable data). Reconcile the §3.5 findings at the
-  **full tool count** (the complete registry, not the per-session subset):
-  enum adherence across all id-bearing actions and the multi-tool-call behavior.
+- **[AGENT]** confirm the real capture→propose→confirm flow end to end against the
+  **real Anthropic API** + real DynamoDB + the real authorizer and WebSocket
+  post-back on the deployed dev stack (disposable data). Reconcile the §3.5
+  findings at the **full tool count** (the complete registry, not the per-session
+  subset): enum adherence across all id-bearing actions and the multi-tool-call
+  behavior.
 - Any divergence surfaced at full scale is recorded; the §3.5 fallback is already
   wired, so adjust the call-count, no reshape.
 **Exit:** the full stack validated on dev in one sweep; §3.5 reconciled at full
