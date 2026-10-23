@@ -7,8 +7,9 @@ items are top-level (not family-scoped): ``TOK#<hash>`` / ``#META`` and
 reuses the pure composers in :mod:`core.token_store` (``token_pk``/``pairing_pk``)
 byte-for-byte — the single source of identity-key knowledge.
 
-Items are stored as the DTO's ``model_dump(mode="json")`` payload plus ``PK``/
-``SK``; reads strip the key attrs and ``model_validate`` the DTO back. Each method
+Items are stored as the DTO's ``core.serde.to_item`` payload plus ``PK``/
+``SK``; reads rebuild the DTO with the explicit ``core.serde`` reader (which names
+only the DTO's own fields). Each method
 is one atomic op (``PutItem``/``GetItem``/``UpdateItem``). ``boto3`` lives only in
 this adapters layer (the engine boundary keeps it out of ``core``).
 
@@ -25,6 +26,7 @@ import boto3
 from boto3.dynamodb.conditions import Attr
 
 from core.schemas import DeviceToken, PairingCode
+from core.serde import device_token_from_item, pairing_code_from_item, to_item
 from core.token_store import pairing_pk, token_pk
 
 if TYPE_CHECKING:
@@ -57,14 +59,14 @@ class DynamoTokenStore:
     def get_device_token(self, token_hash: str) -> DeviceToken | None:
         resp = self._table.get_item(Key={"PK": token_pk(token_hash), "SK": _META_SK})
         item = resp.get("Item")
-        return DeviceToken.model_validate(_strip(item)) if item else None
+        return device_token_from_item(_strip(item)) if item else None
 
     def put_device_token(self, token: DeviceToken) -> None:
         self._table.put_item(
             Item={
                 "PK": token_pk(token.token_hash),
                 "SK": _META_SK,
-                **token.model_dump(mode="json"),
+                **to_item(token),
             }
         )
 
@@ -85,7 +87,7 @@ class DynamoTokenStore:
             if not lek:
                 break
             scan_kwargs["ExclusiveStartKey"] = lek
-        return [DeviceToken.model_validate(_strip(i)) for i in items]
+        return [device_token_from_item(_strip(i)) for i in items]
 
     def revoke_device_token(self, token_hash: str) -> None:
         self._update_tolerant(
@@ -100,14 +102,14 @@ class DynamoTokenStore:
     def get_pairing_code(self, code: str) -> PairingCode | None:
         resp = self._table.get_item(Key={"PK": pairing_pk(code), "SK": _META_SK})
         item = resp.get("Item")
-        return PairingCode.model_validate(_strip(item)) if item else None
+        return pairing_code_from_item(_strip(item)) if item else None
 
     def put_pairing_code(self, pairing: PairingCode) -> None:
         self._table.put_item(
             Item={
                 "PK": pairing_pk(pairing.code),
                 "SK": _META_SK,
-                **pairing.model_dump(mode="json"),
+                **to_item(pairing),
             }
         )
 
@@ -156,5 +158,5 @@ class DynamoTokenStore:
 
 
 def _strip(item: dict[str, Any]) -> dict[str, Any]:
-    """Drop the key attributes so the remainder ``model_validate``s to the DTO."""
+    """Drop the key attributes before the explicit reader rebuilds the DTO."""
     return {k: v for k, v in item.items() if k not in ("PK", "SK")}

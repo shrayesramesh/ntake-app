@@ -904,3 +904,45 @@ per-stage prop differences, and the assistant-logging→S3 adapter (full|metadat
 fidelity). `make synth` + infra assertions + `make check` green; Tier 2:
 `make integration DEPLOY=1` on the now-complete dev stack. (See AWS_PLAN Part II,
 Session 7.)
+
+
+### Session 6 — first-deploy fix: drop Pydantic from the Lambda code (owner decision)
+The first `make integration DEPLOY=1` passed 8/10; `GET /health` and `POST /pair`
+returned **500**. Root cause (confirmed by inspecting the synthesized Lambda asset
+in `infra/cdk.out/`): the asset is our source only, and the Python 3.12 Lambda
+runtime provides `boto3` but **not pydantic** — so every handler importing
+`core.schemas` died at import time, while the pydantic-free authorizer path worked
+(the 401 test passed). The plan never had a dependency-packaging step; pydantic
+was inherited from the lifted self-hosted schemas, never a deliberate Lambda choice.
+- **Decision (owner):** remove the dependency rather than add a bundling
+  subsystem (which would need network at synth, a no-Docker manylinux pip
+  install for `pydantic_core`, and a Tier-1-offline workaround). An env-var
+  "skip bundling" switch was explicitly rejected (no-env-vars steer).
+- **[AGENT] `core/schemas.py` → stdlib `@dataclass(kw_only=True)`** (same field
+  contracts; read DTOs now carry plain `local_*` fields, no `validation_alias`).
+- **[AGENT] `core/serde.py` (new, pure):** writing = `dataclasses.asdict` + a leaf
+  converter (datetime/date → ISO, enum → value); reading = **explicit per-type
+  readers** for the six stored DTOs (`work_item`/`event`/`member`/`family`/
+  `device_token`/`pairing_code_from_item`) that name their fields, parse ISO
+  datetimes (incl. legacy `Z`-suffixed rows), coerce DynamoDB `Decimal` → `int`,
+  rebuild the four nested fields, and ignore storage keys; plus
+  `confirm_action_from_body` (malformed body → **400**). Explicit readers chosen
+  over a reflective type-walker and over descriptor/`__post_init__` normalization
+  (owner-reviewed): only six DTOs are parsed, mypy checks every field.
+- Both Dynamo adapters + the handlers switched to `to_item`/`*_from_item`;
+  `pydantic` removed from `requirements.txt`.
+- **[AGENT] Regression guard `tests/test_lambda_runtime_deps.py`:** imports every
+  Lambda entry module in a clean subprocess and asserts each non-stdlib top-level
+  module is runtime-provided (`boto3` + deps) or our own — verified non-vacuous
+  (it flags `pydantic`/`pydantic_core`/`typing_extensions`/`typing_inspection`).
+- **Gate GREEN:** `make check` — ruff + format + mypy clean, **337 passed / 10
+  skipped, 98.90% core coverage** (`core/schemas.py` 100%, `core/serde.py` 93%).
+- **[HUMAN] next:** `make deploy-dev` then `make integration` — expect the two
+  500s to become `/health` 200 and `/pair` 400 (`make secrets-token` must have
+  been run on the deployed secret for `/pair`'s token path; the bogus-code 400
+  doesn't need it).
+- **Still open for Session 6 (owner chose "b and c"):** the live WebSocket-nudge
+  Tier-2 test; the two unbuilt write routes (`POST /work-items`,
+  `POST /work-items/{id}/updates`); and updating `AWS_PLAN.md`/LLD for the
+  pairing-code design, the no-bundling/stdlib-only Lambda rule, and the stale
+  tooling table.

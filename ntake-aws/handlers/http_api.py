@@ -17,7 +17,7 @@ from typing import Any
 
 from core.engine.engine import ActionError
 from core.identity import Principal
-from core.schemas import ConfirmAction
+from core.serde import confirm_action_from_body, to_item
 from handlers import _runtime
 from handlers._auth import PairingError, create_pairing, redeem_pairing
 from handlers._support import (
@@ -75,15 +75,13 @@ def reads_handler(event: dict[str, Any], context: object = None) -> dict[str, An
 
     if route.endswith("/events"):
         events = repo.list_events(family_id)
-        return _response(
-            200, [event_read(e, tz).model_dump(mode="json") for e in events]
-        )
+        return _response(200, [to_item(event_read(e, tz)) for e in events])
     if route.endswith("/board"):
         board = repo.list_board(family_id)
         return _response(
             200,
             {
-                col: [work_item_read(wi, tz).model_dump(mode="json") for wi in items]
+                col: [to_item(work_item_read(wi, tz)) for wi in items]
                 for col, items in board.items()
             },
         )
@@ -92,15 +90,13 @@ def reads_handler(event: dict[str, Any], context: object = None) -> dict[str, An
         wi = repo.get_work_item(family_id, work_item_id)
         if wi is None:
             return _response(404, {"error": "work item not found"})
-        return _response(200, work_item_read(wi, tz).model_dump(mode="json"))
+        return _response(200, to_item(work_item_read(wi, tz)))
     if route.endswith("/work-items"):
         items = repo.list_work_items(family_id)
-        return _response(
-            200, [work_item_read(wi, tz).model_dump(mode="json") for wi in items]
-        )
+        return _response(200, [to_item(work_item_read(wi, tz)) for wi in items])
     if route.endswith("/members"):
         members = repo.list_members(family_id)
-        return _response(200, [m.model_dump(mode="json") for m in members])
+        return _response(200, [to_item(m) for m in members])
     return _response(404, {"error": "not found"})
 
 
@@ -115,7 +111,7 @@ def capture_handler(event: dict[str, Any], context: object = None) -> dict[str, 
         return _response(404, {"error": "member not found"})
     text = str(_body(event).get("text", ""))
     resp = run_capture(repo, _runtime.anthropic_client(), member, text)
-    return _response(201, resp.model_dump(mode="json"))
+    return _response(201, to_item(resp))
 
 
 # --- confirm ---------------------------------------------------------------
@@ -127,7 +123,10 @@ def confirm_handler(event: dict[str, Any], context: object = None) -> dict[str, 
     _principal_, member = _require_member(event, repo)
     if member is None:
         return _response(404, {"error": "member not found"})
-    action = ConfirmAction.model_validate(_body(event))
+    try:
+        action = confirm_action_from_body(_body(event))
+    except ValueError as e:
+        return _response(400, {"error": str(e)})
     try:
         result = run_confirm(
             repo,

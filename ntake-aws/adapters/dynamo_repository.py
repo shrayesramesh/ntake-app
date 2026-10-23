@@ -11,11 +11,11 @@ key is composed; the engine boundary test keeps ``boto3`` out of ``core``).
 
 Design (AWS_LLD §1):
 
-* **Item shape.** Each DTO is stored as its ``model_dump(mode="json")`` payload
+* **Item shape.** Each DTO is stored as its ``core.serde.to_item`` payload
   (ISO strings for datetimes/dates) plus the key attributes ``PK``/``SK`` and —
-  when the item participates — the sparse GSI keys. Reads strip the key/`_type`
-  attributes and ``model_validate`` the DTO back, so the serialized form never
-  leaks into the DTO contract.
+  when the item participates — the sparse GSI keys. Reads rebuild the DTO with
+  the explicit ``core.serde.*_from_item`` reader, which names only the DTO's own
+  fields (so storage keys never leak into the DTO contract).
 * **Sparse GSIs.** ``GSI1`` (board) keys are written **only when ``archived_at``
   is null**, so archiving drops the item from the board with no delete.
   ``GSI2`` (calendar) keys are written on events and on **due-dated, unarchived**
@@ -60,6 +60,13 @@ from core.schemas import (
     Member,
     WorkItem,
     WorkItemUpdate,
+)
+from core.serde import (
+    event_from_item,
+    family_from_item,
+    member_from_item,
+    to_item,
+    work_item_from_item,
 )
 
 if TYPE_CHECKING:  # boto3 resource/table types are only needed for annotations
@@ -123,7 +130,7 @@ class DynamoRepository:
                 "PK": family_pk(family.id),
                 "SK": _FAMILY_SK,
                 _TYPE_ATTR: "family",
-                **family.model_dump(mode="json"),
+                **to_item(family),
             }
         )
         for m in members:
@@ -132,7 +139,7 @@ class DynamoRepository:
                     "PK": family_pk(m.family_id),
                     "SK": member_sk(m.id),
                     _TYPE_ATTR: "member",
-                    **m.model_dump(mode="json"),
+                    **to_item(m),
                 }
             )
 
@@ -140,19 +147,19 @@ class DynamoRepository:
 
     def get_work_item(self, family_id: str, work_item_id: str) -> WorkItem | None:
         item = self._get(family_pk(family_id), work_item_sk(work_item_id))
-        return WorkItem.model_validate(self._strip(item)) if item else None
+        return work_item_from_item(self._strip(item)) if item else None
 
     def get_member(self, family_id: str, member_id: str) -> Member | None:
         item = self._get(family_pk(family_id), member_sk(member_id))
-        return Member.model_validate(self._strip(item)) if item else None
+        return member_from_item(self._strip(item)) if item else None
 
     def list_members(self, family_id: str) -> list[Member]:
         items = self._query_pk_prefix(family_pk(family_id), "MEM#")
-        return [Member.model_validate(self._strip(i)) for i in items]
+        return [member_from_item(self._strip(i)) for i in items]
 
     def get_event(self, family_id: str, event_id: str) -> Event | None:
         item = self._get(family_pk(family_id), event_sk(event_id))
-        return Event.model_validate(self._strip(item)) if item else None
+        return event_from_item(self._strip(item)) if item else None
 
     def list_board(self, family_id: str) -> dict[str, list[WorkItem]]:
         """The four columns, pre-sorted, via a single GSI1 Query (AWS_LLD §1.3).
@@ -167,7 +174,7 @@ class DynamoRepository:
             KeyConditionExpression=Key("GSI1PK").eq(board_pk),
         )
         for item in resp.get("Items", []):
-            wi = WorkItem.model_validate(self._strip(item))
+            wi = work_item_from_item(self._strip(item))
             if wi.status in board:
                 board[wi.status].append(wi)
         return board
@@ -190,7 +197,7 @@ class DynamoRepository:
         for item in resp.get("Items", []):
             clean = self._strip(item)
             if item.get(_TYPE_ATTR) == "event":
-                ev = Event.model_validate(clean)
+                ev = event_from_item(clean)
                 rows.append(
                     CalendarRow(
                         id=ev.id,
@@ -200,7 +207,7 @@ class DynamoRepository:
                     )
                 )
             else:
-                wi = WorkItem.model_validate(clean)
+                wi = work_item_from_item(clean)
                 due = work_item_due_sort_ts(wi)
                 if due is not None:
                     rows.append(
@@ -222,7 +229,7 @@ class DynamoRepository:
             KeyConditionExpression=Key("GSI1PK").eq(board_pk)
             & Key("GSI1SK").begins_with("STATUS#done#"),
         )
-        return [WorkItem.model_validate(self._strip(i)) for i in resp.get("Items", [])]
+        return [work_item_from_item(self._strip(i)) for i in resp.get("Items", [])]
 
     def list_work_items(self, family_id: str) -> list[WorkItem]:
         """All non-archived work items (done included) — the LINK world-view set.
@@ -233,7 +240,7 @@ class DynamoRepository:
         out here to match the protocol contract (and ``InMemoryRepository``).
         """
         items = self._query_pk_prefix(family_pk(family_id), "WI#")
-        work_items = [WorkItem.model_validate(self._strip(i)) for i in items]
+        work_items = [work_item_from_item(self._strip(i)) for i in items]
         return [wi for wi in work_items if wi.archived_at is None]
 
     def list_events(self, family_id: str) -> list[Event]:
@@ -244,11 +251,11 @@ class DynamoRepository:
         ``list_calendar``'s thin ``CalendarRow``.
         """
         items = self._query_pk_prefix(family_pk(family_id), "EV#")
-        return [Event.model_validate(self._strip(i)) for i in items]
+        return [event_from_item(self._strip(i)) for i in items]
 
     def get_family(self, family_id: str) -> Family | None:
         item = self._get(family_pk(family_id), _FAMILY_SK)
-        return Family.model_validate(self._strip(item)) if item else None
+        return family_from_item(self._strip(item)) if item else None
 
     # --- writes -------------------------------------------------------------
 
@@ -283,7 +290,7 @@ class DynamoRepository:
                 "updated_at = :now"
             ),
             ExpressionAttributeValues={
-                ":u": [update.model_dump(mode="json")],
+                ":u": [to_item(update)],
                 ":empty": [],
                 ":now": datetime.now(UTC).isoformat(),
             },
@@ -319,8 +326,8 @@ class DynamoRepository:
         wi = self._require_work_item(ev.family_id, work_item_id)  # miss -> KeyError
         client = self._ddb
         now_iso = datetime.now(UTC).isoformat()
-        new_updates = [u.model_dump(mode="json") for u in wi.updates]
-        new_updates.append(wi_log_entry.model_dump(mode="json"))
+        new_updates = [to_item(u) for u in wi.updates]
+        new_updates.append(to_item(wi_log_entry))
         try:
             client.transact_write_items(
                 TransactItems=[
@@ -399,7 +406,7 @@ class DynamoRepository:
             "PK": family_pk(wi.family_id),
             "SK": work_item_sk(wi.id),
             _TYPE_ATTR: "work_item",
-            **wi.model_dump(mode="json"),
+            **to_item(wi),
         }
         if wi.archived_at is None:
             # GSI1 (board): sparse — present only while unarchived.
@@ -421,7 +428,7 @@ class DynamoRepository:
             _TYPE_ATTR: "event",
             "GSI2PK": family_pk(ev.family_id) + _CAL_PK_SUFFIX,
             "GSI2SK": f"TS#{_ts_key(sort_ts)}#EV#{ev.id}",
-            **ev.model_dump(mode="json"),
+            **to_item(ev),
         }
 
     # --- internals ----------------------------------------------------------

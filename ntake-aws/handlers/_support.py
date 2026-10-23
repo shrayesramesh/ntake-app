@@ -183,29 +183,45 @@ def _change_for(
 
 def event_read(event: Event, timezone: str) -> EventRead:
     """Repository ``Event`` → API ``EventRead`` (UTC → family-local timing)."""
-    dto = EventRead.model_validate(event)
-    if event.start_at is not None:
-        dto.local_start_at = stored_utc_to_family_local(event.start_at, timezone)
-    if event.end_at is not None:
-        dto.local_end_at = stored_utc_to_family_local(event.end_at, timezone)
-    return dto
+    return EventRead(
+        id=event.id,
+        family_id=event.family_id,
+        title=event.title,
+        description=event.description,
+        location=event.location,
+        all_day=event.all_day,
+        local_start_at=(
+            stored_utc_to_family_local(event.start_at, timezone)
+            if event.start_at is not None
+            else None
+        ),
+        local_end_at=(
+            stored_utc_to_family_local(event.end_at, timezone)
+            if event.end_at is not None
+            else None
+        ),
+        start_date=event.start_date,
+        end_date=event.end_date,
+        participants=list(event.participants),
+        tags=list(event.tags),
+    )
 
 
 def work_item_read(work_item: WorkItem, timezone: str) -> WorkItemRead:
     """Repository ``WorkItem`` → API ``WorkItemRead`` (local due + nested log/list).
 
-    The alias maps ``due_at`` → ``local_due_at`` as a raw copy; the family-local
-    conversion is the explicit post-step. The nested log/checklist are mapped to
-    their Read shapes: ``WorkItemUpdate.update_id`` → ``WorkItemUpdateRead.id``
-    with the ``work_item_id`` injected, and each ``ChecklistEntry`` → a
-    ``ChecklistItemRead`` whose id is its position (stable within the item).
+    ``due_at`` (stored UTC) becomes ``local_due_at`` (family-local wall time). The
+    nested log/checklist are mapped to their Read shapes: ``WorkItemUpdate.update_id``
+    → ``WorkItemUpdateRead.id`` with the ``work_item_id`` injected, and each
+    ``ChecklistEntry`` → a ``ChecklistItemRead`` whose id is its position (stable
+    within the item).
     """
     local_due_at = (
         stored_utc_to_family_local(work_item.due_at, timezone)
         if work_item.due_at is not None
         else None
     )
-    dto = WorkItemRead(
+    return WorkItemRead(
         id=work_item.id,
         family_id=work_item.family_id,
         assigned_to=work_item.assigned_to,
@@ -213,6 +229,7 @@ def work_item_read(work_item: WorkItem, timezone: str) -> WorkItemRead:
         description=work_item.description,
         status=work_item.status,
         position=work_item.position,
+        local_due_at=local_due_at,
         tags=list(work_item.tags),
         created_at=work_item.created_at,
         updated_at=work_item.updated_at,
@@ -229,10 +246,6 @@ def work_item_read(work_item: WorkItem, timezone: str) -> WorkItemRead:
             for entry in work_item.checklist
         ],
     )
-    # local_due_at carries validation_alias="due_at", so it can't be set by field
-    # name at construction — assign it on the instance (attribute set bypasses it).
-    dto.local_due_at = local_due_at
-    return dto
 
 
 def _update_read(update: WorkItemUpdate, work_item_id: str) -> WorkItemUpdateRead:

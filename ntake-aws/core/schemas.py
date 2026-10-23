@@ -1,4 +1,4 @@
-"""Pydantic DTOs — the two id-bearing data contracts of the app.
+"""DTOs — the two id-bearing data contracts of the app (stdlib dataclasses).
 
 Two layers, deliberately separate:
 
@@ -13,19 +13,26 @@ Two layers, deliberately separate:
   ``CalendarRow`` unifies an event or a due-dated work item for the calendar
   Query (AWS_LLD §1.2).
 
+**Plain dataclasses, not Pydantic.** The Lambda bundle is our source only — the
+Python 3.12 Lambda runtime provides ``boto3`` but not third-party packages — so the
+app depends on the stdlib alone (plus the runtime's ``boto3``), with no
+dependency-bundling step. Serialization to/from DynamoDB items + JSON bodies lives
+in :mod:`core.serde` (``to_item`` + explicit per-type ``*_from_item``).
+``kw_only=True`` lets required fields follow defaulted ones, matching the old
+keyword-only construction style.
+
 **ULID ripple (AWS_LLD §1):** ids are **ULID strings**, server/Lambda-generated
-at write time — not relational autoincrement ints. Every id field on both layers
-is ``str``. The repository DTOs carry prefix-free ULIDs (``family_id``,
-``work_item_id``, …); key composition (``FAM#``/``WI#``/… prefixes, the two
-GSIs) is the repository's job, never the DTO's.
+at write time. Every id field on both layers is ``str``. The repository DTOs carry
+prefix-free ULIDs; key composition (``FAM#``/``WI#``/… prefixes, the two GSIs) is
+the repository's job, never the DTO's.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
-
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
 
 # ===========================================================================
 # Repository DTOs (AWS_LLD §2.2) — the storage-domain aggregates the Repository
@@ -61,18 +68,16 @@ class TargetType(StrEnum):
     domain-agnostic engine must not know these, so the engine keeps
     ``target_type`` an opaque ``str | None`` and the app (these specs) supplies
     the members. A ``StrEnum`` so its members ARE their wire strings
-    (``"work_item"`` / ``"event"``): they serialize as those strings and compare
-    equal to the bare literals the handlers test against.
+    (``"work_item"`` / ``"event"``).
     """
 
     WORK_ITEM = "work_item"
     EVENT = "event"
 
 
-class Member(BaseModel):
+@dataclass(kw_only=True)
+class Member:
     """A family member (AWS_LLD §1.2: ``FAM#<fam>`` / ``MEM#<member>``)."""
-
-    model_config = ConfigDict(from_attributes=True)
 
     id: str
     family_id: str
@@ -82,7 +87,8 @@ class Member(BaseModel):
     created_at: datetime
 
 
-class DeviceToken(BaseModel):
+@dataclass(kw_only=True)
+class DeviceToken:
     """A device credential record (AWS_LLD §1.2 / §5: ``TOK#<hash>`` / ``#META``).
 
     Only the HMAC **hash** of the plaintext token is stored (``token_hash``);
@@ -91,8 +97,6 @@ class DeviceToken(BaseModel):
     hands the handlers the resolved ``member_id``/``family_id``/``role``. A
     non-null ``revoked_at`` makes the token invalid.
     """
-
-    model_config = ConfigDict(from_attributes=True)
 
     token_hash: str
     family_id: str
@@ -103,19 +107,18 @@ class DeviceToken(BaseModel):
     revoked_at: datetime | None = None
 
 
-class PairingCode(BaseModel):
+@dataclass(kw_only=True)
+class PairingCode:
     """A short-lived device-enrollment code (AWS_LLD §5.4: ``PAIR#<code>``).
 
     A 6-digit numeric code an already-enrolled member creates to onboard a new
     device without copying a long token: the new device exchanges the code at
     ``POST /pair`` for a full-entropy device token. Single-use (``consumed_at``),
     short-lived (``expires_at``), and attempt-capped (``attempts``) — cheap
-    correctness/accident guards (this is a private family app, not a public
-    high-traffic service). The code grants the stored ``member_id``/``role`` to
-    the device that redeems it.
+    correctness/accident guards (a private family app, not a public high-traffic
+    service). The code grants the stored ``member_id``/``role`` to the device that
+    redeems it.
     """
-
-    model_config = ConfigDict(from_attributes=True)
 
     code: str  # 6-digit numeric string
     family_id: str
@@ -128,22 +131,20 @@ class PairingCode(BaseModel):
     attempts: int = 0
 
 
-class Family(BaseModel):
+@dataclass(kw_only=True)
+class Family:
     """A household (AWS_LLD §1.2: ``FAM#<fam>`` / ``#META``)."""
-
-    model_config = ConfigDict(from_attributes=True)
 
     id: str
     name: str
     timezone: str  # IANA, e.g. "America/New_York"
-    tag_colors: dict[str, str] = Field(default_factory=dict)
+    tag_colors: dict[str, str] = field(default_factory=dict)
     created_at: datetime
 
 
-class WorkItemUpdate(BaseModel):
+@dataclass(kw_only=True)
+class WorkItemUpdate:
     """One entry in a work item's append-only log (nested; AWS_LLD §1.2)."""
-
-    model_config = ConfigDict(from_attributes=True)
 
     update_id: str
     author_id: str | None = None
@@ -152,35 +153,32 @@ class WorkItemUpdate(BaseModel):
     created_at: datetime
 
 
-class ChecklistEntry(BaseModel):
+@dataclass(kw_only=True)
+class ChecklistEntry:
     """One nested checklist row on a work item (AWS_LLD §1.2)."""
-
-    model_config = ConfigDict(from_attributes=True)
 
     text: str
     checked: bool = False
     position: int
 
 
-class LogSegment(BaseModel):
+@dataclass(kw_only=True)
+class LogSegment:
     """Reserved S3-spill pointer slot — empty in v1 (AWS_LLD §1.5)."""
-
-    model_config = ConfigDict(from_attributes=True)
 
     s3_key: str
     from_ts: datetime
     to_ts: datetime
 
 
-class WorkItem(BaseModel):
+@dataclass(kw_only=True)
+class WorkItem:
     """The co-located work-item aggregate: fields + nested log + checklist.
 
     One DynamoDB item (AWS_LLD §1.2). ``updates`` is the ordered recent log,
     ``checklist`` the ordered checklist, ``log_segments`` the reserved spill slot
     (empty in v1). ``position`` orders the item within its board column.
     """
-
-    model_config = ConfigDict(from_attributes=True)
 
     id: str
     family_id: str
@@ -190,24 +188,23 @@ class WorkItem(BaseModel):
     position: int = 0
     assigned_to: str | None = None
     due_at: datetime | None = None
-    tags: list[str] = Field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None
     archived_at: datetime | None = None
-    updates: list[WorkItemUpdate] = Field(default_factory=list)
-    checklist: list[ChecklistEntry] = Field(default_factory=list)
-    log_segments: list[LogSegment] = Field(default_factory=list)
+    updates: list[WorkItemUpdate] = field(default_factory=list)
+    checklist: list[ChecklistEntry] = field(default_factory=list)
+    log_segments: list[LogSegment] = field(default_factory=list)
 
 
-class EventProvenance(BaseModel):
+@dataclass(kw_only=True)
+class EventProvenance:
     """Denormalized who/when/why written onto a co-created event (AWS_LLD §1.2).
 
     Self-describing (survives source deletion); the precise backlink is the
     event's ``source_update_id`` (resolve-on-read).
     """
-
-    model_config = ConfigDict(from_attributes=True)
 
     work_item_id: str
     member_id: str
@@ -216,7 +213,8 @@ class EventProvenance(BaseModel):
     at: datetime
 
 
-class Event(BaseModel):
+@dataclass(kw_only=True)
+class Event:
     """A flat calendar event (AWS_LLD §1.2).
 
     Timed events carry ``start_at``/``end_at`` (UTC); all-day events carry
@@ -224,8 +222,6 @@ class Event(BaseModel):
     only on an event co-created from a work-item update (both ``None`` for a
     standalone event).
     """
-
-    model_config = ConfigDict(from_attributes=True)
 
     id: str
     family_id: str
@@ -237,15 +233,16 @@ class Event(BaseModel):
     end_at: datetime | None = None
     start_date: date | None = None
     end_date: date | None = None
-    participants: list[str] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list)
+    participants: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     provenance: EventProvenance | None = None
     source_update_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
 
-class CalendarRow(BaseModel):
+@dataclass(kw_only=True)
+class CalendarRow:
     """A unified calendar entry — an event or a due-dated work item (AWS_LLD §1.2).
 
     The calendar Query (GSI2) returns events + due items in one time-ordered pass;
@@ -253,8 +250,6 @@ class CalendarRow(BaseModel):
     is the UTC instant the row sorts by (the event's start for timed, family-
     midnight UTC for all-day, the due instant for a work item).
     """
-
-    model_config = ConfigDict(from_attributes=True)
 
     id: str
     kind: str  # CalendarKind value: "event" | "work_item"
@@ -265,14 +260,15 @@ class CalendarRow(BaseModel):
 # ===========================================================================
 # API DTOs — the JSON <-> Python boundary (carried over from the self-hosted
 # app). ULID-string ids (AWS_LLD §1). Separate from the repository DTOs above:
-# these validate/serialize the HTTP surface; those are the storage aggregates.
+# these shape the HTTP surface; those are the storage aggregates. The read DTOs
+# are built explicitly from repository DTOs (``handlers._support``), which does
+# the stored-UTC -> family-local conversion into the ``local_*`` fields.
 # ===========================================================================
 
 
-class EventRead(BaseModel):
-    """Event as returned by the API."""
-
-    model_config = ConfigDict(from_attributes=True)
+@dataclass(kw_only=True)
+class EventRead:
+    """Event as returned by the API (timing in family-local wall time)."""
 
     id: str
     family_id: str
@@ -280,31 +276,34 @@ class EventRead(BaseModel):
     description: str | None = None
     location: str | None = None
     all_day: bool = False
-    local_start_at: datetime | None = Field(default=None, validation_alias="start_at")
-    local_end_at: datetime | None = Field(default=None, validation_alias="end_at")
+    local_start_at: datetime | None = None
+    local_end_at: datetime | None = None
     start_date: date | None = None
     end_date: date | None = None
-    participants: list[str] = []
-    tags: list[str] = []
+    participants: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
 
-class WorkItemCreate(BaseModel):
+@dataclass(kw_only=True)
+class WorkItemCreate:
     """Payload to create a work item (title required; rest optional)."""
 
     title: str
     description: str | None = None
-    tags: list[str] = []
+    tags: list[str] = field(default_factory=list)
     assigned_to: str | None = None
 
 
-class WorkItemUpdateCreate(BaseModel):
+@dataclass(kw_only=True)
+class WorkItemUpdateCreate:
     """Payload to append a human update to a work item."""
 
     body: str
 
 
-class WorkItemUpdateRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+@dataclass(kw_only=True)
+class WorkItemUpdateRead:
+    """One log entry as returned by the API (carries its parent work item id)."""
 
     id: str
     work_item_id: str
@@ -314,8 +313,9 @@ class WorkItemUpdateRead(BaseModel):
     created_at: datetime
 
 
-class ChecklistItemRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+@dataclass(kw_only=True)
+class ChecklistItemRead:
+    """One checklist row as returned by the API (with a synthesized stable id)."""
 
     id: str
     text: str
@@ -323,10 +323,9 @@ class ChecklistItemRead(BaseModel):
     position: int
 
 
-class WorkItemRead(BaseModel):
+@dataclass(kw_only=True)
+class WorkItemRead:
     """A work item; the detail view also carries its update log + checklist."""
-
-    model_config = ConfigDict(from_attributes=True)
 
     id: str
     family_id: str
@@ -335,71 +334,69 @@ class WorkItemRead(BaseModel):
     description: str | None = None
     status: str
     position: int
-    local_due_at: datetime | None = Field(default=None, validation_alias="due_at")
-    tags: list[str] = []
+    local_due_at: datetime | None = None
+    tags: list[str] = field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None
     archived_at: datetime | None = None
-    updates: list[WorkItemUpdateRead] = []
-    checklist: list[ChecklistItemRead] = []
+    updates: list[WorkItemUpdateRead] = field(default_factory=list)
+    checklist: list[ChecklistItemRead] = field(default_factory=list)
 
 
-class CaptureCreate(BaseModel):
+@dataclass(kw_only=True)
+class CaptureCreate:
     """Free-text capture payload. Always a NEW capture in v1 — the target (if
-    any) lives in the text and is resolved by stage 1 (focus()), which resolves
-    none yet. Explicit note-append to an item is POST /work-items/{id}/updates."""
+    any) lives in the text and is resolved by stage 1 (focus()). Explicit
+    note-append to an item is POST /work-items/{id}/updates."""
 
     text: str
 
 
-class ProposalRead(BaseModel):
+@dataclass(kw_only=True)
+class ProposalRead:
     """A proposed (unconfirmed) action returned to the author's device.
 
-    Two distinct texts (task 8): ``action_summary`` is deterministic and
-    registry-derived (what the action WILL do, from params) — ground truth shown
-    prominently; ``llm_rationale`` is the model's own narration (why it proposed
-    this) — may be wrong/empty, shown as secondary context.
+    Two distinct texts: ``action_summary`` is deterministic and registry-derived
+    (what the action WILL do, from params) — ground truth shown prominently;
+    ``llm_rationale`` is the model's own narration (why it proposed this) — may be
+    wrong/empty, shown as secondary context.
     """
 
     name: str
-    params: dict = {}
+    params: dict[str, Any] = field(default_factory=dict)
     action_summary: str
     llm_rationale: str = ""
     target_id: str | None = None
-    target_type: str | None = None  # "work_item" | "event" | None (task 12)
+    target_type: str | None = None  # "work_item" | "event" | None
     proposal_id: str = ""  # batch-local handle, assigned by the engine seam
     target_ref: str | None = None  # v2 dependency hook; always None in v1
     target_label: str | None = None  # the target item's title, for card context
-    detail_lines: list[str] = []  # verbose, id-resolved card body (per-action)
+    detail_lines: list[str] = field(default_factory=list)  # id-resolved card body
 
 
-class CaptureResponse(BaseModel):
+@dataclass(kw_only=True)
+class CaptureResponse:
     """The assistant's transient proposals, plus the target item if one exists.
 
-    ``item`` is the existing work item a capture targeted (with its freshly
-    appended human note). For a NEW-item capture it is ``None`` — nothing is saved
-    until the human confirms a ``create_work_item`` / ``create_timed_event`` or
-    ``create_all_day_event`` proposal (propose-only; bare text no longer
-    auto-creates a work item).
-
-    ``debug`` is a DEBUGGING-ONLY trace of the live-LLM pipeline (prompts sent,
-    raw model replies, resolved ids, deep context). Populated only when the local
-    backend is active; ``None`` otherwise. Not committed behavior — a testing aid.
+    ``item`` is the existing work item a capture targeted. For a NEW-item capture
+    it is ``None`` — nothing is saved until the human confirms a create proposal
+    (propose-only). ``debug`` is a DEBUGGING-ONLY trace slot; ``None`` otherwise.
     """
 
     item: WorkItemRead | None = None
-    proposals: list[ProposalRead] = []
-    debug: dict | None = None
+    proposals: list[ProposalRead] = field(default_factory=list)
+    debug: dict[str, Any] | None = None
 
 
-class ConfirmAction(BaseModel):
+@dataclass(kw_only=True)
+class ConfirmAction:
     """A proposed action the client sends back to confirm & apply."""
 
     name: str
-    params: dict = {}
+    params: dict[str, Any] = field(default_factory=dict)
     target_id: str | None = None
-    target_type: str | None = None  # "work_item" | "event" | None (task 12)
+    target_type: str | None = None  # "work_item" | "event" | None
 
 
 __all__ = [

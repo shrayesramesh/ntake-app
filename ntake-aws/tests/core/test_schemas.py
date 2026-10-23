@@ -17,6 +17,7 @@ from core.schemas import (
     CaptureCreate,
     CaptureResponse,
     ChecklistEntry,
+    ChecklistItemRead,
     ConfirmAction,
     Event,
     EventProvenance,
@@ -36,15 +37,13 @@ from core.schemas import (
 # --- API DTOs (ULID-string ids) --------------------------------------------
 
 
-def test_event_read_maps_start_at_alias_to_local_start_at() -> None:
-    ev = EventRead.model_validate(
-        {
-            "id": "ev1",
-            "family_id": "fam1",
-            "title": "Dentist",
-            "start_at": datetime(2025, 1, 2, 9, 0),
-            "end_at": datetime(2025, 1, 2, 10, 0),
-        }
+def test_event_read_defaults_and_local_timing_fields() -> None:
+    ev = EventRead(
+        id="ev1",
+        family_id="fam1",
+        title="Dentist",
+        local_start_at=datetime(2025, 1, 2, 9, 0),
+        local_end_at=datetime(2025, 1, 2, 10, 0),
     )
     assert ev.local_start_at == datetime(2025, 1, 2, 9, 0)
     assert ev.local_end_at == datetime(2025, 1, 2, 10, 0)
@@ -52,15 +51,13 @@ def test_event_read_maps_start_at_alias_to_local_start_at() -> None:
 
 
 def test_event_read_all_day_dates() -> None:
-    ev = EventRead.model_validate(
-        {
-            "id": "ev2",
-            "family_id": "fam1",
-            "title": "Trip",
-            "all_day": True,
-            "start_date": date(2025, 6, 1),
-            "end_date": date(2025, 6, 3),
-        }
+    ev = EventRead(
+        id="ev2",
+        family_id="fam1",
+        title="Trip",
+        all_day=True,
+        start_date=date(2025, 6, 1),
+        end_date=date(2025, 6, 3),
     )
     assert ev.all_day is True
     assert ev.start_date == date(2025, 6, 1) and ev.end_date == date(2025, 6, 3)
@@ -72,43 +69,47 @@ def test_work_item_create_defaults() -> None:
     assert wi.description is None and wi.tags == [] and wi.assigned_to is None
 
 
-def test_work_item_read_maps_due_at_alias_and_nests_log_checklist() -> None:
-    wi = WorkItemRead.model_validate(
-        {
-            "id": "wi5",
-            "family_id": "fam1",
-            "title": "Taxes",
-            "status": "todo",
-            "position": 0,
-            "due_at": datetime(2025, 4, 15, 0, 0),
-            "created_at": datetime(2025, 1, 1),
-            "updated_at": datetime(2025, 1, 1),
-            "updates": [
-                {
-                    "id": "upd1",
-                    "work_item_id": "wi5",
-                    "source": "human",
-                    "body": "started",
-                    "created_at": datetime(2025, 1, 1),
-                }
-            ],
-            "checklist": [{"id": "c1", "text": "W2", "checked": False, "position": 1}],
-        }
+def test_work_item_read_nests_log_and_checklist() -> None:
+    wi = WorkItemRead(
+        id="wi5",
+        family_id="fam1",
+        title="Taxes",
+        status="todo",
+        position=0,
+        local_due_at=datetime(2025, 4, 15, 0, 0),
+        created_at=datetime(2025, 1, 1),
+        updated_at=datetime(2025, 1, 1),
+        updates=[
+            WorkItemUpdateRead(
+                id="upd1",
+                work_item_id="wi5",
+                source="human",
+                body="started",
+                created_at=datetime(2025, 1, 1),
+            )
+        ],
+        checklist=[ChecklistItemRead(id="c1", text="W2", checked=False, position=1)],
     )
     assert wi.local_due_at == datetime(2025, 4, 15, 0, 0)
     assert wi.updates[0].body == "started" and wi.checklist[0].text == "W2"
 
 
+def test_mutable_defaults_are_not_shared() -> None:
+    # Dataclass default_factory: two instances never share a default list.
+    a = WorkItemCreate(title="a")
+    b = WorkItemCreate(title="b")
+    a.tags.append("x")
+    assert b.tags == []
+
+
 def test_work_item_update_dtos() -> None:
     assert WorkItemUpdateCreate(body="note").body == "note"
-    read = WorkItemUpdateRead.model_validate(
-        {
-            "id": "upd1",
-            "work_item_id": "wi2",
-            "source": "assistant",
-            "body": "did it",
-            "created_at": datetime(2025, 1, 1),
-        }
+    read = WorkItemUpdateRead(
+        id="upd1",
+        work_item_id="wi2",
+        source="assistant",
+        body="did it",
+        created_at=datetime(2025, 1, 1),
     )
     assert read.author_id is None and read.source == "assistant"
 

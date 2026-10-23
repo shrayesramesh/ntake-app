@@ -1,14 +1,16 @@
 # ntake-aws — pinned Python dependencies (Python 3.12, us-east-1 rebuild).
 #
 # Deliberately lean vs. the old self-hosted app: NO fastapi, NO sqlalchemy, NO
-# alembic, NO uvicorn, NO sse-starlette — the AWS build is thin Lambda handlers
-# over DynamoDB + Bedrock (AWS_HLD §2). The runtime application dependency is
-# boto3 (pinned now, used from Session 2 onward); pydantic carries the lifted
-# DTOs (core/schemas.py).
+# alembic, NO uvicorn, NO sse-starlette — and NO pydantic. The Lambda code is the
+# stdlib + boto3 only: the CDK asset is our source with no dependency-bundling
+# step, and the Python 3.12 Lambda runtime provides boto3 (and nothing else
+# third-party). The DTOs are stdlib dataclasses (core/schemas.py) serialized by
+# core/serde.py. tests/test_lambda_runtime_deps.py guards this boundary.
 
 # --- Runtime ---
-pydantic==2.13.5          # lifted API DTOs (core/schemas.py); DynamoDB item <-> DTO later
-boto3==1.43.55            # AWS SDK — DynamoDB, Bedrock, API GW Management, Secrets Manager (Session 2+)
+# boto3 is PROVIDED by the Lambda runtime in production; pinned here so local
+# Tier-1/Tier-2 runs are reproducible.
+boto3==1.43.55            # AWS SDK — DynamoDB, API GW Management, Secrets Manager
 botocore==1.43.55         # pinned with boto3 to keep the pair reproducible
 
 # --- Tests ---
