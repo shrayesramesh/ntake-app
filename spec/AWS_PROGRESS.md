@@ -803,3 +803,104 @@ used, and five Bedrock/tracer probe scripts.
   tracer/bedrock-double self-tests; core coverage unchanged — the tracer was never
   in the `core` coverage target). **`make synth` clean** — only
   `NtakeStack-dev`/`-prod` synthesize; no `TracerStack`.
+
+
+## Session 6 — Thin handlers + authorizer + confirm/execute + live-sync publish  (done — Tier-1 green; Tier-2 wired, deploy a [HUMAN] follow-up)
+Built the HTTP/auth surface + the execute→publish boundary, Tier-1-first over the
+in-memory repo + scripted Anthropic double + a fake poster, then the infra slice
+into `NtakeStack` with synth-assertion tests. Two design decisions taken with the
+owner before building (recorded so they aren't re-litigated):
+- **Device tokens live behind a SEPARATE `TokenStore` seam** (option b), not folded
+  into the family `Repository` — identity items are top-level (`TOK#<hash>` /
+  `PAIR#<code>`), so a separate seam keeps the family repo cohesive and lets the
+  authorizer Lambda's IAM scope to identity items only.
+- **Enrollment is a 6-digit pairing-code exchange** (promoted from the LLD §5.4
+  "later UX add"), replacing the cumbersome admin-Lambda-mint + copy-the-token-URL
+  flow the owner disliked. An enrolled member creates a code (`POST /pairing-codes`);
+  a new device types it and exchanges it (`POST /pair`) for a full-entropy token —
+  the human only ever moves 6 digits, no URL/QR. First-device bootstrap is a local
+  `scripts/mint.py` (prints a pairing code), not a deployed admin Lambda (deferred,
+  break-glass only). Pairing safeguards are deliberately light (single-use, 10-min
+  TTL, attempt cap) — private family app on a private account (see the repo
+  `ntake-private-account-threat-model` memory); device tokens stay full-entropy.
+
+- **[AGENT] Core seams (net-new, pure — boundary test extended to keep them
+  boto3-free):**
+  - `core/token_store.py` (`TokenStore` protocol + `TOK#`/`PAIR#` key composers) +
+    `core/token_store_memory.py` (`InMemoryTokenStore`).
+  - `core/identity.py` — the auth decision layer: `resolve_token` (authorizer),
+    `mint_device_token` (stores only the HMAC hash; plaintext shown once),
+    `create_pairing_code` / `redeem_pairing_code` (single-use/TTL/attempt-capped).
+  - `core/live_sync.py` — `publish_change(repo, family_id, entity, id, op, *, poster)`:
+    the ONE publish helper, fans out `{entity,id,op}` over `list_connections`,
+    prunes gone sockets, swallows per-socket errors. Delivery is an injected
+    `ConnectionPoster` effect so `core` stays transport-free.
+  - `core/schemas.py` gained `DeviceToken` + `PairingCode` DTOs.
+- **[AGENT] Handler layer (`handlers/`, thin shells over the pure logic):**
+  `_support.py` (capture → LINK→PROPOSE propose-only; confirm → execute+publish-once;
+  the re-created `to_proposal_read` + `event_read`/`work_item_read` conversions —
+  handling the `update_id→id`+injected `work_item_id` and `ChecklistEntry`-no-id
+  mismatches, and UTC→family-local timing), `_auth.py` (token extraction +
+  authorize + create/redeem pairing), `_runtime.py` (build the boto3 adapters from
+  env — the only handler code touching boto3/env), and the AWS event shells
+  `authorizer.py`, `http_api.py` (reads/capture/confirm/pairing/pair), `ws.py`
+  (connect/disconnect). Plus `adapters/dynamo_token_store.py` (the Tier-2
+  `TokenStore`, conditional-write-tolerant for in-memory parity) and
+  `scripts/mint.py` (first-device bootstrap).
+- **[AGENT] Infra slice into `NtakeStack`** (delegated build, verified by the
+  agent): the empty `ntake-<stage>/token-secret`, **8 per-route Python-3.12
+  Lambdas** (design B — authorizer + reads/capture/confirm/pairing/pair + ws
+  connect/disconnect; the brief's "9" was an arithmetic slip, the real handler
+  surface is 8), each with a **construct-scoped role** (reads = read-only table;
+  capture = table-read + Anthropic-secret-read + 30s timeout, **no `bedrock:`
+  anywhere**; confirm = table-read/write + `execute-api:ManageConnections`;
+  authorizer = table-read + token-secret-read; etc.), the **HTTP API** with a
+  simple-response (payload 2.0) Lambda authorizer (public: `GET /health`,
+  `POST /pair`; all else CUSTOM), and the **WebSocket API** (`$connect` authorized
+  via `?token=`, `$disconnect`), throttle from `props.apiThrottle`. Used the
+  **stable L2 apigatewayv2** constructs (present in aws-cdk-lib 2.173.4 — verified
+  in node_modules; the L1-fallback the brief hedged on was unnecessary), whose
+  grant methods give the construct-scoped IAM design B wants.
+- **[AGENT] Tooling:** `make secrets-token` (set/rotate the HMAC secret;
+  `scripts/secrets-token.sh`), `make mint` (bootstrap a device), repointed nothing
+  else. `make deploy-dev` already points at `NtakeStack-dev` (from the Session-5
+  tracer teardown).
+- **Gate GREEN (Tier 1):** `make check` — ruff + format + mypy clean, **320 passed /
+  11 skipped, 99.17% core coverage** (≥95 gate). **`make synth` clean**
+  (NtakeStack-dev/-prod, no tracer). **`make test-infra` green** — 11 Python
+  synth-assertion tests (synthesize `NtakeStack-dev`, assert: the token secret, 8
+  python3.12 Lambdas, capture 30s + model env + no bedrock, only health/pair
+  public + simple-response authorizer, WS connect/disconnect, reads-role has no
+  write actions, confirm-role has ManageConnections).
+
+### To-verify / deferred (open — the Tier-2 [HUMAN] path)
+- **Deploy + Tier-2 run is a [HUMAN] follow-up.** `NtakeStack-dev` currently has
+  only the table + secrets deployed (Sessions 3/pivot); this session's API/Lambdas
+  are built + synth-clean but **not deployed**. To close Session 6's Tier-2 exit:
+  1. `make secrets-token` (set the HMAC secret value — the authorizer/pair need it;
+     the secret is created empty by CDK). `make secrets-anthropic` already done.
+  2. `make integration DEPLOY=1` — deploys `NtakeStack-dev` (now with the API) and
+     runs the suite. The wired-but-self-skipping `tests/integration/test_http_routes_live.py`
+     (3 tests) then exercises the **deployed** routes: `GET /health` 200 (public),
+     `GET /board` 401 (authorizer denies without a token), `POST /pair` with a bogus
+     code → 400 (public route runs the pair handler, not the authorizer). It
+     self-skips cleanly if the stack has no `HttpApiUrl` output yet (never a false
+     pass).
+- **The authenticated capture→confirm→live-WS-nudge round trip** (mint a token via
+  `scripts/mint.py` or the pairing exchange, open the WS, confirm an action, see the
+  nudge) is the **Session-8** end-to-end sweep — it needs a minted token + a live
+  WS client, beyond this session's deployed-route smoke.
+- **Event-envelope parse to confirm on first deploy:** HTTP payload-2.0 authorizer
+  context is read at `requestContext.authorizer.lambda.*` (http_api) and WS
+  authorizer context at `requestContext.authorizer.*` (ws) — standard shapes, but
+  the first real invocation is where they're confirmed; a mismatch is a localized
+  fix in the two shell parsers, not a design change.
+
+### Next session
+**Session 7 — Complete the stack: logging + CloudFront/S3 + Budgets + prod props**
+(Phase 5a/5b). Add CloudFront + the two S3 buckets (static assets via OAC; the
+assistant-logs bucket w/ 180-day lifecycle), the Budgets construct, finalize
+per-stage prop differences, and the assistant-logging→S3 adapter (full|metadata
+fidelity). `make synth` + infra assertions + `make check` green; Tier 2:
+`make integration DEPLOY=1` on the now-complete dev stack. (See AWS_PLAN Part II,
+Session 7.)

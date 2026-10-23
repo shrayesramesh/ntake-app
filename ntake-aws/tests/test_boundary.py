@@ -40,6 +40,20 @@ def test_action_handlers_import_no_boto3_or_persistence() -> None:
     assert_imports_none_of("core.actions.registry", FORBIDDEN)
 
 
+def test_identity_and_live_sync_import_nothing_infra_specific() -> None:
+    """The Session-6 core seams stay pure: the identity logic
+    (``core.identity``), the token-store seam (``core.token_store``), and the
+    live-sync publish (``core.live_sync``) depend only on their protocols +
+    stdlib — never ``boto3``/``fastapi``/the deleted ``app``. ``boto3`` lives only
+    in the ``adapters``/``handlers`` edge (the ``DynamoTokenStore`` /
+    ``connection_poster``), never in ``core``.
+    """
+    assert_imports_none_of("core.identity", FORBIDDEN)
+    assert_imports_none_of("core.token_store", FORBIDDEN)
+    assert_imports_none_of("core.token_store_memory", FORBIDDEN)
+    assert_imports_none_of("core.live_sync", FORBIDDEN)
+
+
 def test_engine_does_not_import_the_action_handlers() -> None:
     """The engine stays persistence-ignorant: importing it must not drag in the
     action handler modules (they depend on it, never the reverse)."""

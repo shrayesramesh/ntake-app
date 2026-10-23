@@ -31,7 +31,7 @@ COV_MIN := 95
   test test-core test-data test-assistant test-api test-infra \
   lint format typecheck coverage check \
   synth integration deploy-dev deploy-prod dev-reset \
-  setup-aws secrets-anthropic clean
+  setup-aws secrets-anthropic secrets-token mint clean
 
 help: ## Show available targets
 	@echo "Targets:"
@@ -131,6 +131,12 @@ setup-aws: ## [HUMAN] assert non-root admin on 111037110464 + cdk bootstrap
 
 secrets-anthropic: ## [HUMAN] set/rotate the Anthropic API key in Secrets Manager (STAGE=dev|prod, default dev; reads $$ANTHROPIC_API_KEY or prompts)
 	bash scripts/secrets-anthropic.sh $(STAGE)
+
+secrets-token: ## [HUMAN] set/rotate the HMAC device-token secret (STAGE=dev|prod, default dev; generates a random value or reads $$NTAKE_TOKEN_SECRET)
+	bash scripts/secrets-token.sh $(STAGE)
+
+mint: ## [HUMAN] bootstrap a device: print a pairing code (or --token) for a family (FAMILY=.. MEMBER=.. [ROLE=adult] [LABEL=..])
+	$(PY) scripts/mint.py --family $(FAMILY) --member $(MEMBER) $(if $(ROLE),--role $(ROLE),) $(if $(LABEL),--label "$(LABEL)",) $(MINT_ARGS)
 
 # --- Maintenance -----------------------------------------------------------
 

@@ -82,6 +82,52 @@ class Member(BaseModel):
     created_at: datetime
 
 
+class DeviceToken(BaseModel):
+    """A device credential record (AWS_LLD §1.2 / §5: ``TOK#<hash>`` / ``#META``).
+
+    Only the HMAC **hash** of the plaintext token is stored (``token_hash``);
+    the plaintext is shown once at mint time and never persisted. The authorizer
+    resolves a presented token by hashing it and looking up this record, then
+    hands the handlers the resolved ``member_id``/``family_id``/``role``. A
+    non-null ``revoked_at`` makes the token invalid.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    token_hash: str
+    family_id: str
+    member_id: str
+    role: str = "adult"  # "adult" | "child" — mirrors the member's role
+    label: str = ""  # human label for the device, e.g. "Mom's phone"
+    created_at: datetime
+    revoked_at: datetime | None = None
+
+
+class PairingCode(BaseModel):
+    """A short-lived device-enrollment code (AWS_LLD §5.4: ``PAIR#<code>``).
+
+    A 6-digit numeric code an already-enrolled member creates to onboard a new
+    device without copying a long token: the new device exchanges the code at
+    ``POST /pair`` for a full-entropy device token. Single-use (``consumed_at``),
+    short-lived (``expires_at``), and attempt-capped (``attempts``) — cheap
+    correctness/accident guards (this is a private family app, not a public
+    high-traffic service). The code grants the stored ``member_id``/``role`` to
+    the device that redeems it.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str  # 6-digit numeric string
+    family_id: str
+    member_id: str
+    role: str = "adult"
+    label: str = ""
+    created_at: datetime
+    expires_at: datetime
+    consumed_at: datetime | None = None
+    attempts: int = 0
+
+
 class Family(BaseModel):
     """A household (AWS_LLD §1.2: ``FAM#<fam>`` / ``#META``)."""
 
@@ -365,12 +411,14 @@ __all__ = [
     "ChecklistEntry",
     "ChecklistItemRead",
     "ConfirmAction",
+    "DeviceToken",
     "Event",
     "EventProvenance",
     "EventRead",
     "Family",
     "LogSegment",
     "Member",
+    "PairingCode",
     "ProposalRead",
     "TargetType",
     "WorkItem",
