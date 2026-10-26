@@ -1,12 +1,17 @@
 """Lambda REQUEST authorizer — device-token → allow + member context (§5.2).
 
-A thin shell: extract the presented token (Bearer header, or ``?token=`` for the
-WebSocket ``$connect``), resolve it through the tested ``_auth.authorize`` logic
-over the real ``TokenStore``, and return the HTTP API **simple-response** shape
-(``{isAuthorized, context}`` — the format the Session-1.5 tracer proved correct,
-not an IAM policy document). The resolved ``{member_id, family_id, role}`` is
-passed to the handlers as authorizer context, so handlers never re-resolve the
-token.
+One Lambda authorizes both APIs: extract the presented token (Bearer header, or
+``?token=`` for the WebSocket ``$connect``), resolve it through the tested
+``_auth.authorize`` logic over the real ``TokenStore``, and pass
+``{member_id, family_id, role}`` to the handlers as authorizer context.
+
+The two APIs need different response shapes:
+
+* **HTTP API (payload 2.0)** — the simple response ``{isAuthorized, context}``.
+* **WebSocket** — simple responses aren't supported; API Gateway requires an IAM
+  policy (``principalId`` + ``policyDocument`` on the ``methodArn``) and answers
+  any other shape with a 500. WebSocket authorizer events carry ``methodArn``
+  (HTTP payload-2.0 events carry ``routeArn``), which selects the shape.
 """
 
 from __future__ import annotations
@@ -18,28 +23,38 @@ from handlers._auth import authorize, extract_token
 
 
 def handler(event: dict[str, Any], context: object = None) -> dict[str, Any]:
-    """HTTP API simple-response authorizer entry point."""
+    """Authorizer entry point for both the HTTP and the WebSocket API."""
     token = extract_token(
-        authorization_header=_header(event, "authorization"),
-        query_token=_query(event, "token"),
+        authorization_header=(event.get("headers") or {}).get("authorization"),
+        query_token=(event.get("queryStringParameters") or {}).get("token"),
     )
     decision = authorize(_runtime.token_store(), token, secret=_runtime.token_secret())
-    if not decision.allowed or decision.principal is None:
-        return {"isAuthorized": False}
-    p = decision.principal
-    return {
-        "isAuthorized": True,
-        "context": {"member_id": p.member_id, "family_id": p.family_id, "role": p.role},
+    p = decision.principal if decision.allowed else None
+    ctx = (
+        {"member_id": p.member_id, "family_id": p.family_id, "role": p.role}
+        if p is not None
+        else None
+    )
+
+    method_arn = event.get("methodArn")
+    if method_arn is None:  # HTTP API payload 2.0: simple response
+        if ctx is None:
+            return {"isAuthorized": False}
+        return {"isAuthorized": True, "context": ctx}
+
+    policy: dict[str, Any] = {  # WebSocket: IAM policy response
+        "principalId": p.member_id if p is not None else "anonymous",
+        "policyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Action": "execute-api:Invoke",
+                    "Effect": "Allow" if ctx else "Deny",
+                    "Resource": method_arn,
+                }
+            ],
+        },
     }
-
-
-def _header(event: dict[str, Any], name: str) -> str | None:
-    """A request header (HTTP API lowercases header keys)."""
-    headers = event.get("headers") or {}
-    return headers.get(name) or headers.get(name.title())
-
-
-def _query(event: dict[str, Any], name: str) -> str | None:
-    """A query-string param (used by the WebSocket ``$connect`` ``?token=``)."""
-    params = event.get("queryStringParameters") or {}
-    return params.get(name)
+    if ctx:
+        policy["context"] = ctx
+    return policy

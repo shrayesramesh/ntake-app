@@ -177,6 +177,7 @@ def test_write_and_confirm_post_live_websocket_nudges(
 
 def test_websocket_refuses_an_unknown_token(stack_urls: tuple[str, str]) -> None:
     _http_url, ws_url = stack_urls
-    # The WS authorizer denies → API GW refuses the upgrade (no 101).
-    with pytest.raises(WebSocketClosed):
+    # The authorizer returns a Deny policy → API GW refuses the upgrade with 403
+    # (a 500 here would mean a malformed authorizer response, not a denial).
+    with pytest.raises(WebSocketClosed, match=" 403 "):
         ReceiveOnlyWebSocket(f"{ws_url}?token=not-a-real-token", timeout=10)

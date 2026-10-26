@@ -562,9 +562,15 @@ built in v1** (the v1 assistant is the Claude-only LINK ⇒ PROPOSE above).
 - A REQUEST authorizer on the HTTP API (and the WS `$connect`): extract the bearer
   token (or `?token=` for WS), `hash_token`, `GetItem PK=TOK#<hash>`, require
   `revoked_at` is null, resolve `member_id`/`family_id`.
-- **Returns:** an allow IAM policy + a **context** map `{member_id, family_id,
-  role}` that the handlers read (so handlers never re-resolve the token). A miss
-  (unknown/revoked) → deny (indistinguishable to the caller, as today).
+- **Returns** a **context** map `{member_id, family_id, role}` that the handlers
+  read (so handlers never re-resolve the token), in the shape each API requires:
+  the HTTP API (payload 2.0) gets the **simple response** `{isAuthorized,
+  context}`; the WebSocket `$connect` gets an **IAM policy** (`principalId` +
+  `policyDocument` allowing `execute-api:Invoke` on the `methodArn`) — WebSocket
+  APIs don't support simple responses and answer any other shape with a 500. One
+  Lambda serves both, selecting the shape by the event's `methodArn`. A miss
+  (unknown/revoked) → deny: `isAuthorized: false` (HTTP 401/403) or a `Deny`
+  policy (WS handshake 403).
 - Authorizer results are cached by API Gateway (short TTL) to avoid a DynamoDB
   lookup per request on a chatty client.
 
