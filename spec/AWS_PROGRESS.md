@@ -978,3 +978,29 @@ was inherited from the lifted self-hosted schemas, never a deliberate Lambda cho
 - **[HUMAN] to close Session 6:** `make deploy-dev` (ships `WritesFn` + the two
   new routes) then `make integration` — expect **12 passed**, including the two
   live-nudge tests (`PYTEST_ARGS='-s'` prints the received nudges).
+
+
+### Session 6 — CLOSED: Tier-2 12/12 green on dev
+Two more cloud-only bugs surfaced by the live-nudge test, both fixed:
+- **WebSocket authorizer response shape** (`bc6fab5`): WebSocket APIs reject the
+  HTTP "simple" authorizer response (API GW → 500). The one authorizer Lambda now
+  returns an IAM policy for WS events (`methodArn` present) and the simple shape
+  for HTTP. The unknown-token test was tightened to expect a 403 (it had passed
+  on the 500).
+- **Authorizer timeout** (`f1fc5bf`): at the 128 MB / 3 s Lambda defaults the
+  cold start (boto3 + clients + Secrets Manager) took ~3 s → timeout → 500, and
+  `_runtime` rebuilt boto3 clients every call (warm calls ~2.4 s). Fix: all
+  functions 1024 MB / 10 s (capture 30 s), set once in `makeFn`; `_runtime`
+  adapters cached per container. Pinned by an infra assertion.
+- **Final Tier-2:** `make integration` → **12 passed** against `ntake-dev`: Dynamo
+  access patterns, LINK→PROPOSE over real data, public/protected route wiring,
+  and the live write → publish → WebSocket nudge for both `POST /work-items`
+  (`create`) and `/actions/confirm` (`update`), plus a 403 for an unknown token.
+- **Tier 1:** `make check` 355 passed, 98.71% core coverage; 13 infra assertions.
+
+Lesson worth carrying forward: every Session-6 bug (missing pydantic, WS
+authorizer shape, Lambda sizing) was invisible to Tier 1 and caught only by the
+deployed Tier-2 run — keep wiring a real Tier-2 path per session.
+
+### Next session
+**Session 7 — Complete the stack: logging + CloudFront/S3 + Budgets + prod props.**
