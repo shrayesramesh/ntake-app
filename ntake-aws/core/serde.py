@@ -40,7 +40,9 @@ from core.schemas import (
     Member,
     PairingCode,
     WorkItem,
+    WorkItemCreate,
     WorkItemUpdate,
+    WorkItemUpdateCreate,
 )
 
 # --- writing ----------------------------------------------------------------
@@ -251,3 +253,34 @@ def confirm_action_from_body(d: Data) -> ConfirmAction:
         target_id=_opt_str(target_id),
         target_type=_opt_str(target_type),
     )
+
+
+def _nonempty_str(d: Data, key: str) -> str:
+    value = d.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"body requires a non-empty string '{key}'")
+    return value
+
+
+def work_item_create_from_body(d: Data) -> WorkItemCreate:
+    """Parse ``POST /work-items``; raise ``ValueError`` on a malformed body."""
+    tags = d.get("tags", [])
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        raise ValueError("'tags' must be a list of strings")
+    description = d.get("description")
+    assigned_to = d.get("assigned_to")
+    if description is not None and not isinstance(description, str):
+        raise ValueError("'description' must be a string")
+    if assigned_to is not None and not isinstance(assigned_to, str):
+        raise ValueError("'assigned_to' must be a string")
+    return WorkItemCreate(
+        title=_nonempty_str(d, "title"),
+        description=description,
+        tags=list(tags),
+        assigned_to=assigned_to,
+    )
+
+
+def work_item_update_create_from_body(d: Data) -> WorkItemUpdateCreate:
+    """Parse ``POST /work-items/{id}/updates``; ``ValueError`` if malformed."""
+    return WorkItemUpdateCreate(body=_nonempty_str(d, "body"))

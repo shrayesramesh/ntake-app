@@ -257,17 +257,18 @@ export class NtakeStack extends Stack {
       autoDeploy: true,
     });
 
-    // confirm — executes an action, writes, then publishes a nudge over the WS
-    // management API. Reads+writes the table + GSIs, and needs
-    // execute-api:ManageConnections on the WS API (postToConnection). It is
-    // created AFTER the WS API so its env can carry the management endpoint
+    // writes — confirm (execute an action) + the two direct REST writes (create a
+    // work item, append a human update). One Lambda because all three need the
+    // same role (design B groups by role): read+write on the table + GSIs, and
+    // execute-api:ManageConnections on the WS API to post the live-sync nudge.
+    // Created AFTER the WS API so its env can carry the management endpoint
     // (https://{apiId}.execute-api.{region}/{stage}) the poster calls.
     const wsManagementEndpoint = `https://${wsApi.apiId}.execute-api.${region}.amazonaws.com/${wsStage.stageName}`;
-    const confirmFn = makeFn("ConfirmFn", "handlers.http_api.confirm_handler", {
+    const writesFn = makeFn("WritesFn", "handlers.http_api.writes_handler", {
       environment: { NTAKE_WS_ENDPOINT: wsManagementEndpoint },
     });
-    this.table.grantReadWriteData(confirmFn); // read + write on table + GSIs
-    wsApi.grantManageConnections(confirmFn); // execute-api:ManageConnections on the WS API ARN
+    this.table.grantReadWriteData(writesFn); // read + write on table + GSIs
+    wsApi.grantManageConnections(writesFn); // execute-api:ManageConnections on the WS API ARN
 
     // --- HTTP API (AWS_LLD §4) -----------------------------------------------
     // Simple-response Lambda authorizer (payload format 2.0): SIMPLE response
@@ -324,11 +325,17 @@ export class NtakeStack extends Stack {
       methods: [apigwv2.HttpMethod.POST],
       integration: new HttpLambdaIntegration("CaptureInt", captureFn),
     });
-    httpApi.addRoutes({
-      path: "/actions/confirm",
-      methods: [apigwv2.HttpMethod.POST],
-      integration: new HttpLambdaIntegration("ConfirmInt", confirmFn),
-    });
+    // The write routes share one integration (the writes Lambda dispatches on the
+    // route key). GET /work-items stays on the reads Lambda — same path, different
+    // method → a separate API GW route.
+    const writesInt = new HttpLambdaIntegration("WritesInt", writesFn);
+    for (const p of ["/actions/confirm", "/work-items", "/work-items/{id}/updates"]) {
+      httpApi.addRoutes({
+        path: p,
+        methods: [apigwv2.HttpMethod.POST],
+        integration: writesInt,
+      });
+    }
     httpApi.addRoutes({
       path: "/pairing-codes",
       methods: [apigwv2.HttpMethod.POST],

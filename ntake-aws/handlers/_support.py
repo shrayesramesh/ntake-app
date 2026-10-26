@@ -30,6 +30,7 @@ from core.assistant.anthropic_propose import AnthropicAssistant
 from core.assistant.capture import CaptureRequest, ProposedAction
 from core.engine.engine import propose_bounded
 from core.identity import Principal
+from core.ids import new_ulid
 from core.live_sync import ConnectionPoster, publish_change
 from core.repository import Repository
 from core.schemas import (
@@ -44,6 +45,7 @@ from core.schemas import (
     WorkItemUpdate,
     WorkItemUpdateRead,
 )
+from core.serde import work_item_create_from_body, work_item_update_create_from_body
 from core.temporal import stored_utc_to_family_local
 
 # The capture path spends LINK + PROPOSE sequentially inside the Lambda budget
@@ -152,8 +154,85 @@ def run_confirm(
     summary = apply_action(repo, member, name, target_id, params, target_type)
     entity, entity_id, op = _change_for(name, target_id, target_type)
     if entity is not None and entity_id is not None:
-        publish_change(repo, member.family_id, entity, entity_id, op, poster=poster)
+        _announce(repo, member, entity, entity_id, op, poster=poster)
     return {"applied": name, "summary": summary}
+
+
+# --- direct REST writes (create a work item, append a human update) --------
+
+
+def create_work_item(
+    repo: Repository, member: Member, body: dict, *, poster: ConnectionPoster
+) -> WorkItemRead:
+    """``POST /work-items`` — create a work item, then announce it once.
+
+    A direct human write (no assistant log entry, unlike the ``create_work_item``
+    action). Raises ``ValueError`` on a malformed body (→ 400) before writing.
+    """
+    payload = work_item_create_from_body(body)
+    now = datetime.now(UTC)
+    wi = WorkItem(
+        id=new_ulid(),
+        family_id=member.family_id,
+        title=payload.title,
+        description=payload.description,
+        tags=payload.tags,
+        assigned_to=payload.assigned_to,
+        created_at=now,
+        updated_at=now,
+    )
+    repo.put_work_item(wi)
+    _announce(repo, member, "work_item", wi.id, "create", poster=poster)
+    return work_item_read(wi, family_timezone(repo, member.family_id))
+
+
+def append_human_update(
+    repo: Repository,
+    member: Member,
+    work_item_id: str,
+    body: dict,
+    *,
+    poster: ConnectionPoster,
+) -> WorkItemUpdateRead:
+    """``POST /work-items/{id}/updates`` — append a human note, then announce once.
+
+    The author is the requesting member, ``source="human"``. Raises ``ValueError``
+    on a malformed body (→ 400) and ``KeyError`` for a missing work item (→ 404),
+    both before anything is announced.
+    """
+    payload = work_item_update_create_from_body(body)
+    update = WorkItemUpdate(
+        update_id=new_ulid(),
+        author_id=member.id,
+        source="human",
+        body=payload.body,
+        created_at=datetime.now(UTC),
+    )
+    repo.append_update(member.family_id, work_item_id, update)  # miss -> KeyError
+    _announce(repo, member, "work_item", work_item_id, "update", poster=poster)
+    return _update_read(update, work_item_id)
+
+
+# --- the one publish boundary (AWS_LLD §4.3) -------------------------------
+
+
+def _announce(
+    repo: Repository,
+    member: Member,
+    entity: str,
+    entity_id: str,
+    op: str,
+    *,
+    poster: ConnectionPoster,
+) -> None:
+    """The single call site of ``publish_change`` — every write path calls this.
+
+    Confirm and the two direct REST writes all announce through here, right after
+    their repository write returns, so "every committed change is announced
+    exactly once" stays structural without DynamoDB Streams (guarded by
+    ``tests/api/test_publish_boundary.py``).
+    """
+    publish_change(repo, member.family_id, entity, entity_id, op, poster=poster)
 
 
 def _change_for(

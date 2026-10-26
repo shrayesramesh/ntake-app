@@ -3,7 +3,8 @@
 One module per the design-B grouping would be ideal, but the routes share event
 parsing + response formatting, so they live together here and CDK wires each
 route to the matching entry function (``reads_handler`` / ``capture_handler`` /
-``confirm_handler`` / ``pairing_handler``) with its own role + timeout. Each
+``writes_handler`` / ``pairing_handler`` / ``pair_handler``), one Lambda per IAM
+role. Each
 entry is thin: read the authorizer context + body from the API GW v2 event,
 build the real adapters (``_runtime``), call the pure handler logic
 (``_support`` / ``_auth``), and return an API GW v2 response.
@@ -12,7 +13,6 @@ build the real adapters (``_runtime``), call the pure handler logic
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from typing import Any
 
 from core.engine.engine import ActionError
@@ -21,6 +21,8 @@ from core.serde import confirm_action_from_body, to_item
 from handlers import _runtime
 from handlers._auth import PairingError, create_pairing, redeem_pairing
 from handlers._support import (
+    append_human_update,
+    create_work_item,
     event_read,
     family_timezone,
     member_for,
@@ -114,32 +116,65 @@ def capture_handler(event: dict[str, Any], context: object = None) -> dict[str, 
     return _response(201, to_item(resp))
 
 
-# --- confirm ---------------------------------------------------------------
+# --- writes (confirm + the direct REST writes) — one Lambda, one role --------
 
 
-def confirm_handler(event: dict[str, Any], context: object = None) -> dict[str, Any]:
-    """POST /actions/confirm — execute via the registry, write, publish once."""
+def writes_handler(event: dict[str, Any], context: object = None) -> dict[str, Any]:
+    """The write routes, dispatched on the API GW route key.
+
+    ``POST /actions/confirm``, ``POST /work-items`` and
+    ``POST /work-items/{id}/updates`` share one Lambda because they need the same
+    IAM role (table write + ``execute-api:ManageConnections`` for the nudge) —
+    design B groups Lambdas by role. Each announces through the one publish
+    boundary (``_support._announce``).
+    """
     repo = _runtime.repository()
     _principal_, member = _require_member(event, repo)
     if member is None:
         return _response(404, {"error": "member not found"})
-    try:
-        action = confirm_action_from_body(_body(event))
-    except ValueError as e:
-        return _response(400, {"error": str(e)})
-    try:
-        result = run_confirm(
-            repo,
-            member,
-            name=action.name,
-            params=action.params,
-            target_id=action.target_id,
-            target_type=action.target_type,
-            poster=_runtime.connection_poster(),
-        )
-    except ActionError as e:
-        return _response(422, {"error": str(e)})
-    return _response(200, result)
+    route = event.get("routeKey", "")
+    body = _body(event)
+    poster = _runtime.connection_poster()
+
+    if route == "POST /work-items":
+        try:
+            created = create_work_item(repo, member, body, poster=poster)
+        except ValueError as e:
+            return _response(400, {"error": str(e)})
+        return _response(201, to_item(created))
+
+    if route == "POST /work-items/{id}/updates":
+        work_item_id = (event.get("pathParameters") or {}).get("id", "")
+        try:
+            update = append_human_update(
+                repo, member, work_item_id, body, poster=poster
+            )
+        except ValueError as e:
+            return _response(400, {"error": str(e)})
+        except KeyError:
+            return _response(404, {"error": "work item not found"})
+        return _response(201, to_item(update))
+
+    if route == "POST /actions/confirm":
+        try:
+            action = confirm_action_from_body(body)
+        except ValueError as e:
+            return _response(400, {"error": str(e)})
+        try:
+            result = run_confirm(
+                repo,
+                member,
+                name=action.name,
+                params=action.params,
+                target_id=action.target_id,
+                target_type=action.target_type,
+                poster=poster,
+            )
+        except ActionError as e:
+            return _response(422, {"error": str(e)})
+        return _response(200, result)
+
+    return _response(404, {"error": "not found"})
 
 
 # --- pairing (create [authed] + redeem [public]) ---------------------------
@@ -168,14 +203,3 @@ def pair_handler(event: dict[str, Any], context: object = None) -> dict[str, Any
     except PairingError:
         return _response(400, {"error": "invalid pairing code"})
     return _response(200, {"token": minted.plaintext})
-
-
-# Route dispatch table (CDK wires each route to the matching Lambda; this map is
-# a convenience for a single-function deployment or local dispatch).
-ROUTES: dict[str, Callable[[dict[str, Any], object], dict[str, Any]]] = {
-    "capture": capture_handler,
-    "confirm": confirm_handler,
-    "pairing": pairing_handler,
-    "pair": pair_handler,
-    "reads": reads_handler,
-}

@@ -12,18 +12,18 @@ CloudFormation template, then asserts the Session-6 shape (AWS_LLD §4/§5/§7):
   ``POST /pair``; the authorizer is a simple-response payload-2.0 Lambda
   authorizer; the WS API has ``$connect`` (authorized) + ``$disconnect``;
 * IAM is construct-scoped per design B — the reads role carries no write
-  actions, and the confirm role carries ``execute-api:ManageConnections``.
+  actions, and the writes role carries ``execute-api:ManageConnections``;
+* the three write routes (confirm + the two REST writes) all reach the writes
+  Lambda and are authorized.
 
 Assertions scan the ``Resources`` dict by ``Type`` + properties so they survive
 CloudFormation logical-id suffixes (never hard-code a logical id). Stdlib +
 pytest only (json, subprocess, pathlib).
 
-NOTE on the Lambda count: the Python handler surface is exactly EIGHT entry
-points — ``authorizer.handler``; ``http_api``'s reads/capture/confirm/pairing/
-pair; and ``ws``'s connect/disconnect — so design B (one Lambda per handler)
-yields eight functions. The Session-6 brief's "9 total" is an arithmetic slip
-(it also says "Seven Lambda functions" in the same paragraph); there is no ninth
-handler in the code to wire. These tests assert the real count, 8.
+Lambda count: one Lambda per IAM role (design B) — ``authorizer.handler``;
+``http_api``'s reads/capture/writes/pairing/pair; and ``ws``'s connect/disconnect
+— eight functions. Confirm and the two REST writes share the writes Lambda
+because they need the identical role.
 """
 
 from __future__ import annotations
@@ -157,7 +157,7 @@ _EXPECTED_HANDLERS = {
     "handlers.authorizer.handler",
     "handlers.http_api.reads_handler",
     "handlers.http_api.capture_handler",
-    "handlers.http_api.confirm_handler",
+    "handlers.http_api.writes_handler",
     "handlers.http_api.pairing_handler",
     "handlers.http_api.pair_handler",
     "handlers.ws.connect_handler",
@@ -282,9 +282,9 @@ def test_reads_role_has_no_write_actions(template: dict) -> None:
     assert not writes, f"reads role has write actions: {writes}"
 
 
-def test_confirm_role_can_manage_ws_connections(template: dict) -> None:
-    confirm = _fn_by_handler(template, "handlers.http_api.confirm_handler")
-    actions = _policy_actions_for_role(template, _role_id_of(confirm))
+def test_writes_role_can_manage_ws_connections(template: dict) -> None:
+    writes = _fn_by_handler(template, "handlers.http_api.writes_handler")
+    actions = _policy_actions_for_role(template, _role_id_of(writes))
     assert "execute-api:ManageConnections" in actions
     # Confirm also writes (it executes actions then publishes).
     assert actions & _WRITE_DDB
@@ -297,3 +297,30 @@ def test_capture_role_reads_secret_but_not_bedrock(template: dict) -> None:
     assert not {a for a in actions if a.startswith("bedrock:")}
     # Capture only reads the table (no writes on the propose-only path).
     assert not (actions & _WRITE_DDB)
+
+
+def _integration_target_fn(template: dict, route_props: dict) -> str:
+    """The Lambda logical id an HTTP route's integration invokes."""
+    integ_id = route_props["Target"]["Fn::Join"][1][1]["Ref"]
+    integ = template["Resources"][integ_id]["Properties"]
+    return integ["IntegrationUri"]["Fn::GetAtt"][0]
+
+
+def test_write_routes_reach_the_writes_lambda_and_are_authorized(
+    template: dict,
+) -> None:
+    routes = _http_routes(template)
+    writes = _fn_by_handler(template, "handlers.http_api.writes_handler")
+    writes_id = next(lid for lid, res in _functions(template).items() if res is writes)
+    for key in (
+        "POST /actions/confirm",
+        "POST /work-items",
+        "POST /work-items/{id}/updates",
+    ):
+        assert key in routes, f"missing route {key}"
+        assert routes[key]["AuthorizationType"] == "CUSTOM"
+        assert _integration_target_fn(template, routes[key]) == writes_id
+    # GET /work-items stays on the reads Lambda (same path, different method).
+    reads = _fn_by_handler(template, "handlers.http_api.reads_handler")
+    reads_id = next(lid for lid, res in _functions(template).items() if res is reads)
+    assert _integration_target_fn(template, routes["GET /work-items"]) == reads_id
