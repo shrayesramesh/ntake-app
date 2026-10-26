@@ -2,7 +2,8 @@
 
 Separated from any plugin so the machinery — register actions, validate params,
 dispatch to a handler with an opaque context, describe an action, bounded propose
-— is reusable and knows nothing about work items, events, DynamoDB, Bedrock, or
+— is reusable and knows nothing about work items, events, DynamoDB, the LLM
+provider, or
 any HTTP framework. A boundary test (``tests/test_boundary.py``) enforces the
 import rule (no persistence/DTO models, no ``boto3``, no ``sqlalchemy``, no
 ``fastapi``).

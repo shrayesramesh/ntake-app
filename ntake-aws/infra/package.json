@@ -2,7 +2,7 @@
   "name": "ntake-aws-infra",
   "version": "0.0.1",
   "private": true,
-  "description": "CDK (TypeScript) infrastructure for the ntake-aws rebuild. Session 1: a minimal empty stack that synthesizes; built out in Sessions 1.5/5/7.",
+  "description": "CDK (TypeScript) infrastructure for the ntake-aws rebuild: the NtakeStack (table, secrets, Lambdas, HTTP + WebSocket APIs), instantiated for dev and prod.",
   "bin": {
     "ntake-aws-infra": "bin/ntake-aws.js"
   },

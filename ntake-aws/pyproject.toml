@@ -1,7 +1,7 @@
 [project]
 name = "ntake-aws"
 version = "0.0.1"
-description = "Family calendar + work items — AWS-native rebuild (API GW + Lambda + DynamoDB + Bedrock)"
+description = "Family calendar + work items — AWS-native rebuild (API GW + Lambda + DynamoDB + the Anthropic API)"
 requires-python = ">=3.12"
 
 # ---------------------------------------------------------------------------

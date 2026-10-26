@@ -282,8 +282,9 @@ test-guarded.
 Everything becomes CDK; the **dev stage** shakes out the cloud-only seams local
 testing can't (HLD §11).
 
-- **5a.** CDK stack (**extends the minimal tracer-bullet slice from Part II
-  Session 1.5** into the full stack — not a from-zero build): HTTP API, WS API,
+- **5a.** CDK stack (**builds on the slices already in `NtakeStack`** — the table
+  from Session 3, the APIs/authorizer/Lambdas from Session 6 — not a from-zero
+  build): HTTP API, WS API,
   DynamoDB (+ GSIs, TTL), Lambdas, CloudFront, S3 (static assets + **assistant-logs
   bucket w/ 180-day lifecycle rule**, HLD §10), IAM (scoped per-Lambda — capture
   Lambda gets `secretsmanager:GetSecretValue` on the Anthropic-key secret, **no**
@@ -347,8 +348,9 @@ end-to-end on a real device; live sync verified across two devices.
   (`make secrets-anthropic STAGE=prod`, `make secrets-token STAGE=prod`);
   bootstrap the first device per family (`make mint`), then enroll the rest via
   pairing codes.
-- **7c. [HUMAN]** Admin/minting hardening follow-on (IP allowlist / second factor
-  on the credential-minting path, HLD §9) — tracked, not blocking initial prod.
+- **7c. [HUMAN]** Bootstrap-minting hardening follow-on (IP allowlist / second
+  factor, if a deployed minting path is ever added — HLD §9) — tracked, not
+  blocking initial prod.
 - **7d. [HUMAN]** Kiosk soak on the wall tablet.
 
 **Done:** prod live on `111037110464`; data protected by PITR; real devices
@@ -764,28 +766,30 @@ contact.)
 tool count; LLD updated if anything changed at scale. Commit.
 
 ## Session 9 — Frontend (very simple static PWA on CloudFront)  (Phase 6)  [HUMAN device test]
-**Goal:** the installable static PWA against dev, WebSocket live sync, enroll-by-QR
-(LLD §9).
+**Goal:** the installable static PWA against dev, WebSocket live sync,
+pairing-code enrollment (LLD §5.4, §9).
 - Build the **very simple hand-written vanilla-JS PWA — no framework, no build
   step** (`index.html` + `app.js` + `app.css` + manifest/sw/icon), served static
   from S3+CloudFront. It **renders from the JSON APIs** (`/board`, `/events`,
   `/work-items`, `/capture`, `/actions/confirm`); the old server-rendered
   `/board/view` / `/calendar/view` fragments are **not** built.
 - Live sync: open the `WebSocket` (`?token=`), refetch-and-rerender on a nudge,
-  reconnect re-sync on open. The `/enroll` fragment-read page. Capture / board /
-  calendar / proposal-card surfaces.
-- Integration-test the testable units (enroll fragment-read + storage/scrub; the
+  reconnect re-sync on open. The pairing-code screens ("add a device" code
+  display; "enter your pairing code"). Capture / board / calendar /
+  proposal-card surfaces.
+- Integration-test the testable units (the pairing exchange + token storage; the
   WS-nudge→refetch logic) — minimal, matching the simple-client scope.
-- **[HUMAN]** install on phone + tablet; device smoke (enroll via QR,
+- **[HUMAN]** install on phone + tablet; device smoke (enroll via pairing code,
   capture→propose→confirm, cross-device live update).
-**Exit:** PWA runs against dev; QR enroll works on a real device; live sync across
-two devices. Commit.
+**Exit:** PWA runs against dev; pairing-code enrollment works on a real device;
+live sync across two devices. Commit.
 
 ## Session 10 — Prod cutover  (Phase 7)  [HUMAN deploy]
 **Goal:** prod live, data protected.
 - **[AGENT]** finalize prod props (RETAIN+PITR, throttles, model).
-- **[HUMAN]** `make deploy-prod`; mint real tokens; enroll real devices; kiosk
-  soak. Admin/minting hardening tracked as follow-on.
+- **[HUMAN]** `make deploy-prod`; set the prod secrets; bootstrap the first
+  device per family (`make mint`) and enroll the rest via pairing codes; kiosk
+  soak. Bootstrap-minting hardening tracked as follow-on.
 **Exit:** prod live on `111037110464`; PITR on; real devices enrolled.
 
 ## Session 11 — Replace mainline  (Git strategy end-state)

@@ -121,8 +121,9 @@ class DataType(Enum):
 
     ``json_schema`` is a plain data fragment (a dict), NOT emission logic: the
     engine only stores it and never acts on it, so this stays infra-agnostic —
-    the JSON-Schema *assembly* happens in the Bedrock PROPOSE adapter (the
-    registry→``toolConfig`` translation). (Named
+    the JSON-Schema *assembly* happens in the PROPOSE stage
+    (``core.assistant.anthropic_propose.build_tools_schema``, the
+    registry→Anthropic ``tools`` translation). (Named
     ``DataType`` to avoid shadowing the builtin ``type``; the literal JSON-Schema
     keyword ``"type"`` lives inside these fragments only.) ``INTEGER`` /
     ``ARRAY_INTEGER`` / ``OBJECT`` are pre-shaped for v2 actions (assign,

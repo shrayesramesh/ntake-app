@@ -2,7 +2,7 @@
 
 Session 3 port (AWS_LLD §2): the SQLAlchemy ``Session`` the handlers used to
 unpack is replaced by the :class:`core.repository.Repository` seam, and the ORM
-``Member`` by the lifted Pydantic DTO. ``target_id`` is now a ULID **string**
+``Member`` by the lifted ``Member`` DTO. ``target_id`` is now a ULID **string**
 (AWS_LLD §1). The engine never inspects this; the handlers below unpack it.
 """
 

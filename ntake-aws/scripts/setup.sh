@@ -36,7 +36,7 @@ echo "setup: verifying tool imports..."
 "$PY" - <<'PY'
 import importlib
 
-for mod in ("pydantic", "pytest", "ruff", "mypy", "boto3"):
+for mod in ("pytest", "ruff", "mypy", "boto3"):
     importlib.import_module(mod)
 import core.engine.engine  # noqa: F401 — the lifted core imports cleanly
 print("setup: OK — venv ready, core imports clean.")

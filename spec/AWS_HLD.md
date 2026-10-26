@@ -430,27 +430,22 @@ becomes structural. Mechanism-ready, flip-on-later — the same posture as S3 sp
 - **Tailscale is gone**, so the device token is **no longer a secondary identity
   layer behind a trusted perimeter — it is now the primary security boundary**
   between the public internet and family data.
-- **Minting is retained** (it's liked and now load-bearing): an operator action
-  generates a random token, stores only its **HMAC hash** in DynamoDB, prints the
-  plaintext once; `revoke` sets `revoked_at`. The *mechanism* moves from a home-PC
-  CLI to an operator action against the deployed stack (a small admin **Lambda**
-  run with AWS creds — concrete form pinned in LLD §5.3).
-- **Enrollment / token delivery (the receive flow) — Option A, `/enroll#token=`.**
-  The token stays **strong** (long, high-entropy) — it must, now that it's the
-  primary internet-facing boundary — and the copy-paste pain is solved at
-  *delivery*, not by weakening the secret. Minting emits a URL
-  `https://<app>/enroll#token=<token>`; a **QR code encodes that URL** (and the
-  same URL is a tappable enrollment link). The family member scans it with the
-  **OS camera**, which opens the URL in the browser → the PWA's `/enroll` route
-  reads the token from the **URL fragment** (`#…`, which is never sent to the
-  server and so never hits access/CloudFront logs), persists it to `localStorage`,
-  and `history.replaceState`s to scrub it from the address bar + history. Every
-  request thereafter reads storage and sends `Authorization: Bearer <token>`
-  (`?token=` for the WebSocket connect). This is why no in-app QR *scanner* is
-  needed — the QR is just a URL, the OS scans it, and the only client code is
-  reading a fragment param on load. (A short-lived human-typable **exchange code**
-  that trades for a strong token is a possible later UX add; explicitly **not** an
-  8-digit code as the standing credential — too weak for a public endpoint.)
+- **Minting is retained, but it's no longer the everyday path:** generating a
+  token stores only its **HMAC hash** in DynamoDB and returns the plaintext once;
+  `revoke` sets `revoked_at`. Devices normally obtain their token through the
+  pairing exchange below; minting directly is only the first-device bootstrap
+  (`scripts/mint.py`, run once per family with AWS creds — LLD §5.3). A deployed
+  admin-mint Lambda is deferred (break-glass only).
+- **Enrollment — a 6-digit pairing-code exchange** *(as built in Session 6;
+  replaced the original `/enroll#token=` URL + QR design, which needed the admin
+  account per device and a long token URL copied onto the device).* The device
+  token stays **strong** (long, high-entropy — it's the primary internet-facing
+  boundary); what moves between devices is a short-lived code instead. An
+  enrolled member requests a **6-digit code** (single-use, 10-minute TTL,
+  attempt-capped); the new device submits it to a public exchange endpoint and
+  receives a freshly minted token, which it keeps in `localStorage`. Every request
+  thereafter sends `Authorization: Bearer <token>` (`?token=` for the WebSocket
+  connect). The code is never a standing credential (LLD §5.4).
 - **Enforcement:** a **Lambda custom authorizer** hashes the presented bearer
   token (HMAC via a secret in **Secrets Manager / SSM**, not a file on a box) and
   resolves it to a member, returning an allow policy + member context. The
@@ -465,9 +460,10 @@ becomes structural. Mechanism-ready, flip-on-later — the same posture as S3 sp
   state. The capture Lambda gets `secretsmanager:GetSecretValue` scoped to the
   Anthropic-key secret's ARN only; this **replaces** the Bedrock-era
   `bedrock:InvokeModel` grant entirely.
-- **Admin/minting path (v1):** token-only like the rest, **with a noted follow-on**
-  to add a guard (IP allowlist / second factor) since it now mints credentials
-  over the public internet. Cognito remains a possible future swap; out of scope.
+- **Bootstrap path (v1):** first-device minting runs locally with the operator's
+  AWS creds, **with a noted follow-on** to add a guard (IP allowlist / second
+  factor) if a deployed minting path is ever added. Cognito remains a possible
+  future swap; out of scope.
 
 ---
 
@@ -547,7 +543,8 @@ becomes structural. Mechanism-ready, flip-on-later — the same posture as S3 sp
 ## 12. What's reused vs. built new
 
 **Reused (lifted, infra-agnostic):** the propose/route/confirm **engine**, the
-**action registry + specs**, Pydantic **schemas**, **temporal** helpers, **token
+**action registry + specs**, the DTO **schemas** (rewritten as stdlib dataclasses
+— the Lambda code is stdlib + runtime `boto3` only), **temporal** helpers, **token
 hashing**, and the propose-and-confirm + append-only-log + attribution contracts.
 
 **Built new:** the **DynamoDB repository** (single-table, co-located items,
@@ -556,10 +553,10 @@ transaction-aware for cross-item cases), the **two Anthropic-API seams**
 from the execute boundary), the **Lambda authorizer**, **assistant-call logging**,
 the **CDK** stacks, and the **thin HTTP handlers**.
 
-**Carried over, with one real change — the frontend (§12a):** the operator
-admin/minting **Lambda** (stack-run, not home-PC CLI — §9, LLD §5.3) and the demo
-/ prompt-optimizer tooling carry over as-is. The PWA changes shape (static
-client-render) — below.
+**Carried over, with changes:** device minting survives as the first-device
+bootstrap (`scripts/mint.py`, §9), with everyday enrollment moving to the pairing
+exchange; the demo / prompt-optimizer tooling carries over as-is. The PWA changes
+shape (static client-render) — below.
 
 ### 12a. Frontend — a very simple static client, rendered from JSON
 The self-hosted app served **server-rendered HTML fragments** from FastAPI
@@ -578,7 +575,8 @@ renders HTML at request time. Decision, scoped to a **very simple client**:
   HTML-rendering Lambda.
 - **Live sync:** the client subscribes to the WebSocket (`?token=`) and refetches
   the JSON on a nudge — replacing "SSE triggers an HTMX fragment reload."
-- **Enrollment:** the `/enroll#token=` fragment-read flow (§9).
+- **Enrollment:** the pairing-code screens (§9) — "add a device" shows a 6-digit
+  code; an unenrolled device enters it.
 - **Not chosen:** Lambda-rendering HTML (keeps HTMX but adds a server-render
   Lambda and couples the API to HTML) and any SPA framework/bundler (too heavy for
   a 2–4 person read-mostly display). Revisit only if the plain client proves
@@ -587,11 +585,11 @@ renders HTML at request time. Decision, scoped to a **very simple client**:
 ---
 
 ## 13. Risks / open questions (for the LLD)
-- **Multiple tool-use blocks per turn** — **largely resolved by the pivot:** the
-  Anthropic Messages API supports parallel tool use (multiple `tool_use` blocks in
-  one response) natively, so the Bedrock-era "one call per turn?" uncertainty is
-  gone. Still confirm actual multi-card behavior against the real Claude model in
-  the dev stage; the handler consumes a list regardless (LLD §3.5).
+- **Multiple tool-use blocks per turn** — **resolved by the pivot:** the
+  Anthropic Messages API supports parallel tool use natively, and the live Tier-2
+  signal test shows the model fanning a two-intent note into 2 cards. Remaining:
+  reconcile at the full tool count (Session 8); the handler consumes a list
+  regardless (LLD §3.5).
 - **Enum-constrained decoding strictness** — mitigated by app-side whitelist
   re-validation; confirm behavior against Claude tool-use.
 - **Single-table key/GSI design** — exact PK/SK, the two GSIs, the sparse-archive
@@ -609,8 +607,9 @@ renders HTML at request time. Decision, scoped to a **very simple client**:
 - **Cold starts** on the synchronous two-call capture path — latency budget;
   provisioned concurrency only if measured need.
 - **ULID ripple** — API/schema id types and the LLM-facing id handling.
-- **Admin/minting hardening** — the follow-on guard for the credential-minting
-  path over the public internet.
+- **Bootstrap-minting hardening** — the follow-on guard if a deployed
+  credential-minting path is ever added (v1 mints only via the local bootstrap
+  script).
 - **Live-sync completeness** — direct-post relies on every write going through the
   one confirm/execute boundary; guard that invariant (a boundary test), and treat
   **DynamoDB Streams + fan-out** as the ready hardening upgrade if a write path
@@ -620,12 +619,12 @@ renders HTML at request time. Decision, scoped to a **very simple client**:
 
 ---
 
-## 14. Proposed next step — the LLD
-Write the LLD in this order: (1) DynamoDB single-table schema + access patterns
+## 14. Next step — the LLD (done)
+The LLD (`AWS_LLD.md`) was written in this order: (1) DynamoDB single-table schema + access patterns
 (keys, the two GSIs, item shapes, ULID), (2) the repository interface + its one
 DynamoDB implementation (incl. the cross-item `TransactWriteItems`), (3) the two
 Anthropic seams + schema/tool translation + prompt-quality plan, (4) WebSocket
 live-sync (connections table, direct-post from the execute boundary, 410 pruning),
-(5) the Lambda authorizer + minting path, (6) assistant-call logging, (7) the CDK
+(5) the Lambda authorizer + enrollment, (6) assistant-call logging, (7) the CDK
 stack layout + per-stage props, (8) the test strategy per tier (Tier 1 in-memory
 local; Tier 2 `make integration` against the dev stage).

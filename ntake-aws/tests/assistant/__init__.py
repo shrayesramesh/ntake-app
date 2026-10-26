@@ -1,1 +1,1 @@
-"""Assistant tier (LINK + PROPOSE Bedrock seams) — Sessions 4-5 (AWS_PLAN Phase 3)."""
+"""Assistant tier (LINK + PROPOSE Anthropic seams) — AWS_PLAN Phase 3."""

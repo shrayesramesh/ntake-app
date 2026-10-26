@@ -1,7 +1,7 @@
 """The assistant contracts — the two swappable seams, in one place.
 
-This module homes the *interfaces* the Bedrock backends (Session 4/5) implement,
-so a reader (or a new backend) has a single contract reference:
+This module homes the *interfaces* the Anthropic-backed stages implement, so a
+reader (or a new backend) has a single contract reference:
 
 * **Stage 1 — :class:`CaptureResolver`**: resolve a raw ``CaptureRequest`` into a
   ``FocusedContext`` (the app-coupled, repository-touching stage). Defined here.
@@ -49,8 +49,8 @@ class CaptureResolver(ABC):
     held on the resolver, so the resolver stays a singleton. This is the
     **app-coupled** seam (it touches the repository), unlike the domain-agnostic
     engine; the ``FocusedContext`` it returns is the plain value object that
-    crosses into stage 2. Concrete resolvers: a deterministic fake (v1) and
-    (Session 4) the LINK-backed Bedrock resolver.
+    crosses into stage 2. The concrete resolver is the LINK-backed
+    :class:`core.assistant.anthropic_link.AnthropicCaptureResolver`.
     """
 
     @abstractmethod

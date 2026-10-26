@@ -249,14 +249,14 @@ item"; "joule" is a possible future family-facing label.)*
 - **NFR-PRIVACY (revised — accepted tradeoff).** The original "all data on owned
   hardware, no third-party cloud in the data path" is **no longer a hard
   constraint.** The AWS build stores household data in **DynamoDB** and routes
-  capture text through **Bedrock**; data lives in and transits a managed cloud.
-  Accepted deliberately. (Mitigations available but not required: Bedrock
-  no-training-on-input, VPC/PrivateLink, CMK, region pinning.)
+  capture text through the **Anthropic API** (a third party outside AWS — the
+  Bedrock-hold pivot, AWS_HLD §10); data lives in and transits managed cloud
+  services. Accepted deliberately (AWS_HLD §2a).
 - **NFR-COST (revised).** No longer "essentially electricity." The build incurs
-  **per-call Bedrock cost + managed-service charges** (API Gateway, Lambda,
+  **per-call Anthropic API cost + managed-service charges** (API Gateway, Lambda,
   DynamoDB, CloudFront, WebSocket). Low at a 2–4 person household's volume;
-  scale-to-zero helps; the cost dial is Bedrock **model size**. A budget alert is
-  deployed with the stack.
+  scale-to-zero helps; the cost dial is the Claude **model size**. A budget alert
+  is deployed with the stack.
 - **NFR-UPTIME (revised).** Availability is now **managed-service availability**
   (API Gateway / Lambda / DynamoDB), not a single home PC's uptime. No home
   power/internet dependency.
@@ -266,7 +266,7 @@ item"; "joule" is a possible future family-facing label.)*
   gone.
 - **Observability / logging (revised sub-rule).** The original "do not log raw
   household note text by default" is **flipped**: the AWS build logs
-  **full-fidelity** Bedrock calls (prompt + reply) **by default** to S3 to enable
+  **full-fidelity** assistant (Anthropic API) calls (prompt + reply) **by default** to S3 to enable
   prompt improvement, opt-out to metadata-only via a CDK stack prop, 180-day
   lifecycle expiry.
 

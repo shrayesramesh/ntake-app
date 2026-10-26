@@ -64,7 +64,7 @@ test-data: ## Focused: repository + action handlers (Tier 1, in-memory)
 	$(_require_pytest)
 	$(PYTEST) tests/data
 
-test-assistant: ## Focused: LINK + PROPOSE Bedrock seams (Phase 3; Session 4+)
+test-assistant: ## Focused: LINK + PROPOSE Anthropic seams (Phase 3)
 	$(_require_pytest)
 	$(PYTEST) tests/assistant
 

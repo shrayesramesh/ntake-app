@@ -4,7 +4,7 @@
 > [`AWS_HLD.md`](AWS_HLD.md); the phased build is in [`AWS_PLAN.md`](AWS_PLAN.md).
 > This document fills in the concrete contracts the HLD deferred: single-table
 > keys/GSIs, the repository method set, the Anthropic-API seams + schema
-> translation, the WebSocket wiring, the Lambda authorizer + minting, assistant
+> translation, the WebSocket wiring, the Lambda authorizer + pairing enrollment, assistant
 > logging, the CDK
 > stack layout, the test strategy per tier, and the frontend client.
 >
@@ -449,10 +449,9 @@ AWS can lift it. This is what moved the seams off Bedrock entirely.
 - **Pivot closure.** The Bedrock-hold question is **no longer a v1 blocker**: the
   seams are on the Anthropic API, which the hold does not touch, so Sessions 4+
   build and validate the real model against Anthropic directly (not after an AWS
-  support case). The Bedrock support case + `scripts/bedrock_preflight.py` /
-  `bedrock_bisect.py` remain only as the path to *re-enable the Bedrock fallback*
-  if ever wanted; they are off the critical path. The throwaway `tracer/` +
-  `TracerStack` + Bedrock probe scripts are still deleted in Session 5 as planned.
+  support case). The throwaway `tracer/` + `TracerStack` + the Bedrock probe
+  scripts (`bedrock_preflight.py` / `bedrock_bisect.py`) were deleted after
+  Session 5; recover them from git history if the Bedrock fallback is ever wanted.
 
 ### 3.6 Deferred refactor — GENERATE ⇒ DECIDE (Jev) — NOT in v1
 Recorded so the design exploration behind the pivot is not lost; **nothing here is
@@ -549,12 +548,12 @@ built in v1** (the v1 assistant is the Claude-only LINK ⇒ PROPOSE above).
 
 ---
 
-## 5. Identity — Lambda authorizer + minting + enroll (HLD §9)
+## 5. Identity — Lambda authorizer + pairing-code enrollment (HLD §9)
 
 ### 5.1 Token hashing (lifted from `app/identity/`)
 - `hash_token(plaintext, secret) = HMAC-SHA256`, as today. The per-install
   **secret lives in Secrets Manager** (not a file/env); the authorizer and the
-  minting path read it via the Secrets Manager API (cached per Lambda container).
+  pair exchange read it via the Secrets Manager API (cached per Lambda container).
 - Only the **hash** is stored (`TOK#<hash>` item, §1.2); plaintext is never
   persisted.
 
@@ -666,10 +665,10 @@ CDK — the `NtakeStageProps` interface in §7.2 is TS). Resources:
 - **CloudFront** in front of the static bucket + the HTTP API origin. Routes an
   API path behavior (e.g. `/api/*` or the REST prefixes) to the HTTP API origin
   and everything else to S3, so the PWA and the API share one origin (same-origin,
-  no CORS — LLD §9). **SPA fallback:** a deep link like `/enroll` has no S3 object,
+  no CORS — LLD §9). **SPA fallback:** a deep link like `/board` has no S3 object,
   so CloudFront maps 403/404 from the S3 origin to **`200 /index.html`** — the
-  static shell loads and client JS reads `location.hash` (LLD §5.4). Without this,
-  hitting `/enroll` directly 403s.
+  static shell loads and client JS routes. Without this, opening a deep link
+  directly 403s.
 - **Secrets Manager** — **two secrets, both created empty by CDK** (the construct
   owns name/ARN/removal-policy/IAM wiring; the *values* are set out-of-band via
   `aws secretsmanager put-secret-value`, a `[HUMAN]` step, so no secret value ever
@@ -697,9 +696,10 @@ interface NtakeStageProps {
   value set out-of-band, §7.1/§5.1. Props never carry secret material.)*
 
 ### 7.3 Deploy
-- `cdk bootstrap` once (Phase 0 / `setup-aws.sh`). The **first deploy is the
-  tracer-bullet slice (PLAN Session 1.5)**; the full stack deploys with
-  `cdk deploy NtakeStack-dev` / `cdk deploy NtakeStack-prod` thereafter. No
+- `cdk bootstrap` once (Phase 0 / `setup-aws.sh`). The full stack deploys with
+  `cdk deploy NtakeStack-dev` / `cdk deploy NtakeStack-prod` (`make deploy-dev` /
+  `make deploy-prod`). (The Session-1.5 tracer-bullet slice was the first deploy;
+  it has since been deleted.) No
   console. Prod data protected by the retention props so a `destroy`/bad deploy
   can't wipe family data.
 
@@ -750,8 +750,10 @@ PWA, no framework and no build step**, served static from S3+CloudFront.
   structure is ported from `web.py`'s render functions into client JS (DRY: the
   JSON already carries every field those fragments showed). **Routes
   `/board/view` and `/calendar/view` are not built.**
-- **Enrollment:** the `/enroll` page reads the token from `location.hash`,
-  `localStorage.setItem`, `history.replaceState` to scrub (LLD §5.4).
+- **Enrollment:** the pairing-code screens (§5.4) — an enrolled device's "add a
+  device" shows a 6-digit code with a countdown (`POST /pairing-codes`); an
+  unenrolled device shows "enter your pairing code", calls `POST /pair`, and
+  stores the returned token with `localStorage.setItem`.
 - **Live sync:** open the WebSocket (`?token=`), and on a `{entity,id,op}` nudge
   refetch the affected JSON and re-render (replacing SSE→HTMX-reload). Reconnect
   re-syncs by refetching on open. (The WS connects directly to the API Gateway

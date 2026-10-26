@@ -9,8 +9,8 @@
 #      re-running against an already-bootstrapped env is a no-op/update).
 #
 # This is a [HUMAN]-run step (AWS_PLAN Phase 0c / Session 0.2): the operator runs
-# it with their own credentials AFTER the two console actions (0a: non-root admin
-# + CLI creds; 0b: Bedrock model access). An agent must NOT run this — it touches
+# it with their own credentials AFTER the console action (0a: non-root admin +
+# CLI creds). An agent must NOT run this — it touches
 # the account. The script itself creates no IAM, no secrets, no stack resources;
 # bootstrap provisions only the standard CDK toolkit stack (CDKToolkit).
 #
@@ -18,8 +18,8 @@
 #   - AWS CLI v2 and the AWS CDK CLI (`cdk`) installed and on PATH.
 #   - CLI credentials configured for the non-root admin (0a) — e.g. an IAM
 #     Identity Center / SSO session or an IAM user's access keys. MFA either way.
-#   - Bedrock model access enabled in us-east-1 (0b) — not checked here (it is a
-#     console-only, account-level opt-in; its absence surfaces at first Converse).
+#   (The assistant uses the Anthropic API, not Bedrock — there is no model-access
+#   opt-in to check; the API key is set after deploy via `make secrets-anthropic`.)
 #
 # Usage:
 #   ./setup-aws.sh                 # assert identity, then bootstrap
