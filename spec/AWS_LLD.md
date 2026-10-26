@@ -199,9 +199,14 @@ class Repository(Protocol):
   `DynamoRepository` against the **real dev-stage table** via `make integration`
   (Tier 2 — no DynamoDB Local).
 - **DTO types** (`WorkItem`, `Event`, `Member`, `Family`, `CalendarRow`) are the
-  lifted Pydantic schemas from `app/schemas.py`, with int ids → **ULID strings**
-  (§1). `CalendarRow` is a small new DTO unifying an event or a due-dated work
-  item for the calendar Query (title, `sort_ts`, kind, id).
+  lifted schemas from `app/schemas.py` — **rewritten as stdlib dataclasses**
+  (Session 6; the Lambda code is stdlib + runtime `boto3` only, §7.1) — with int
+  ids → **ULID strings** (§1). Serialization lives in `core/serde.py`:
+  `to_item` (`dataclasses.asdict` + ISO datetimes) and explicit per-type
+  `*_from_item` readers that parse ISO datetimes, coerce DynamoDB `Decimal` →
+  `int`, rebuild nested fields, and ignore storage keys. `CalendarRow` is a small
+  new DTO unifying an event or a due-dated work item for the calendar Query
+  (title, `sort_ts`, kind, id).
 
 ---
 
@@ -518,21 +523,26 @@ built in v1** (the v1 assistant is the Claude-only LINK ⇒ PROPOSE above).
 
 ### 4.2 Publishing a change (direct from the execute boundary)
 - The publish is a single helper, `publish_change(repo, family_id, entity, id,
-  op)`, called **once, at the confirm/execute boundary**, immediately after the
-  repository write returns. It `list_connections(family_id)` and, for each,
-  `postToConnection` with `{entity, id, op}` via the API Gateway Management API.
-- **Why one call site:** every mutation flows through the confirm/execute boundary
-  (`apply_action` → repository), so there is exactly **one** place that publishes.
-  This is the completeness discipline that replaces DynamoDB Streams — not
-  per-handler publish calls.
+  op, *, poster)` (`core/live_sync.py`; delivery is an injected
+  `postToConnection` effect so `core` stays transport-free). It is called from
+  **exactly one place** — `_announce` in `handlers/_support.py` — which every
+  write path calls immediately after its repository write returns: the
+  confirm/execute boundary (`run_confirm`) and the two direct REST writes
+  (`create_work_item`, `append_human_update`). It `list_connections(family_id)`
+  and, for each, posts `{entity, id, op}` via the API Gateway Management API.
+- **Why one call site:** every mutation flows through a write path that announces
+  via `_announce`, so there is exactly **one** place that publishes. This is the
+  completeness discipline that replaces DynamoDB Streams — not ad-hoc per-handler
+  publish calls.
 - **Stale pruning:** a `postToConnection` returning **410 Gone** →
   `delete_connection` for that connectionId (lazy cleanup). Other errors are
-  logged and swallowed (a dead socket must not fail the user's confirmed write).
+  swallowed per socket (a dead socket must not fail the user's confirmed write).
 
 ### 4.3 The single-publish-boundary invariant (test)
-- A test asserts that the only call site of `publish_change` is the execute
-  boundary (and that `apply_action` always calls it on a successful write) — the
-  structural guard that "no committed change goes unannounced" without Streams.
+- `tests/api/test_publish_boundary.py` asserts, by AST scan, that (1) the only
+  call site of `publish_change` is `_announce`, and (2) every write path
+  (`run_confirm`, `create_work_item`, `append_human_update`) calls `_announce` —
+  the structural guard that "no committed change goes unannounced" without Streams.
 - **If this invariant ever can't hold** (a write path outside the boundary), the
   documented upgrade is DynamoDB Streams + a fan-out Lambda (HLD §8/§13) — flip it
   on and move `publish_change` behind the stream trigger.
@@ -558,30 +568,36 @@ built in v1** (the v1 assistant is the Claude-only LINK ⇒ PROPOSE above).
 - Authorizer results are cached by API Gateway (short TTL) to avoid a DynamoDB
   lookup per request on a chatty client.
 
-### 5.3 Minting (admin path, stack-run)
-- An operator-invoked **admin Lambda** run with AWS creds (**not** a home-PC CLI,
-  and not a local script — a small deployed Lambda is the decision): generate a
-  **strong random token**
-  (unchanged entropy — it's the primary internet boundary now), store
-  `TOK#<hash>` with `family_id/member_id/label/created_at`, **print plaintext
-  once**. `revoke` sets `revoked_at`; `list` enumerates a member's tokens.
-- Hardening follow-on (not v1-blocking, HLD §9): an IP allowlist / second factor
-  on this minting path specifically, since it mints credentials over the public
-  internet.
+### 5.3 Device tokens + the identity store (as built, Session 6)
+- Device tokens and pairing codes live behind a **`TokenStore` seam separate from
+  the family `Repository`** (`core/token_store.py`; in-memory + Dynamo impls):
+  identity items are top-level (`TOK#<hash>` / `PAIR#<code>`, SK `#META`), not
+  family-partitioned, so a separate seam keeps the family repository cohesive and
+  lets the authorizer's IAM scope to identity reads only.
+- **Minting** (`core/identity.mint_device_token`): a **strong random token**
+  (unchanged entropy — the primary internet boundary), store `TOK#<hash>` with
+  `family_id/member_id/role/label/created_at`, return the plaintext **once**.
+  `revoke` sets `revoked_at`. There is **no deployed admin-mint Lambda** in v1
+  (deferred, break-glass only): the everyday path is pairing (§5.4), and the
+  first device per family is bootstrapped with `scripts/mint.py` (`make mint`),
+  run locally once with AWS creds.
+- Hardening follow-on (not v1-blocking, HLD §9) applies to the bootstrap path.
 
-### 5.4 Enrollment — `/enroll#token=` receive flow (HLD §9, Option A)
-- Minting emits a URL `https://<cloudfront-domain>/enroll#token=<token>`; a **QR
-  code encodes that URL** (and the same URL is a shareable link).
-- The family member scans it with the **OS camera**, which opens the URL in the
-  browser → the PWA's `/enroll` route runs client JS: read the token from the
-  **URL fragment** (`location.hash` — the fragment is never sent to the
-  server/CloudFront logs), `localStorage.setItem`, then `history.replaceState` to
-  scrub it from the address bar + history, then route into the app.
-- Thereafter every request reads `localStorage` and sends `Authorization: Bearer
-  <token>` (`?token=` for the WS connect). **No in-app QR scanner** — the QR is a
-  URL, the OS scans it, the only client code is reading a fragment param on load.
-- (A short-lived human-typable **exchange code** that trades for a strong token is
-  a later UX add; the device credential is never an 8-digit code.)
+### 5.4 Enrollment — the 6-digit pairing-code exchange (as built, Session 6)
+*(Replaces the original `/enroll#token=` URL + QR flow, which needed the admin
+account per device and a long token URL copied onto the device.)*
+- An **enrolled** member calls `POST /pairing-codes` (authorized) → a **6-digit
+  numeric code** granting their family/member/role, single-use, **10-minute TTL**,
+  **attempt-capped** (5). The device shows it with a countdown.
+- The new device calls the **public** `POST /pair {code}` → the code is
+  validated (exists, unconsumed, unexpired, under the cap), consumed, and a fresh
+  device token is minted and returned; the device stores it in `localStorage`.
+  An invalid code is a uniform 400 (no hint which condition failed).
+- First device per family: `scripts/mint.py` prints a pairing code, so bootstrap
+  uses the same "type 6 digits on the device" flow.
+- Thereafter every request sends `Authorization: Bearer <token>` (`?token=` for
+  the WS connect). Safeguards are deliberately light (private family app on a
+  private account); device tokens stay full-entropy.
 
 ---
 
@@ -625,8 +641,14 @@ CDK — the `NtakeStageProps` interface in §7.2 is TS). Resources:
   public. The logs bucket is written by the capture (Anthropic-calling) Lambda and
   read offline by the prompt-optimizer tooling — nothing serves it, so it has no
   public access and no CloudFront origin at all.
-- **Lambdas**: app handlers, the authorizer, the WS connect/disconnect, the
-  minting admin path. Each with a **tightly scoped role** (per-route least
+- **Lambdas** (as built, Session 6): **eight functions, one per IAM role** —
+  `authorizer`, `reads` (GET routes), `capture`, `writes` (`/actions/confirm` +
+  `POST /work-items` + `POST /work-items/{id}/updates`, which share a role),
+  `pairing`, `pair`, `wsConnect`, `wsDisconnect`. **Packaging:** the asset is our
+  Python source as-is, with **no dependency bundling** — the code imports only
+  the stdlib + the runtime-provided `boto3` (guarded by
+  `tests/test_lambda_runtime_deps.py`). Each with a **tightly scoped role**
+  (per-route least
   privilege — this is why native-ish thin handlers help: `secretsmanager:
   GetSecretValue` on the **Anthropic-key secret ARN** only on the capture path,
   `s3:PutObject` only on the logging adapter, table read/write scoped per handler).

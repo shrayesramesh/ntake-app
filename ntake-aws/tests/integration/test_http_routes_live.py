@@ -1,12 +1,11 @@
-"""Tier-2: the deployed HTTP API routes through the real authorizer (Session 6).
+"""Tier-2: the deployed HTTP API's public/protected route wiring (Session 6).
 
 Runs ONLY under ``make integration`` (Tier 1 ignores ``tests/integration``).
-Proves the request path exists on the deployed ``NtakeStack-dev``: the public
-routes serve without a token, and an authorized route denies without one — i.e.
-the Lambda authorizer is actually wired. The authenticated capture→confirm→nudge
-round trip needs a minted device token + a live WebSocket client; that fuller
-exercise is the Session-8 end-to-end sweep. This smoke is the minimal
-deployed-route assertion Session 6 can make.
+Proves the route wiring on the deployed ``NtakeStack-dev``: the public routes
+serve without a token, and a protected route returns 401 without one. (That 401
+comes from API Gateway itself — a request with no ``Authorization`` header never
+reaches the authorizer Lambda. The authorizer Lambda + a real token are exercised
+in ``test_live_sync_nudge.py``.)
 
 Self-skips cleanly (never a false pass) if ``NtakeStack-dev`` isn't deployed or
 has no HTTP API URL output yet — recorded as the [HUMAN] deploy follow-up.

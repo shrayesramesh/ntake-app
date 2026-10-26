@@ -946,3 +946,35 @@ was inherited from the lifted self-hosted schemas, never a deliberate Lambda cho
   `POST /work-items/{id}/updates`); and updating `AWS_PLAN.md`/LLD for the
   pairing-code design, the no-bundling/stdlib-only Lambda rule, and the stale
   tooling table.
+
+
+### Session 6 — closing work: REST writes, live-nudge Tier 2, docs
+- **Tier-2 after the dataclass fix: 10/10 green** on the redeployed dev stack
+  (`/health` 200, `/pair` 400, Dynamo + LINK→PROPOSE over the new readers).
+- **[AGENT] REST write routes** (`2fb6975`): `POST /work-items` (201) and
+  `POST /work-items/{id}/updates` (201; 400 malformed, 404 missing). All write
+  paths announce through **one `_announce` helper** — the only `publish_change`
+  call site; the invariant test now asserts that AND that every write path calls
+  it. Confirm + the REST writes share one **`WritesFn`** Lambda (same role;
+  `confirm_handler` → `writes_handler` dispatching on route key). Unused `ROUTES`
+  table removed. 12 infra assertions incl. route → Lambda wiring.
+- **[AGENT] Live WebSocket-nudge Tier-2 test** (`tests/integration/test_live_sync_nudge.py`
+  + a receive-only stdlib client `tests/harness/ws_client.py`): seeds an `itest-`
+  family, mints a real device token in-process (token secret from Secrets
+  Manager — nothing from the operator's env), opens the WS with `?token=`, then
+  `POST /work-items` → `create` nudge and `/actions/confirm complete_work_item` →
+  `update` nudge; plus an unknown-token WS refusal. This is also the **first real
+  exercise of the authorizer Lambda** — the earlier `/board` 401 came from API
+  Gateway (no `Authorization` header never invokes the authorizer); the route
+  smoke's docstring was corrected to say so. The `TOK#` item is deleted in
+  teardown (outside the `FAM#itest-` sweep).
+- **[AGENT] Docs (option c):** `AWS_PLAN.md` — Phase 4a/4c/4d/6c/6d/7b + Session 6
+  for the pairing-code design and the write routes; new operating rules (Lambda
+  code = stdlib + runtime boto3, no bundling; no env-var build/test switches);
+  tooling table (+`secrets-token`, `mint`, `dev-reset`, `PYTEST_ARGS`; Bedrock
+  probes marked deleted). `AWS_LLD.md` — §2.2 DTOs as dataclasses + `core/serde`,
+  §4.2/§4.3 the `_announce` boundary, §5.3/§5.4 `TokenStore` + pairing exchange,
+  §7.1 the eight role-grouped Lambdas + no-bundling packaging.
+- **[HUMAN] to close Session 6:** `make deploy-dev` (ships `WritesFn` + the two
+  new routes) then `make integration` — expect **12 passed**, including the two
+  live-nudge tests (`PYTEST_ARGS='-s'` prints the received nudges).

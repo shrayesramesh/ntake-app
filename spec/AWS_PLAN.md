@@ -88,7 +88,7 @@ point" below).
 | HTTP app | `app/main.py` (FastAPI routes), `app/web.py`, `app/web_shell.py` | thin Lambda handlers (LLD §4/§5) |
 | LLM runtime | `app/assistant/local_llm/` (httpx/llamafile) | the two Anthropic-API seams (LLD §3) |
 | Live sync | `app/event_emitter.py`, the `register_change_events`/SSE path | WebSocket direct-post (LLD §4) |
-| Config/CLI/ops | `app/config.py`, `app/manage.py`, `setup.sh`, backup/Tailscale scripts | CDK + minting admin path (LLD §5/§7) |
+| Config/CLI/ops | `app/config.py`, `app/manage.py`, `setup.sh`, backup/Tailscale scripts | CDK + pairing-code enrollment + `scripts/mint.py` bootstrap (LLD §5/§7) |
 
 ### Reference point after deletion (important)
 Session 0 deletes the old runtime **on the `aws-rebuild` branch**, so an agent
@@ -246,24 +246,34 @@ Wire the HTTP surface and auth (HLD §4, §9). Handlers are thin I/O over the
 registry + repository + the Anthropic assistant seams.
 
 - **4a.** REST handlers for the carried-over routes (health, events read,
-  work-item/board read + append, `/capture`, `/actions/confirm`) — thin, logic in
-  the core.
+  work-item/board read, `POST /work-items` create, `POST /work-items/{id}/updates`
+  append, `/capture`, `/actions/confirm`) — thin, logic in the core.
 - **4b.** The **Lambda custom authorizer**: hash the bearer token (HMAC via a
   secret in **Secrets Manager/SSM**) → member + allow policy. WebSocket `$connect`
   authorizes via `?token=`.
-- **4c.** The **minting / admin path** (stack-run, not a home-PC CLI): generate a
-  strong random token, store only its hash, print plaintext once; `revoke`.
-- **4d.** The **`/enroll#token=` receive flow** (HLD §9, Option A): minting emits
-  that URL; a QR encodes it; the PWA `/enroll` route reads the token from the URL
-  **fragment**, persists to `localStorage`, scrubs the URL. **No in-app QR
-  scanner.** (Short-lived typed exchange code = later UX add, not now.)
+- **4c.** **Device enrollment by pairing code** *(as built in Session 6 —
+  replaces the original admin-Lambda mint + `/enroll#token=` URL flow, which the
+  owner found cumbersome: it needed the admin account for every device and a
+  long token URL copied onto the device).* An already-enrolled member calls
+  `POST /pairing-codes` and gets a **6-digit code** (single-use, 10-minute TTL,
+  attempt-capped); the new device sends it to the public `POST /pair` and gets
+  back a full-entropy device token (only its HMAC hash is stored). The human
+  only ever moves 6 digits between devices. **First-device bootstrap** (no
+  enrolled adult yet) is `make mint` → `scripts/mint.py`, run once per family
+  with AWS creds; it prints a pairing code so bootstrap uses the same flow.
+  `revoke` sets `revoked_at`. A deployed admin-mint Lambda is deferred
+  (break-glass only).
+- **4d.** *(Superseded by 4c.)* The `/enroll#token=` URL/QR receive flow is not
+  built; the frontend's enrollment surface is the "enter your pairing code"
+  screen (Phase 6c).
 - **4e. Publish-at-the-boundary** live sync: right after the repository commits,
   the confirm/execute boundary posts the `{entity,id,op}` nudge to the family's
   WebSocket connections (direct-post, HLD §8). A boundary test guards that **all
   writes flow through this one publish point** (completeness without Streams).
 
-**Done:** API + authorizer + minting + enroll flow + direct-post live sync built;
-handler/auth tests green; the single-publish-boundary invariant is test-guarded.
+**Done:** API + authorizer + pairing-code enrollment + direct-post live sync
+built; handler/auth tests green; the single-publish-boundary invariant is
+test-guarded.
 
 ---
 
@@ -279,7 +289,7 @@ testing can't (HLD §11).
   Lambda gets `secretsmanager:GetSecretValue` on the Anthropic-key secret, **no**
   `bedrock:InvokeModel`), authorizer wiring, **two Secrets Manager secrets** (HMAC
   token + Anthropic API key, both created empty — values set out-of-band via
-  `make secrets-anthropic`). **Per-stage typed props:** `assistantLogFidelity`
+  `make secrets-token` / `make secrets-anthropic`). **Per-stage typed props:** `assistantLogFidelity`
   (default `full`), `anthropicModelId`, throttle limits, removal/retention policy.
   **Billing budget + alert as an AWS Budgets construct** (so cost protection
   deploys with the stack, not a console step — NFR-COST, §2a).
@@ -314,13 +324,17 @@ The PWA served from CloudFront as a very simple static client (HLD §12a, LLD §
   `/capture`, `/actions/confirm`); the live-sync client uses `WebSocket`
   (`?token=`, refetch-and-rerender on nudge, reconnect re-sync). The old
   server-rendered fragment routes are not built.
-- **6c.** The `/enroll` page (the 4d receive flow) + the capture / board /
-  calendar / proposal-card surfaces over the authenticated API.
+- **6c.** The **enrollment screens** (the 4c pairing flow: "add a device" shows a
+  6-digit code with a countdown on an enrolled device; an unenrolled device shows
+  "enter your pairing code", calls `POST /pair`, stores the token in
+  `localStorage`) + the capture / board / calendar / proposal-card surfaces over
+  the authenticated API.
 - **6d. [HUMAN]** Install the PWA on phones + the wall tablet; device smoke
-  (install, enroll via QR, capture→propose→confirm, live update across devices).
+  (install, enroll via pairing code, capture→propose→confirm, live update across
+  devices).
 
-**Done:** PWA installs and runs against dev; enroll-by-QR works end-to-end on a
-real device; live sync verified across two devices.
+**Done:** PWA installs and runs against dev; pairing-code enrollment works
+end-to-end on a real device; live sync verified across two devices.
 
 ---
 
@@ -329,9 +343,10 @@ real device; live sync verified across two devices.
 - **7a.** Prod stack props: **`RETAIN` + point-in-time recovery** on the table
   (replaces the old weekly snapshot), tighter throttles, the chosen Claude model,
   `assistantLogFidelity` as desired.
-- **7b. [HUMAN]** Deploy **`prod`**; set the prod Anthropic key
-  (`make secrets-anthropic prod`); mint real device tokens; enroll real devices
-  via QR.
+- **7b. [HUMAN]** Deploy **`prod`**; set the prod secrets
+  (`make secrets-anthropic STAGE=prod`, `make secrets-token STAGE=prod`);
+  bootstrap the first device per family (`make mint`), then enroll the rest via
+  pairing codes.
 - **7c. [HUMAN]** Admin/minting hardening follow-on (IP allowlist / second factor
   on the credential-minting path, HLD §9) — tracked, not blocking initial prod.
 - **7d. [HUMAN]** Kiosk soak on the wall tablet.
@@ -420,6 +435,20 @@ real table).
   beyond scope, record it as a to-verify/deferred note rather than building it.
   (Session 1.5 learned this twice: a dual-shape authorizer and a speculative
   `inferenceConfig`, both built then removed once they proved unnecessary.)
+- **Lambda code is stdlib + the runtime's `boto3` only — no dependency
+  bundling** *(decided in Session 6 after the first deploy 500'd)*. The CDK
+  Lambda asset is our source as-is; the Python 3.12 Lambda runtime provides
+  `boto3` (and its deps) and no other third-party package. So `core/`,
+  `adapters/` and `handlers/` must not import anything else — the DTOs are
+  stdlib dataclasses (`core/schemas.py`) serialized by `core/serde.py`, not
+  Pydantic. Guarded at Tier 1 by `tests/test_lambda_runtime_deps.py` (imports
+  every Lambda entry module in a clean interpreter and fails on any
+  non-runtime import). Adding a third-party runtime dependency is a deliberate
+  design change (it brings a bundling step), not a casual import.
+- **No env-var switches for build/test behavior.** Don't add environment flags
+  to toggle how the stack synthesizes or how tests run (e.g. a
+  "skip bundling" flag). CDK-set Lambda runtime config (table name, secret ids)
+  is the one legitimate deploy-time env use (LLD §6).
 - **The gate is mandatory before a session is "done":** run `make check` (Tier 1
   — local/fast, the TDD inner loop) and paste real output. Never claim green
   without running it.
@@ -477,11 +506,18 @@ Mirror the current repo's thin-launcher pattern — a `Makefile` delegating to
 | `make integration` | **Tier 2: run the integration suite against the real dev stage.** Self-checks `aws sts get-caller-identity` (stops with configure instructions if creds missing/wrong-account). `make integration DEPLOY=1` **deploys first** (`cdk deploy NtakeStack-dev`) then tests; without the arg it tests whatever is already deployed. **[HUMAN]-invoked** (needs creds). Grows each session as infra slices land. |
 | `make deploy-dev` / `deploy-prod` | `cdk deploy` the stage (human-initiated; `deploy-dev` is also what `integration DEPLOY=1` calls) |
 | `make secrets-anthropic` | **[HUMAN]** set/rotate the Anthropic API key into Secrets Manager (`ntake-<stage>/anthropic-api-key`); `STAGE=dev\|prod`. Key read from `$ANTHROPIC_API_KEY` or a silent prompt — never passed as an argument. Run after the stage is deployed (CDK creates the empty secret). |
+| `make secrets-token` | **[HUMAN]** set/rotate the HMAC device-token secret (`ntake-<stage>/token-secret`) with a freshly generated random value. Run after the stage is deployed (CDK creates the empty secret). Rotating invalidates every existing device token. |
+| `make mint` | **[HUMAN]** first-device bootstrap for a family: `FAMILY=… MEMBER=…` → prints a 6-digit pairing code (`scripts/mint.py`; `MINT_ARGS=--token` mints a token directly). |
+| `make dev-reset` | **[HUMAN]** `cdk destroy NtakeStack-dev` (drops the dev table + data) for a clean slate; recreate with `make integration DEPLOY=1`. Never touches prod. |
+
+`make integration` also accepts `PYTEST_ARGS` (e.g. `PYTEST_ARGS='-s'` to see the
+live LLM request/response prints from the pipeline tests).
 
 Scripts under `scripts/`: `setup.sh` (venv+install+verify), `setup-aws.sh`
 (assert non-root admin on `111037110464` + `cdk bootstrap us-east-1`),
 `integration.sh` (the `sts` self-check + optional `cdk deploy` + run the Tier-2
-suite), and `secrets-anthropic.sh` (set/rotate the Anthropic key, value-safe).
+suite), `secrets-anthropic.sh` / `secrets-token.sh` (set/rotate the two secrets,
+value-safe), and `mint.py` (first-device bootstrap).
 Keep each thin and single-purpose (DRY: `make` calls scripts, scripts
 don't duplicate `make`). **Dropped (YAGNI, 2026-10-02):** `ddb_local.sh` /
 `make ddb-up` / `ddb-down` (no DynamoDB Local — Tier 1 is in-memory, Tier 2 is the
@@ -489,11 +525,10 @@ real table) and the standalone `bedrock_smoke.py` / `make bedrock-smoke` (the re
 Anthropic-seam check is part of `make integration` once the capture path's infra
 slice lands).
 
-> **Bedrock probe scripts (`bedrock_preflight.py`, `bedrock_bisect.py`) + `make
-> bedrock-preflight`** remain in the tree only as the path to *re-enable the
-> Bedrock fallback* if its hold is ever lifted (LLD §3.5). They are **off the
-> critical path** — the build target is the Anthropic API, which needs none of
-> them.
+> **Bedrock probe scripts — deleted** with the tracer teardown (after Session 5).
+> `bedrock_preflight.py` / `bedrock_bisect.py` / `make bedrock-preflight` no
+> longer exist; the build target is the Anthropic API. Recover them from git
+> history if the Bedrock fallback is ever revisited (LLD §3.5).
 
 ---
 
@@ -670,16 +705,19 @@ the key isn't set this sitting, record as the [HUMAN] follow-up. Commit.
 ## Session 6 — Thin handlers + authorizer + confirm/execute + live-sync publish  (Phase 4)
 **Goal:** the HTTP/auth surface and the execute→publish boundary.
 - **Integration-first:** drive each route through its thin handler over the
-  in-memory repo + scripted Anthropic seam: health, events read, work-item/board read +
-  append, `/capture` (propose-only, writes nothing), `/actions/confirm` (executes
-  via the registry, writes via repo, **publishes once**). Assert the
+  in-memory repo + scripted Anthropic seam: health, events read, work-item/board
+  read, `POST /work-items` + `POST /work-items/{id}/updates` (direct writes),
+  `/capture` (propose-only, writes nothing), `/actions/confirm` (executes via the
+  registry, writes via repo, **publishes once**). Assert the
   **single-publish-boundary invariant** test (§4.3).
 - Authorizer: HMAC hash → member/allow (unit for hashing; integration for the
-  authorizer→handler context pass). Minting admin path + the `/enroll#token=`
-  fragment-read logic (unit-test the parse/scrub).
+  authorizer→handler context pass). Enrollment via the **pairing-code exchange**
+  (Phase 4c) — `POST /pairing-codes` + public `POST /pair` + `scripts/mint.py`
+  bootstrap — *replacing* the original admin-mint + `/enroll#token=` design.
 - **Infra slice:** add the HTTP API + authorizer + WebSocket API + the per-Lambda
   roles for these handlers into `NtakeStack` (building on the Session-3 table
-  slice). `make synth` stays clean.
+  slice). One Lambda per IAM role; Lambda code is stdlib + runtime `boto3` only
+  (no bundling — see Operating rules). `make synth` stays clean.
 **Exit:** route + auth + publish-boundary tests green at Tier 1; `make check`
 green. **Tier 2:** extend `make integration` so the deployed dev stack serves the
 real routes through the real authorizer, and the confirm→execute→publish path
