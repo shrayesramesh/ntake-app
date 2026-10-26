@@ -6,6 +6,10 @@ from the stage props — the one legitimate deploy-time env use). Kept apart fro
 the logic so the logic stays pure/Tier-1-testable; this module is the only
 handler code that touches ``boto3`` + the environment.
 
+Every adapter is built **once per Lambda container** (``lru_cache``) and reused
+by warm invocations: creating boto3 clients is the expensive part of a request,
+and rebuilding them per call pushed the authorizer past its timeout.
+
 Env (set by CDK): ``NTAKE_TABLE_NAME``, ``NTAKE_REGION`` (or ``AWS_REGION``),
 ``NTAKE_TOKEN_SECRET_ID`` (Secrets Manager id of the HMAC token secret),
 ``NTAKE_ANTHROPIC_MODEL``, ``NTAKE_WS_ENDPOINT`` (the API Gateway Management API
@@ -35,16 +39,19 @@ def _table_name() -> str:
     return os.environ["NTAKE_TABLE_NAME"]
 
 
+@lru_cache(maxsize=1)
 def repository() -> DynamoRepository:
     """The family repository over the real table."""
     return DynamoRepository(_table_name(), region_name=_region())
 
 
+@lru_cache(maxsize=1)
 def token_store() -> DynamoTokenStore:
     """The identity store (device tokens + pairing codes) over the real table."""
     return DynamoTokenStore(_table_name(), region_name=_region())
 
 
+@lru_cache(maxsize=1)
 def anthropic_client() -> AnthropicClient:
     """The real Anthropic Messages client (capture path only)."""
     model = os.environ.get("NTAKE_ANTHROPIC_MODEL", "claude-haiku-4-5")
@@ -72,6 +79,7 @@ def token_secret() -> str:
     return raw
 
 
+@lru_cache(maxsize=1)
 def connection_poster() -> ConnectionPoster:
     """A ``postToConnection`` poster over the API Gateway Management API.
 

@@ -176,6 +176,11 @@ export class NtakeStack extends Stack {
       NTAKE_REGION: region,
     };
 
+    // Defaults for every function. CPU scales with memory, and at the 128 MB
+    // default a cold start (boto3 import + clients + a Secrets Manager read)
+    // took ~3 s — the authorizer hit the 3 s default timeout and API Gateway
+    // returned 500. 1024 MB / 10 s keeps cold starts well inside the budget; the
+    // cost is negligible at household volume. Capture overrides the timeout (30 s).
     const makeFn = (
       id: string,
       handler: string,
@@ -185,7 +190,8 @@ export class NtakeStack extends Stack {
         runtime: lambda.Runtime.PYTHON_3_12,
         code,
         handler,
-        timeout: opts.timeout,
+        memorySize: 1024,
+        timeout: opts.timeout ?? Duration.seconds(10),
         environment: { ...baseEnv, ...(opts.environment ?? {}) },
       });
 

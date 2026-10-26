@@ -324,3 +324,15 @@ def test_write_routes_reach_the_writes_lambda_and_are_authorized(
     reads = _fn_by_handler(template, "handlers.http_api.reads_handler")
     reads_id = next(lid for lid, res in _functions(template).items() if res is reads)
     assert _integration_target_fn(template, routes["GET /work-items"]) == reads_id
+
+
+def test_every_lambda_has_the_sized_defaults(template: dict) -> None:
+    """1024 MB on every function and ≥10 s timeouts (capture keeps 30 s).
+
+    Regression guard: at the 128 MB / 3 s defaults the authorizer timed out on a
+    cold start and API Gateway answered the WebSocket handshake with a 500.
+    """
+    for fn in _functions(template).values():
+        props = fn["Properties"]
+        assert props["MemorySize"] == 1024, props["Handler"]
+        assert props["Timeout"] >= 10, props["Handler"]
